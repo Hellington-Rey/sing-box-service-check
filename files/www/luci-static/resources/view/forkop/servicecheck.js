@@ -85,7 +85,10 @@ function injectStyles() {
     ".fkpsc-badge { padding:.25em .65em; border-radius:999px; background:rgba(127,127,127,.16); font-size:.84em; }",
     ".fkpsc-card { padding:1em 1.1em; margin:0 0 1em; border-radius:12px; border:1px solid rgba(127,127,127,.25); background:var(--card); }",
     ".fkpsc-card h3 { margin:.05em 0 .75em; }",
-    ".fkpsc-maint { display:none; } .fkpsc-maint.open { display:block; }",
+    ".fkpsc-tabs { display:flex; gap:.35em; margin:0 0 1em; padding:.25em; border-radius:11px; background:rgba(127,127,127,.10); }",
+    ".fkpsc-tab { flex:0 1 auto; padding:.55em .9em; border:0; border-radius:8px; background:transparent; color:inherit; cursor:pointer; font-weight:600; }",
+    ".fkpsc-tab.active { color:#fff; background:var(--accent); box-shadow:0 2px 8px rgba(0,0,0,.18); }",
+    ".fkpsc-page { display:none; } .fkpsc-page.active { display:block; }",
     ".fkpsc-fix { padding:.75em; border-radius:9px; background:rgba(127,127,127,.09); margin-bottom:.55em; }",
     ".fkpsc-fix-title { font-weight:600; margin-bottom:.25em; }",
     ".fkpsc-intro { margin-bottom: 1em; line-height: 1.55; max-width: 60em; }",
@@ -568,12 +571,7 @@ return view.extend({
     }
 
     var runButton = E("button", { class: "cbi-button cbi-button-action important" }, "Проверить сервис");
-    var maintenancePanel = E("div", { class: "fkpsc-card fkpsc-maint" });
-    var fixesButton = E("button", { class: "cbi-button" }, "Фикс Forkop");
-    fixesButton.addEventListener("click", function () {
-      maintenancePanel.classList.toggle("open");
-      fixesButton.textContent = maintenancePanel.classList.contains("open") ? "Скрыть фикс" : "Фикс Forkop";
-    });
+    var maintenancePanel = E("div", { class: "fkpsc-card" });
 
     var fixesNodes = fixes.map(function (fix) {
       var applyButton = E("button", { class: "cbi-button cbi-button-action" }, "Применить");
@@ -722,18 +720,9 @@ return view.extend({
       notes.push("Режим «от имени клиента» недоступен: ip netns не поддерживается этой прошивкой.");
     }
 
-    return E("div", { class: "cbi-map fkpsc" }, [
-      E("div", { class: "fkpsc-hero" }, [
-        E("h2", {}, "Forkop Service Check"),
-        E("p", {}, "Проверка идёт тем же путём, что и трафик клиента: имя резолвится через dnsmasq и sing-box, " +
-          "а соединение попадает в цепочку mangle_output и уходит в tproxy. Нажмите на плитку сервиса, " +
-          "чтобы увидеть, на каком этапе всё сломалось — DNS, TCP, TLS или HTTP."),
-        E("div", { class: "fkpsc-badges" }, [
-          E("span", { class: "fkpsc-badge" }, capabilities.forkop_running ? "● Forkop запущен" : "○ Forkop остановлен"),
-          E("span", { class: "fkpsc-badge" }, capabilities.curl ? "HTTPS: точный" : "HTTPS: упрощённый"),
-          E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
-        ]),
-      ]),
+    var checkTab = E("button", { class: "fkpsc-tab active", type: "button", role: "tab", "aria-selected": "true" }, "Проверка сервисов");
+    var fixTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Фикс Forkop");
+    var checkPage = E("div", { class: "fkpsc-page active" }, [
       notes.length ? E("div", { class: "fkpsc-note" }, notes.map(function (note) {
         return E("div", {}, note);
       })) : "",
@@ -751,7 +740,6 @@ return view.extend({
         picker,
         E("div", { class: "fkpsc-actions" }, [
           runButton,
-          fixesButton,
           stopButton,
           E("button", {
             class: "cbi-button",
@@ -765,10 +753,40 @@ return view.extend({
           progressText,
         ]),
       ]),
-      maintenancePanel,
       summaryNode,
       metaNode,
       tilesNode,
+    ]);
+    var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
+
+    function showPage(name) {
+      var showFix = name === "fix";
+      checkTab.classList.toggle("active", !showFix);
+      fixTab.classList.toggle("active", showFix);
+      checkTab.setAttribute("aria-selected", showFix ? "false" : "true");
+      fixTab.setAttribute("aria-selected", showFix ? "true" : "false");
+      checkPage.classList.toggle("active", !showFix);
+      fixPage.classList.toggle("active", showFix);
+    }
+
+    checkTab.addEventListener("click", function () { showPage("check"); });
+    fixTab.addEventListener("click", function () { showPage("fix"); });
+
+    return E("div", { class: "cbi-map fkpsc" }, [
+      E("div", { class: "fkpsc-hero" }, [
+        E("h2", {}, "Forkop Service Check"),
+        E("p", {}, "Проверка идёт тем же путём, что и трафик клиента: имя резолвится через dnsmasq и sing-box, " +
+          "а соединение попадает в цепочку mangle_output и уходит в tproxy. Нажмите на плитку сервиса, " +
+          "чтобы увидеть, на каком этапе всё сломалось — DNS, TCP, TLS или HTTP."),
+        E("div", { class: "fkpsc-badges" }, [
+          E("span", { class: "fkpsc-badge" }, capabilities.forkop_running ? "● Forkop запущен" : "○ Forkop остановлен"),
+          E("span", { class: "fkpsc-badge" }, capabilities.curl ? "HTTPS: точный" : "HTTPS: упрощённый"),
+          E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
+        ]),
+      ]),
+      E("div", { class: "fkpsc-tabs", role: "tablist" }, [checkTab, fixTab]),
+      checkPage,
+      fixPage,
     ]);
   },
 });

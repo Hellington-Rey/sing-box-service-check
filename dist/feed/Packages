@@ -4,9 +4,9 @@ Depends: forkop, luci-base
 License: MIT
 Section: net
 Architecture: all
-Installed-Size: 102622
+Installed-Size: 103757
 Filename: luci-app-forkop-servicecheck_1.1.0-r1_all.ipk
-Size: 27545
-SHA256sum: e477e9ec3265090e436abb1c382c81344a4ec5c8d64300b9a10c53bb0f8226c9
+Size: 27830
+SHA256sum: 3918fd0ff7eeeb02613078d22ec93847c6ffcce61675cd02ecca5375d2665fde
 Description: Проверка доступности сервисов для Forkop. Добавляет в LuCI страницу с кнопкой проверки: Telegram, YouTube, Instagram и другие сервисы проверяются тем же путём, которым идёт трафик клиента сети - через dnsmasq, sing-box и tproxy. Показывает DNS, TCP, TLS, код ответа и выбранный outbound.
 
