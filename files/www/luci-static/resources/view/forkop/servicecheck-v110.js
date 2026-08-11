@@ -638,10 +638,19 @@ return view.extend({
       ]);
     });
 
-    maintenancePanel.appendChild(E("div", {}, [
+    var maintenanceChildren = [
       E("h3", {}, "Фикс импорта подписок xHTTP"),
-      fixesNodes.length ? fixesNodes : E("div", { class: "fkpsc-dim" }, "Фикс недоступен."),
-    ]));
+      E("p", { class: "fkpsc-dim" }, [
+        "Скрипт на роутере: ",
+        E("code", {}, "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh"),
+      ]),
+    ];
+    if (fixesNodes.length) {
+      fixesNodes.forEach(function (node) { maintenanceChildren.push(node); });
+    } else {
+      maintenanceChildren.push(E("div", { class: "fkpsc-dim" }, "Фикс недоступен."));
+    }
+    maintenancePanel.appendChild(E("div", {}, maintenanceChildren));
     var stopButton = E("button", { class: "cbi-button", style: "display:none" }, "Остановить");
 
     function setRunning(running) {
