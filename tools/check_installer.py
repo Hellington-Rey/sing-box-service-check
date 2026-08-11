@@ -32,7 +32,7 @@ def main():
         "usr/lib/forkop-servicecheck/xhttp_hotfix.sh",
         "usr/share/forkop-servicecheck/profiles.json",
         "usr/share/forkop-servicecheck/version",
-        "www/luci-static/resources/view/forkop/servicecheck-1.1.0.js",
+        "www/luci-static/resources/view/forkop/servicecheck-v110.js",
     }
     missing = required - names
     assert not missing, f"missing payload files: {sorted(missing)}"
