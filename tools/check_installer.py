@@ -13,7 +13,7 @@ MARKER = "__FORKOP_SC_PAYLOAD__"
 
 def main():
     script = INSTALLER.read_text(encoding="utf-8")
-    assert 'VERSION="1.0.1"' in script
+    assert 'VERSION="1.1.0"' in script
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
     assert "sed -n '/^__PAYLOAD_BELOW__$/,$p' \"$0\"" not in script

@@ -112,6 +112,29 @@ function xhttp_patch() {
     return result.status;
 }
 
+function available_fixes() {
+    return [
+        {
+            id: "xhttp_import",
+            title: "Импорт xHTTP Extra",
+            description: "Добавляет поддержку дополнительных полей xHTTP в parser.uc Forkop.",
+            risk: "Создаётся резервная копия parser.uc; патч проверяется через ucode до замены."
+        }
+    ];
+}
+
+function list_fixes() {
+    write_json({ success: true, fixes: available_fixes() });
+    return 0;
+}
+
+function run_fix(id) {
+    if (as_string(id) == "xhttp_import")
+        return xhttp_patch();
+    write_json({ success: false, message: "неизвестный фикс Forkop" });
+    return 1;
+}
+
 function write_json(value) {
     print(sprintf("%J", value), "\n");
 }
@@ -309,6 +332,7 @@ function capabilities() {
         nc: nc_mode != "none",
         nc_mode,
         timeout_cmd: command_exists("timeout"),
+        dd: command_exists("dd"),
         netns: run_quiet([ "ip", "netns", "list" ]) && command_exists("ip"),
         lan_interface: interface,
         lan_address: address == null ? "" : address.address,
@@ -332,7 +356,7 @@ function target_label(target) {
     target = object_or_empty(target);
     if (as_string(target.label) != "")
         return as_string(target.label);
-    if (as_string(target.kind) == "tcp" || as_string(target.kind) == "udp")
+    if (as_string(target.kind) == "tcp" || as_string(target.kind) == "udp" || as_string(target.kind) == "udp_dns")
         return sprintf("%s:%d", as_string(target.host), int(target.port || 443));
     return as_string(target.host) + as_string(target.path || "/");
 }
@@ -662,7 +686,31 @@ function udp_probe(ctx, target) {
     return { reached: false, code: 0, remote_ip: "", tcp_ms: elapsed, tls_ms: 0, total_ms: elapsed, verdict: status == 124 ? "timeout" : "failed", message: "UDP-проверка завершилась с кодом " + status };
 }
 
+function udp_dns_probe(ctx, target) {
+    if (!ctx.tools.nslookup)
+        return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "нет nslookup для двусторонней UDP-проверки" };
+
+    let query = as_string(target.query || "discord.com");
+    let started = now_ms();
+    let result = capture_args(prefixed_args(ctx, [ "nslookup", query, as_string(target.host) ]), true);
+    let elapsed = now_ms() - started;
+    let output = lc(as_string(result.output));
+    let ok = result.status == 0 && index(output, "address") >= 0;
+    return {
+        reached: ok,
+        code: 0,
+        remote_ip: as_string(target.host),
+        tcp_ms: elapsed,
+        tls_ms: 0,
+        total_ms: elapsed,
+        verdict: ok ? "" : "timeout",
+        message: ok ? "получен ответ DNS по UDP" : "нет ответа DNS по UDP"
+    };
+}
+
 function connection_probe(ctx, target) {
+    if (as_string(target.kind) == "udp_dns")
+        return udp_dns_probe(ctx, target);
     if (as_string(target.kind) == "udp")
         return udp_probe(ctx, target);
     if (as_string(target.kind) == "tcp") {
@@ -749,7 +797,7 @@ function target_verdict(target, dns, connection) {
         return { state: "error", verdict: verdict != "" ? verdict : "failed", message: as_string(connection.message) };
     }
 
-    if (as_string(target.kind) == "tcp" || as_string(target.kind) == "udp")
+    if (as_string(target.kind) == "tcp" || as_string(target.kind) == "udp" || as_string(target.kind) == "udp_dns")
         return int(connection.total_ms) > SLOW_THRESHOLD_MS
             ? { state: "warning", verdict: "slow", message: "соединение установлено, но медленно" }
             : { state: "success", verdict: "ok", message: "" };
@@ -927,7 +975,8 @@ function build_context(mode, client_ip) {
             nslookup: caps.nslookup,
             nc: caps.nc,
             nc_mode: caps.nc_mode,
-            timeout_cmd: caps.timeout_cmd
+            timeout_cmd: caps.timeout_cmd,
+            dd: caps.dd
         },
         fakeip_ranges: caps.fakeip_ranges,
         resolver: "127.0.0.1",
@@ -1109,6 +1158,48 @@ function run_check(ids, mode, client_ip, progress_path) {
     };
 }
 
+function discord_udp_check(host, port, mode, client_ip) {
+    host = trim(as_string(host));
+    port = int(port);
+    if (match(host, /^[A-Za-z0-9.-]+$/) == null || port < 1 || port > 65535) {
+        write_json({ success: false, verdict: "invalid_endpoint", message: "укажите endpoint Discord Voice в формате host и port" });
+        return 1;
+    }
+
+    let ctx = build_context(mode, client_ip);
+    if (!ctx.tools.nc || ctx.tools.nc_mode == "plain" || !ctx.tools.dd) {
+        if (ctx.netns_active)
+            netns_teardown();
+        write_json({ success: false, verdict: "skipped", message: "нужны nc с поддержкой -w и dd" });
+        return 1;
+    }
+
+    let response_path = temp_path("discord-udp-response");
+    let args = prefixed_args(ctx, [ "nc", "-u", "-w", "4", host, as_string(port) ]);
+    let packet = "(printf '\\000\\001\\000\\106\\000\\000\\000\\001'; dd if=/dev/zero bs=1 count=66 2>/dev/null)";
+    let started = now_ms();
+    let status = normalize_status(system(packet + " | " + command_from_args(args) + " >" + shell_quote(response_path) + " 2>/dev/null"));
+    let elapsed = now_ms() - started;
+    let response = fs.readfile(response_path);
+    fs.unlink(response_path);
+    if (ctx.netns_active)
+        netns_teardown();
+
+    let received = response != null && length(response) >= 8;
+    write_json({
+        success: received,
+        endpoint: host + ":" + as_string(port),
+        mode: ctx.mode,
+        client_ip: as_string(ctx.client_ip),
+        elapsed_ms: elapsed,
+        bytes_received: response == null ? 0 : length(response),
+        exit_code: status,
+        verdict: received ? "ok" : "timeout",
+        message: received ? "Discord Voice UDP ответил на IP Discovery" : "ответ Discord Voice UDP не получен"
+    });
+    return received ? 0 : 1;
+}
+
 // ---------------------------------------------------------------------------
 // Фоновые задания
 // ---------------------------------------------------------------------------
@@ -1239,6 +1330,12 @@ else if (mode == "capabilities") {
     write_json(capabilities());
     exit(0);
 }
+else if (mode == "fixes")
+    exit(list_fixes());
+else if (mode == "fix")
+    exit(run_fix(ARGV[1]));
+else if (mode == "discord-udp")
+    exit(discord_udp_check(ARGV[1], ARGV[2], ARGV[3], ARGV[4]));
 else if (mode == "run") {
     write_json(run_check(ARGV[1], ARGV[2], ARGV[3], ""));
     exit(0);
@@ -1258,7 +1355,7 @@ else if (mode == "netns-teardown") {
     exit(0);
 }
 else if (mode == "xhttp-patch")
-    exit(xhttp_patch());
+    exit(run_fix("xhttp_import"));
 else {
     warn("Unknown mode: ", mode, "\n");
     exit(1);

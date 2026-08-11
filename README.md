@@ -15,6 +15,8 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Фоновый запуск с отображением прогресса.
 - Классификация причин ошибок: DNS failure, timeout, TCP refused, TLS reset, ошибки сертификата, HTTP 403/451 и медленные соединения.
 - Кнопка **«Починить импорт xHTTP»** с проверкой совместимости, backup и проверкой ucode-компиляции до замены файла.
+- Расширяемая панель **«Фиксы Forkop»**: новые исправления добавляются в whitelist-реестр backend и не позволяют запускать произвольные команды из браузера.
+- Двусторонние UDP-проверки через DNS и отдельный Discord Voice IP Discovery по динамическому voice endpoint.
 
 ## Как это работает
 
@@ -32,13 +34,13 @@ LuCI → forkop-servicecheck → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.0.1-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.1.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.0.1-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.1.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -82,7 +84,9 @@ sh install-forkop-servicecheck.sh --uninstall
 
 ## UDP-проверки
 
-UDP-проверка показывает возможность отправки UDP-трафика через текущий маршрут. Так как UDP не подтверждает доставку без ответа приложения, результат является best-effort и не равен полноценному тесту протокола QUIC.
+Обычная UDP-проверка показывает возможность отправки трафика через текущий маршрут. Цели `udp_dns` дополнительно ждут DNS-ответ и поэтому проверяют UDP в обе стороны.
+
+Для Discord Voice предусмотрен отдельный тест: в панели **«Фиксы Forkop»** укажите динамический `voice-endpoint.discord.media:port`, полученный Discord при подключении к голосовому каналу. Модуль отправит официальный пакет IP Discovery и проверит наличие ответа. Фиксированного Discord Voice endpoint нет — сервер и порт назначаются для конкретной голосовой сессии.
 
 ## Сборка
 
