@@ -102,6 +102,10 @@ function command_exists(name) {
     return run_quiet([ "command", "-v", as_string(name) ]);
 }
 
+function write_json(value) {
+    print(sprintf("%J", value), "\n");
+}
+
 function xhttp_patch() {
     if (fs.stat(XHTTP_PATCH) == null) {
         write_json({ success: false, message: "xHTTP-патч не установлен в пакет" });
@@ -133,10 +137,6 @@ function run_fix(id) {
         return xhttp_patch();
     write_json({ success: false, message: "неизвестный фикс Forkop" });
     return 1;
-}
-
-function write_json(value) {
-    print(sprintf("%J", value), "\n");
 }
 
 function parse_json(value) {
@@ -681,8 +681,8 @@ function udp_probe(ctx, target) {
     // UDP не подтверждает доставку без ответа приложения. Это best-effort:
     // успешная отправка означает, что маршрут и локальный сокет доступны.
     if (status == 0)
-        return { reached: true, code: 0, remote_ip: "", tcp_ms: elapsed, tls_ms: 0, total_ms: elapsed, verdict: "", message: "UDP-пакет отправлен; подтверждение доставки протоколом не предусмотрено" };
-    return { reached: false, code: 0, remote_ip: "", tcp_ms: elapsed, tls_ms: 0, total_ms: elapsed, verdict: status == 124 ? "timeout" : "failed", message: "UDP-проверка завершилась с кодом " + status };
+        return { reached: true, code: 0, remote_ip: "", tcp_ms: elapsed, tls_ms: 0, total_ms: elapsed, verdict: "udp_unconfirmed", message: "UDP-пакет отправлен, но протокол не подтвердил доставку" };
+    return { reached: true, code: 0, remote_ip: "", tcp_ms: elapsed, tls_ms: 0, total_ms: elapsed, verdict: "udp_unconfirmed", message: "UDP-ответ не получен; это не доказывает блокировку трафика" };
 }
 
 function udp_dns_probe(ctx, target) {
@@ -783,6 +783,9 @@ function code_expected(code, target) {
 function target_verdict(target, dns, connection) {
     if (as_string(connection.verdict) == "skipped")
         return { state: "skipped", verdict: "skipped", message: as_string(connection.message) };
+
+    if (as_string(connection.verdict) == "udp_unconfirmed")
+        return { state: "warning", verdict: "udp_unconfirmed", message: as_string(connection.message) };
 
     if (!dns.ok && !valid_ipv4(as_string(target.host)))
         return { state: "error", verdict: "dns_fail", message: "DNS не отдал адрес: " + as_string(dns.error) };

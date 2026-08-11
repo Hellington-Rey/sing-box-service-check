@@ -47,7 +47,7 @@ PAYLOAD = [
     ("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh", "usr/lib/forkop-servicecheck/xhttp_hotfix.sh", 0o755),
     ("./usr/share/forkop-servicecheck/profiles.json", "usr/share/forkop-servicecheck/profiles.json", 0o644),
     ("./usr/share/forkop-servicecheck/version", "usr/share/forkop-servicecheck/version", 0o644),
-    ("./www/luci-static/resources/view/forkop/servicecheck.js", "www/luci-static/resources/view/forkop/servicecheck.js", 0o644),
+    ("./www/luci-static/resources/view/forkop/servicecheck-1.1.0.js", "www/luci-static/resources/view/forkop/servicecheck-1.1.0.js", 0o644),
     ("./usr/share/luci/menu.d/luci-app-forkop-servicecheck.json", "usr/share/luci/menu.d/luci-app-forkop-servicecheck.json", 0o644),
     ("./usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json", "usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json", 0o644),
 ]

@@ -17,6 +17,7 @@
  */
 
 var BIN = "/usr/bin/forkop-servicecheck";
+var UI_VERSION = "1.1.0";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -25,6 +26,7 @@ var STATE_LABEL = {
   warning: "замечания",
   error: "не работает",
   skipped: "пропущено",
+  udp_unconfirmed: "UDP не подтверждён",
   loading: "проверяем",
 };
 
@@ -185,6 +187,19 @@ function injectStyles() {
     ".fkpsc-meta { margin: .3em 0 1.1em; opacity: .7; line-height: 1.6; font-size: .92em; }",
     ".fkpsc-dim { opacity: .65; }",
     ".fkpsc-empty { opacity: .6; padding: 2em 1em; text-align: center; }",
+    ".fkpsc-service-tools { display:flex; flex-wrap:wrap; gap:.45em; align-items:center; margin:.45em 0; }",
+    ".fkpsc-search { flex:1 1 190px; min-width:150px; }",
+    "@media (max-width:600px) {",
+    "  .fkpsc-hero { padding:.85em .9em; border-radius:10px; }",
+    "  .fkpsc-hero h2 { font-size:1.3em; }",
+    "  .fkpsc-tabs { position:sticky; top:0; z-index:20; }",
+    "  .fkpsc-tab { flex:1 1 50%; padding:.65em .35em; }",
+    "  .fkpsc-card { padding:.8em; border-radius:9px; }",
+    "  .fkpsc-actions .cbi-button { flex:1 1 45%; min-height:2.6em; }",
+    "  .fkpsc-chips-pick { gap:.35em; }",
+    "  .fkpsc-pick { padding:.42em .65em; }",
+    "  .fkpsc-tiles { grid-template-columns:1fr; }",
+    "}",
   ].join("\n");
 
   document.head.appendChild(E("style", { id: "fkpsc-styles" }, css));
@@ -212,7 +227,7 @@ function stagesFor(item) {
   if (item.kind === "tcp" || item.kind === "udp" || item.kind === "udp_dns") {
     stages.push({
       name: item.kind === "udp" || item.kind === "udp_dns" ? "UDP" : "TCP",
-      state: !dnsOk ? "skip" : (tcpFailed ? "fail" : (item.state === "skipped" ? "skip" : "ok")),
+      state: !dnsOk ? "skip" : (tcpFailed ? "fail" : (item.state === "skipped" || verdict === "udp_unconfirmed" ? "skip" : "ok")),
     });
     return stages;
   }
@@ -570,7 +585,35 @@ return view.extend({
       });
     }
 
+    function selectOnly(ids) {
+      var wanted = {};
+      ids.forEach(function (id) { wanted[id] = true; });
+      profiles.forEach(function (profile) {
+        selected[profile.id] = !!wanted[profile.id];
+        pickNodes[profile.id].classList.toggle("on", selected[profile.id]);
+        pickNodes[profile.id].setAttribute("aria-checked", selected[profile.id] ? "true" : "false");
+      });
+    }
+
+    var serviceSearch = E("input", { type: "search", class: "cbi-input-text fkpsc-search", placeholder: "Найти сервис…" });
+    serviceSearch.addEventListener("input", function () {
+      var query = serviceSearch.value.trim().toLowerCase();
+      profiles.forEach(function (profile) {
+        var haystack = (profile.title + " " + (profile.description || "")).toLowerCase();
+        pickNodes[profile.id].style.display = !query || haystack.indexOf(query) >= 0 ? "" : "none";
+      });
+    });
+
+    var quickPreset = E("button", { class: "cbi-button", type: "button" }, "Быстрая");
+    quickPreset.addEventListener("click", function () {
+      selectOnly(["baseline", "telegram", "youtube", "discord", "udp_common"]);
+    });
+    var udpPreset = E("button", { class: "cbi-button", type: "button" }, "Только UDP");
+    udpPreset.addEventListener("click", function () { selectOnly(["udp_common"]); });
+
     var runButton = E("button", { class: "cbi-button cbi-button-action important" }, "Проверить сервис");
+    var retryButton = E("button", { class: "cbi-button", style: "display:none" }, "Повторить ошибки");
+    var lastProblemIds = [];
     var maintenancePanel = E("div", { class: "fkpsc-card" });
 
     var fixesNodes = fixes.map(function (fix) {
@@ -624,6 +667,14 @@ return view.extend({
       metaNode.replaceChildren(state.running ? E("div", {}) : renderRunMeta(state));
       summaryNode.replaceChildren(state.running ? E("div", {}) : renderSummary(services));
       tilesNode.replaceChildren.apply(tilesNode, services.map(renderTile));
+      if (!state.running) {
+        lastProblemIds = services.filter(function (service) {
+          return service.state === "error";
+        }).map(function (service) {
+          return service.id;
+        });
+        retryButton.style.display = lastProblemIds.length ? "" : "none";
+      }
     }
 
     function pollJob(jobId, startedAt) {
@@ -706,6 +757,14 @@ return view.extend({
       setRunning(false);
     });
 
+    retryButton.addEventListener("click", function () {
+      if (!lastProblemIds.length) {
+        return;
+      }
+      selectOnly(lastProblemIds);
+      runButton.click();
+    });
+
     var notes = [];
 
     if (!capabilities.forkop_running) {
@@ -737,9 +796,11 @@ return view.extend({
           ]),
         ]),
         E("h3", {}, "Сервисы"),
+        E("div", { class: "fkpsc-service-tools" }, [serviceSearch, quickPreset, udpPreset]),
         picker,
         E("div", { class: "fkpsc-actions" }, [
           runButton,
+          retryButton,
           stopButton,
           E("button", {
             class: "cbi-button",
@@ -779,6 +840,7 @@ return view.extend({
           "а соединение попадает в цепочку mangle_output и уходит в tproxy. Нажмите на плитку сервиса, " +
           "чтобы увидеть, на каком этапе всё сломалось — DNS, TCP, TLS или HTTP."),
         E("div", { class: "fkpsc-badges" }, [
+          E("span", { class: "fkpsc-badge" }, "интерфейс v" + UI_VERSION),
           E("span", { class: "fkpsc-badge" }, capabilities.forkop_running ? "● Forkop запущен" : "○ Forkop остановлен"),
           E("span", { class: "fkpsc-badge" }, capabilities.curl ? "HTTPS: точный" : "HTTPS: упрощённый"),
           E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
