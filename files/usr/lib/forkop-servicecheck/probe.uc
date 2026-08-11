@@ -116,8 +116,8 @@ function available_fixes() {
     return [
         {
             id: "xhttp_import",
-            title: "Импорт xHTTP Extra",
-            description: "Добавляет поддержку дополнительных полей xHTTP в parser.uc Forkop.",
+            title: "Фикс xHTTP импорта подписок",
+            description: "Исправляет импорт дополнительных полей xHTTP из подписок в parser.uc Forkop.",
             risk: "Создаётся резервная копия parser.uc; патч проверяется через ucode до замены."
         }
     ];
@@ -332,7 +332,6 @@ function capabilities() {
         nc: nc_mode != "none",
         nc_mode,
         timeout_cmd: command_exists("timeout"),
-        dd: command_exists("dd"),
         netns: run_quiet([ "ip", "netns", "list" ]) && command_exists("ip"),
         lan_interface: interface,
         lan_address: address == null ? "" : address.address,
@@ -975,8 +974,7 @@ function build_context(mode, client_ip) {
             nslookup: caps.nslookup,
             nc: caps.nc,
             nc_mode: caps.nc_mode,
-            timeout_cmd: caps.timeout_cmd,
-            dd: caps.dd
+            timeout_cmd: caps.timeout_cmd
         },
         fakeip_ranges: caps.fakeip_ranges,
         resolver: "127.0.0.1",
@@ -1158,48 +1156,6 @@ function run_check(ids, mode, client_ip, progress_path) {
     };
 }
 
-function discord_udp_check(host, port, mode, client_ip) {
-    host = trim(as_string(host));
-    port = int(port);
-    if (match(host, /^[A-Za-z0-9.-]+$/) == null || port < 1 || port > 65535) {
-        write_json({ success: false, verdict: "invalid_endpoint", message: "укажите endpoint Discord Voice в формате host и port" });
-        return 1;
-    }
-
-    let ctx = build_context(mode, client_ip);
-    if (!ctx.tools.nc || ctx.tools.nc_mode == "plain" || !ctx.tools.dd) {
-        if (ctx.netns_active)
-            netns_teardown();
-        write_json({ success: false, verdict: "skipped", message: "нужны nc с поддержкой -w и dd" });
-        return 1;
-    }
-
-    let response_path = temp_path("discord-udp-response");
-    let args = prefixed_args(ctx, [ "nc", "-u", "-w", "4", host, as_string(port) ]);
-    let packet = "(printf '\\000\\001\\000\\106\\000\\000\\000\\001'; dd if=/dev/zero bs=1 count=66 2>/dev/null)";
-    let started = now_ms();
-    let status = normalize_status(system(packet + " | " + command_from_args(args) + " >" + shell_quote(response_path) + " 2>/dev/null"));
-    let elapsed = now_ms() - started;
-    let response = fs.readfile(response_path);
-    fs.unlink(response_path);
-    if (ctx.netns_active)
-        netns_teardown();
-
-    let received = response != null && length(response) >= 8;
-    write_json({
-        success: received,
-        endpoint: host + ":" + as_string(port),
-        mode: ctx.mode,
-        client_ip: as_string(ctx.client_ip),
-        elapsed_ms: elapsed,
-        bytes_received: response == null ? 0 : length(response),
-        exit_code: status,
-        verdict: received ? "ok" : "timeout",
-        message: received ? "Discord Voice UDP ответил на IP Discovery" : "ответ Discord Voice UDP не получен"
-    });
-    return received ? 0 : 1;
-}
-
 // ---------------------------------------------------------------------------
 // Фоновые задания
 // ---------------------------------------------------------------------------
@@ -1334,8 +1290,6 @@ else if (mode == "fixes")
     exit(list_fixes());
 else if (mode == "fix")
     exit(run_fix(ARGV[1]));
-else if (mode == "discord-udp")
-    exit(discord_udp_check(ARGV[1], ARGV[2], ARGV[3], ARGV[4]));
 else if (mode == "run") {
     write_json(run_check(ARGV[1], ARGV[2], ARGV[3], ""));
     exit(0);

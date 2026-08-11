@@ -85,13 +85,9 @@ function injectStyles() {
     ".fkpsc-badge { padding:.25em .65em; border-radius:999px; background:rgba(127,127,127,.16); font-size:.84em; }",
     ".fkpsc-card { padding:1em 1.1em; margin:0 0 1em; border-radius:12px; border:1px solid rgba(127,127,127,.25); background:var(--card); }",
     ".fkpsc-card h3 { margin:.05em 0 .75em; }",
-    ".fkpsc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:.8em; }",
     ".fkpsc-maint { display:none; } .fkpsc-maint.open { display:block; }",
     ".fkpsc-fix { padding:.75em; border-radius:9px; background:rgba(127,127,127,.09); margin-bottom:.55em; }",
     ".fkpsc-fix-title { font-weight:600; margin-bottom:.25em; }",
-    ".fkpsc-toolrow { display:flex; flex-wrap:wrap; gap:.5em; align-items:center; }",
-    ".fkpsc-toolrow input { min-width:220px; flex:1 1 260px; }",
-    ".fkpsc-toolout { white-space:pre-wrap; word-break:break-word; padding:.6em; margin-top:.6em; border-radius:7px; background:rgba(0,0,0,.12); display:none; }",
     ".fkpsc-intro { margin-bottom: 1em; line-height: 1.55; max-width: 60em; }",
     ".fkpsc-note { background: rgba(232,163,61,.12); border-left: 3px solid var(--warn); padding: .65em .9em; margin: .9em 0; border-radius: 0 6px 6px 0; line-height: 1.5; }",
 
@@ -573,10 +569,10 @@ return view.extend({
 
     var runButton = E("button", { class: "cbi-button cbi-button-action important" }, "Проверить сервис");
     var maintenancePanel = E("div", { class: "fkpsc-card fkpsc-maint" });
-    var fixesButton = E("button", { class: "cbi-button" }, "Фиксы Forkop");
+    var fixesButton = E("button", { class: "cbi-button" }, "Фикс Forkop");
     fixesButton.addEventListener("click", function () {
       maintenancePanel.classList.toggle("open");
-      fixesButton.textContent = maintenancePanel.classList.contains("open") ? "Скрыть фиксы" : "Фиксы Forkop";
+      fixesButton.textContent = maintenancePanel.classList.contains("open") ? "Скрыть фикс" : "Фикс Forkop";
     });
 
     var fixesNodes = fixes.map(function (fix) {
@@ -601,45 +597,9 @@ return view.extend({
       ]);
     });
 
-    var discordEndpoint = E("input", { type: "text", class: "cbi-input-text", placeholder: "voice-endpoint.discord.media:порт" });
-    var discordButton = E("button", { class: "cbi-button cbi-button-action" }, "Проверить Discord UDP");
-    var discordOutput = E("div", { class: "fkpsc-toolout" });
-    discordButton.addEventListener("click", function () {
-      var endpoint = discordEndpoint.value.trim();
-      var separator = endpoint.lastIndexOf(":");
-      if (separator < 1) {
-        ui.addNotification(null, E("p", {}, "Укажите Discord Voice endpoint в формате host:port."), "warning");
-        return;
-      }
-      var host = endpoint.slice(0, separator);
-      var port = endpoint.slice(separator + 1);
-      var checkMode = modeNetns.checked ? "netns" : "router";
-      var checkIp = checkMode === "netns" ? clientIpInput.value.trim() : "";
-      discordButton.disabled = true;
-      discordButton.textContent = "Проверяю…";
-      discordOutput.style.display = "block";
-      discordOutput.textContent = "Отправляю Discord IP Discovery…";
-      callBin(["discord_udp", host, port, checkMode, checkIp]).then(function (result) {
-        discordOutput.textContent = (result.success ? "✓ " : "✕ ") + (result.message || "") +
-          "\nEndpoint: " + (result.endpoint || endpoint) +
-          (result.elapsed_ms ? "\nВремя: " + result.elapsed_ms + " мс" : "") +
-          (result.bytes_received ? "\nПолучено: " + result.bytes_received + " байт" : "");
-      }).catch(function (error) {
-        discordOutput.textContent = "✕ " + error.message;
-      }).finally(function () {
-        discordButton.disabled = false;
-        discordButton.textContent = "Проверить Discord UDP";
-      });
-    });
-
-    maintenancePanel.appendChild(E("div", { class: "fkpsc-grid" }, [
-      E("div", {}, [E("h3", {}, "Фиксы Forkop"), fixesNodes.length ? fixesNodes : E("div", { class: "fkpsc-dim" }, "Доступных фиксов пока нет.")]),
-      E("div", {}, [
-        E("h3", {}, "Discord Voice UDP"),
-        E("p", { class: "fkpsc-dim" }, "Вставьте динамический voice endpoint, который Discord выдаёт при подключении к голосовому каналу. Проверка выполняет настоящий UDP IP Discovery и ждёт ответ."),
-        E("div", { class: "fkpsc-toolrow" }, [discordEndpoint, discordButton]),
-        discordOutput,
-      ]),
+    maintenancePanel.appendChild(E("div", {}, [
+      E("h3", {}, "Фикс импорта подписок xHTTP"),
+      fixesNodes.length ? fixesNodes : E("div", { class: "fkpsc-dim" }, "Фикс недоступен."),
     ]));
     var stopButton = E("button", { class: "cbi-button", style: "display:none" }, "Остановить");
 

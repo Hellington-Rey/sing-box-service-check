@@ -56,7 +56,6 @@ function command_spec(command) {
         capabilities: [ "capabilities", 0 ],
         fixes: [ "fixes", 0 ],
         fix: [ "fix", 1 ],
-        discord_udp: [ "discord-udp", 4 ],
         run: [ "run", 3 ],
         start: [ "start", 3 ],
         status: [ "status", 1 ],
