@@ -1,6 +1,6 @@
 #!/usr/bin/env ucode
 
-// Sing-box Service Check - probe engine for Forkop and Podkop.
+// Sing-box Service Check - probe engine for Tachyon, Forkop and Podkop.
 //
 // Проверяет доступность сервисов так, как это делает клиент сети: имя резолвится
 // через тот же dnsmasq -> sing-box, а соединение уходит из роутера и попадает в
@@ -18,6 +18,7 @@ const PROFILES_OVERRIDE = "/etc/forkop-servicecheck/profiles.json";
 const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
 const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
 const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
+const TACHYON_BIN = getenv("TACHYON_BIN") || "/usr/bin/tachyon";
 const FORKOP_BIN = getenv("FORKOP_BIN") || "/usr/bin/forkop";
 const PODKOP_BIN = getenv("PODKOP_BIN") || "/usr/bin/podkop";
 const DEFAULT_SING_BOX_CONFIG = "/etc/sing-box/config.json";
@@ -135,10 +136,36 @@ function icmp_tproxy_patch() {
     return result.status;
 }
 
+function backend_id() {
+    let override = lc(trim(as_string(getenv("FORKOP_SC_BACKEND"))));
+    if (override == "tachyon" || override == "forkop" || override == "podkop")
+        return override;
+    // Tachyon may coexist with binaries left after migration from Forkop/Podkop.
+    // Prefer the active successor so UCI, status and Clash API come from one backend.
+    if (fs.stat(TACHYON_BIN) != null)
+        return "tachyon";
+    if (fs.stat(FORKOP_BIN) != null)
+        return "forkop";
+    if (fs.stat(PODKOP_BIN) != null)
+        return "podkop";
+    return "none";
+}
+
+function backend_name(id) {
+    id = as_string(id);
+    if (id == "tachyon")
+        return "Tachyon";
+    if (id == "forkop")
+        return "Forkop";
+    if (id == "podkop")
+        return "Podkop";
+    return "Sing-box";
+}
+
 function available_fixes() {
     // Эти исправления меняют внутренние файлы Forkop и не должны предлагаться
-    // на Podkop, даже если общий диагностический backend работает нормально.
-    if (fs.stat(FORKOP_BIN) == null)
+    // на Tachyon/Podkop, даже если после миграции остался бинарник Forkop.
+    if (backend_id() != "forkop" || fs.stat(FORKOP_BIN) == null)
         return [];
 
     return [
@@ -163,8 +190,8 @@ function list_fixes() {
 }
 
 function run_fix(id) {
-    if (fs.stat(FORKOP_BIN) == null) {
-        write_json({ success: false, message: "фиксы доступны только при установленном Forkop" });
+    if (backend_id() != "forkop" || fs.stat(FORKOP_BIN) == null) {
+        write_json({ success: false, message: "фиксы доступны только при активном Forkop" });
         return 1;
     }
 
@@ -314,33 +341,14 @@ function uci_get(path) {
     return result.status == 0 ? trim_newlines(result.output) : "";
 }
 
-function backend_id() {
-    let override = lc(trim(as_string(getenv("FORKOP_SC_BACKEND"))));
-    if (override == "forkop" || override == "podkop")
-        return override;
-    if (fs.stat(FORKOP_BIN) != null)
-        return "forkop";
-    if (fs.stat(PODKOP_BIN) != null)
-        return "podkop";
-    return "none";
-}
-
-function backend_name(id) {
-    id = as_string(id);
-    if (id == "forkop")
-        return "Forkop";
-    if (id == "podkop")
-        return "Podkop";
-    return "Sing-box";
-}
-
 function sing_box_config_path() {
     let overridden = trim(as_string(getenv("FORKOP_SC_SING_BOX_CONFIG")));
     if (overridden != "")
         return overridden;
 
-    if (backend_id() == "podkop") {
-        let configured = trim(uci_get("podkop.settings.config_path"));
+    let backend = backend_id();
+    if (backend == "tachyon" || backend == "podkop") {
+        let configured = trim(uci_get(backend + ".settings.config_path"));
         if (configured != "")
             return configured;
     }
@@ -349,7 +357,8 @@ function sing_box_config_path() {
 }
 
 function lan_interface() {
-    let namespace = backend_id() == "podkop" ? "podkop" : "forkop";
+    let backend = backend_id();
+    let namespace = backend == "tachyon" ? "tachyon" : (backend == "podkop" ? "podkop" : "forkop");
     let configured = words(uci_get(namespace + ".settings.source_network_interfaces"));
     if (length(configured) > 0)
         return configured[0];
@@ -389,11 +398,13 @@ function fakeip_ranges() {
     return ranges;
 }
 
-function forkop_running() {
+function backend_running() {
     let backend = backend_id();
     let result;
 
-    if (backend == "forkop")
+    if (backend == "tachyon")
+        result = capture_args([ TACHYON_BIN, "get_status" ], false);
+    else if (backend == "forkop")
         result = capture_args([ FORKOP_BIN, "get_status" ], false);
     else if (backend == "podkop")
         result = capture_args([ PODKOP_BIN, "get_sing_box_status" ], false);
@@ -401,14 +412,14 @@ function forkop_running() {
         return false;
 
     if (result.status != 0) {
-        if (backend == "podkop")
+        if (backend == "tachyon" || backend == "podkop")
             return run_quiet([ "pgrep", "-f", "sing-box" ]);
         return false;
     }
     let status = object_or_empty(parse_json(result.output));
     if (status.running === true || int(status.running) == 1)
         return true;
-    if (backend == "podkop" && status.running == null)
+    if ((backend == "tachyon" || backend == "podkop") && status.running == null)
         return run_quiet([ "pgrep", "-f", "sing-box" ]);
     return false;
 }
@@ -433,7 +444,7 @@ function detect_nc_mode() {
 
 function capabilities() {
     let backend = backend_id();
-    let running = forkop_running();
+    let running = backend_running();
     let interface = lan_interface();
     let address = interface_ipv4(interface);
     let nc_mode = detect_nc_mode();
@@ -455,6 +466,7 @@ function capabilities() {
         backend_name: backend_name(backend),
         backend_installed: backend != "none",
         backend_running: running,
+        tachyon_installed: fs.stat(TACHYON_BIN) != null,
         forkop_installed: fs.stat(FORKOP_BIN) != null,
         podkop_installed: fs.stat(PODKOP_BIN) != null,
         fixes_available: backend == "forkop" && fs.stat(FORKOP_BIN) != null,
@@ -1074,7 +1086,10 @@ function clash_connections() {
     let backend = backend_id();
     let result;
 
-    if (backend == "forkop") {
+    if (backend == "tachyon") {
+        result = capture_args([ TACHYON_BIN, "clash_api", "get_connections" ], false);
+    }
+    else if (backend == "forkop") {
         result = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
     }
     else if (backend == "podkop") {

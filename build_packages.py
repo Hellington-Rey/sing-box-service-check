@@ -14,6 +14,7 @@ JavaScript и JSON, ничего скомпилированного.
 """
 
 import gzip
+import hashlib
 import io
 import tarfile
 from pathlib import Path
@@ -23,7 +24,7 @@ FILES_DIR = ROOT / "files"
 OUT_DIR = ROOT / "dist"
 
 PACKAGE = "luci-app-forkop-servicecheck"
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 RELEASE = "r1"
 ARCH = "all"
 LICENSE = "MIT"
@@ -31,7 +32,7 @@ MAINTAINER = "Sing-box Service Check"
 URL = "https://github.com/Hellington-Rey/sing-box-service-check"
 DEPENDS = ["luci-base", "ucode"]
 DESCRIPTION = (
-    "Sing-box Service Check для Forkop и оригинального Podkop. Добавляет в LuCI страницу с "
+    "Sing-box Service Check для Tachyon, Forkop и оригинального Podkop. Добавляет в LuCI страницу с "
     "кнопкой проверки: Telegram, YouTube, Instagram и другие сервисы проверяются "
     "тем же путём, которым идёт трафик клиента сети - через dnsmasq, sing-box и "
     "tproxy. Показывает DNS, TCP, TLS, код ответа и выбранный outbound."
@@ -182,6 +183,9 @@ def build_ipk():
     ]
 
     OUT_DIR.mkdir(exist_ok=True)
+    for stale in OUT_DIR.glob(f"{PACKAGE}_*-{RELEASE}_{ARCH}.ipk"):
+        if stale.is_file():
+            stale.unlink()
     output = OUT_DIR / f"{PACKAGE}_{VERSION}-{RELEASE}_{ARCH}.ipk"
     output.write_bytes(make_tar_gz(entries))
     return output, installed_size
@@ -195,7 +199,6 @@ def build_feed(ipk_path):
     которые OpenWrt в Packages не публикует. Подпись (Packages.sig) добавляется
     отдельным шагом - sign-feed.sh, там, где есть usign.
     """
-    import hashlib
     import shutil
 
     feed_dir = OUT_DIR / "feed"
@@ -273,6 +276,27 @@ def build_apk_maker():
     return output
 
 
+def build_checksums(ipk_path, apk_maker_path):
+    """Write release hashes after both installers and package artifacts exist."""
+    artifacts = [
+        ipk_path,
+        ROOT / "install-sing-box-service-check.sh",
+        ROOT / "install-forkop-servicecheck.sh",
+        apk_maker_path,
+    ]
+    missing = [path.name for path in artifacts if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"не найдены файлы для SHA256SUMS: {', '.join(missing)}")
+
+    lines = [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in artifacts
+    ]
+    output = OUT_DIR / "SHA256SUMS.txt"
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return output
+
+
 def main():
     ipk, installed_size = build_ipk()
     print(f"собран {ipk.name}: {ipk.stat().st_size} байт "
@@ -285,6 +309,9 @@ def main():
     maker = build_apk_maker()
     print(f"собран {maker.name}: {maker.stat().st_size} байт "
           f"- запустить на машине с apk-tools v3, чтобы получить .apk")
+
+    checksums = build_checksums(ipk, maker)
+    print(f"собраны контрольные суммы: {checksums}")
 
 
 if __name__ == "__main__":

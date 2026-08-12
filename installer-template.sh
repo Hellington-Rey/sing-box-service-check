@@ -3,8 +3,8 @@
 # Sing-box Service Check - установщик модуля проверки доступности сервисов.
 #
 # Скрипт самодостаточный: полезная нагрузка лежит внутри в base64.
-# Поддерживаются Forkop и оригинальный Podkop. Их файлы при установке модуля
-# не изменяются; Forkop-фиксы доступны отдельно только на Forkop.
+# Поддерживаются Tachyon, Forkop и оригинальный Podkop. Их файлы при установке
+# модуля не изменяются; Forkop-фиксы доступны отдельно только на Forkop.
 #
 # Установка:   sh install-sing-box-service-check.sh
 # Удаление:    sh install-sing-box-service-check.sh --uninstall
@@ -123,14 +123,17 @@ command -v ucode >/dev/null 2>&1 || fail "Не найден ucode. Устано�
 command -v base64 >/dev/null 2>&1 || fail "Не найдена утилита base64."
 command -v tar >/dev/null 2>&1 || fail "Не найдена утилита tar."
 
-if [ -x /usr/bin/forkop ]; then
+if [ -x /usr/bin/tachyon ]; then
+    BACKEND="Tachyon"
+    BACKEND_VERSION="$(/usr/bin/tachyon show_version 2>/dev/null || echo unknown)"
+elif [ -x /usr/bin/forkop ]; then
     BACKEND="Forkop"
     BACKEND_VERSION="$(/usr/bin/forkop show_version 2>/dev/null || echo unknown)"
 elif [ -x /usr/bin/podkop ]; then
     BACKEND="Podkop"
     BACKEND_VERSION="$(/usr/bin/podkop show_version 2>/dev/null || echo unknown)"
 else
-    fail "Не найден ни /usr/bin/forkop, ни /usr/bin/podkop. Сначала установите Forkop или Podkop."
+    fail "Не найден ни Tachyon, ни Forkop, ни Podkop. Сначала установите один из поддерживаемых backend."
 fi
 log "Обнаружен $BACKEND $BACKEND_VERSION"
 

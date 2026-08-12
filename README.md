@@ -1,6 +1,6 @@
 # Sing-box Service Check
 
-LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик Forkop или оригинального [Podkop](https://github.com/itdoginfo/podkop).
+LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик [Tachyon](https://github.com/Dushnilin/tachyon), Forkop или оригинального [Podkop](https://github.com/itdoginfo/podkop).
 
 Установленный backend определяется автоматически. Для совместимости с существующими установками имя пакета остаётся `luci-app-forkop-servicecheck`, а старая команда `forkop-servicecheck` работает как полный синоним новой `sing-box-service-check`.
 
@@ -11,7 +11,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Проверка популярных сервисов: Telegram, YouTube, Instagram, Discord, WhatsApp, GitHub и других.
 - Отдельная геопроверка Gemini API по ответу Google с локальной настройкой собственного API-ключа.
 - Проверка DNS через локальный dnsmasq и sing-box.
-- HTTPS-проверки через Forkop/Podkop и tproxy.
+- HTTPS-проверки через Tachyon/Forkop/Podkop и tproxy.
 - TCP-проверки и best-effort проверки UDP/QUIC.
 - Режим проверки с роутера и режим проверки от имени клиента через временный network namespace.
 - Отображение fakeip, времени DNS/TCP/TLS/HTTP и выбранного outbound через Clash API.
@@ -29,7 +29,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 
 ```text
 LuCI → sing-box-service-check → probe.uc
-                         → dnsmasq → sing-box → Forkop/Podkop tproxy → сервис
+                         → dnsmasq → sing-box → Tachyon/Forkop/Podkop tproxy → сервис
 ```
 
 В режиме `netns` создаётся временный network namespace с отдельным IP-адресом в LAN. Это позволяет воспроизвести правила маршрутизации, зависящие от source IP клиента.
@@ -41,13 +41,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.6.0-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.8.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.6.0-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.8.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -80,9 +80,17 @@ sing-box-service-check update-start
 sing-box-service-check update-status
 ```
 
-## Поддержка Forkop и Podkop
+## Поддержка Tachyon, Forkop и Podkop
 
-Модуль автоматически выбирает backend по установленному исполняемому файлу. Сначала проверяется `/usr/bin/forkop`, затем `/usr/bin/podkop`. Для отладки выбор можно переопределить переменной `FORKOP_SC_BACKEND=forkop` или `FORKOP_SC_BACKEND=podkop`.
+Модуль автоматически выбирает backend по установленному исполняемому файлу. Сначала проверяется `/usr/bin/tachyon`, затем `/usr/bin/forkop` и `/usr/bin/podkop`. Такой порядок нужен после миграции, когда старые бинарники могут остаться рядом с активным Tachyon. Для отладки выбор можно переопределить переменной `FORKOP_SC_BACKEND=tachyon`, `FORKOP_SC_BACKEND=forkop` или `FORKOP_SC_BACKEND=podkop`.
+
+На Tachyon модуль:
+
+- берёт путь к конфигурации Sing-box из `tachyon.settings.config_path`;
+- использует `tachyon.settings.source_network_interfaces` для режима клиента;
+- проверяет состояние через `tachyon get_status`;
+- читает активные соединения через `tachyon clash_api get_connections`;
+- не показывает и не разрешает запуск специфичных исправлений Forkop, даже если после миграции остался старый `/usr/bin/forkop`.
 
 На Podkop модуль:
 
@@ -92,7 +100,7 @@ sing-box-service-check update-status
 - читает активные соединения через штатный Clash API Sing-box, включая настроенный секрет YACD;
 - не показывает вкладку и кнопки исправлений Forkop.
 
-Если одновременно установлены оба backend, автоматически выбирается Forkop.
+Если одновременно найдены несколько backend, автоматически выбирается Tachyon, затем Forkop, затем Podkop.
 
 На основной вкладке можно ввести домен или IPv4-адрес, указать TCP-порт и нажать **«Проверить IP/домен»**. Модуль проверит DNS и TCP-доступность, затем сопоставит удерживаемое тестовое соединение с Clash API sing-box. Для доменов FakeIP также используется как подтверждение маршрута через sing-box.
 
@@ -177,7 +185,7 @@ python3 build_packages.py
 
 ## Требования
 
-- OpenWrt и установленный Forkop либо оригинальный Podkop;
+- OpenWrt и установленный Tachyon, Forkop либо оригинальный Podkop;
 - LuCI и ucode;
 - `curl` требуется для обновления из интерфейса и рекомендуется для точных измерений;
 - `sha256sum` требуется для установки обновления;

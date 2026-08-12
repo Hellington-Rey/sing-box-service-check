@@ -184,7 +184,7 @@
       "id": "github",
       "title": "GitHub",
       "group": "dev",
-      "description": "Сайт, API и раздача файлов — важно для обновлений Forkop/Podkop и списков правил.",
+      "description": "Сайт, API и раздача файлов — важно для обновлений Tachyon/Forkop/Podkop и списков правил.",
       "targets": [
         { "kind": "https", "host": "github.com", "path": "/", "expect": [200, 301, 302] },
         { "kind": "https", "host": "api.github.com", "path": "/", "expect": [200] },

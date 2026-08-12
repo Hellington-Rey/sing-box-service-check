@@ -11,7 +11,7 @@ $legacyOutput = Join-Path $root 'install-forkop-servicecheck.sh'
 $archive = Join-Path $env:TEMP 'forkop-servicecheck-payload.tar.gz'
 $staging = Join-Path $env:TEMP ("forkop-servicecheck-payload-" + [Guid]::NewGuid().ToString('N'))
 
-$version = '1.7.0'
+$version = '1.8.0'
 $builtAt = (Get-Date).ToString('yyyy-MM-dd')
 
 if (Test-Path $archive) { Remove-Item $archive -Force }
@@ -34,9 +34,10 @@ try {
         [System.IO.File]::WriteAllText($_.FullName, $text, $utf8NoBom)
     }
 
-    # ustar, а не pax по умолчанию: busybox tar на роутере разбирает его без сюрпризов.
-    & tar --format=ustar -czf $archive -C $staging usr www
-    if ($LASTEXITCODE -ne 0) { throw "tar завершился с кодом $LASTEXITCODE" }
+    # ustar, а не pax: busybox tar на роутере разбирает его без сюрпризов.
+    # Python-сборщик фиксирует порядок, mtime, владельца и gzip-заголовок.
+    & python (Join-Path $root 'tools\build_payload.py') $staging $archive
+    if ($LASTEXITCODE -ne 0) { throw "build_payload.py завершился с кодом $LASTEXITCODE" }
 } finally {
     if (Test-Path $staging) { Remove-Item -Recurse -Force -LiteralPath $staging }
 }

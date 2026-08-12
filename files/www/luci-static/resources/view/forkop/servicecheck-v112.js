@@ -17,7 +17,7 @@
  */
 
 var BIN = "/usr/bin/sing-box-service-check";
-var UI_VERSION = "1.7.0"; // Filename v112 remains compatible with existing menu entries.
+var UI_VERSION = "1.8.0"; // Filename v112 remains compatible with existing menu entries.
 var THEME_STORAGE_KEY = "forkop-servicecheck-theme";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
@@ -637,7 +637,7 @@ function renderSummary(services) {
 
 function renderRunMeta(state) {
   var lines = [];
-  var backendName = state.backend_name || (state.backend === "podkop" ? "Podkop" : "Forkop");
+  var backendName = state.backend_name || (state.backend === "tachyon" ? "Tachyon" : (state.backend === "podkop" ? "Podkop" : "Forkop"));
   var backendRunning = state.backend_running;
   if (backendRunning === undefined) {
     backendRunning = state.forkop_running;
@@ -751,7 +751,7 @@ return view.extend({
     }
 
     var backendId = capabilities.backend || "forkop";
-    var backendName = capabilities.backend_name || (backendId === "podkop" ? "Podkop" : "Forkop");
+    var backendName = capabilities.backend_name || (backendId === "tachyon" ? "Tachyon" : (backendId === "podkop" ? "Podkop" : "Forkop"));
     var backendRunning = capabilities.backend_running;
     if (backendRunning === undefined) {
       backendRunning = capabilities.forkop_running;

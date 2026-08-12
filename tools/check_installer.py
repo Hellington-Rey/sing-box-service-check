@@ -1,6 +1,8 @@
 """Static checks for the generated self-contained installer."""
 
 import base64
+import gzip
+import hashlib
 import io
 import tarfile
 from pathlib import Path
@@ -9,7 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "install-sing-box-service-check.sh"
 LEGACY_INSTALLER = ROOT / "install-forkop-servicecheck.sh"
-PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.7.0-r1_all.ipk"
+PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.8.0-r1_all.ipk"
+APK_MAKER = ROOT / "dist" / "make-apk.sh"
+CHECKSUMS = ROOT / "dist" / "SHA256SUMS.txt"
+FEED_DIR = ROOT / "dist" / "feed"
 MARKER = "__FORKOP_SC_PAYLOAD__"
 
 
@@ -20,7 +25,7 @@ def assert_shell(name, shell_script):
 
 def main():
     script = INSTALLER.read_text(encoding="utf-8")
-    assert 'VERSION="1.7.0"' in script
+    assert 'VERSION="1.8.0"' in script
     assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
@@ -33,12 +38,14 @@ def main():
 
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         names = set(tar.getnames())
+        payload_modes = {name: tar.getmember(name).mode for name in names}
         cli_raw = tar.extractfile("usr/bin/forkop-servicecheck").read()
         xhttp_fix = tar.extractfile("usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read()
         icmp_fix = tar.extractfile("usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read()
         cli = cli_raw.decode("utf-8")
         engine = tar.extractfile("usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8")
         profiles = tar.extractfile("usr/share/forkop-servicecheck/profiles.json").read().decode("utf-8")
+        version_marker = tar.extractfile("usr/share/forkop-servicecheck/version").read().decode("utf-8").strip()
         view = tar.extractfile("www/luci-static/resources/view/forkop/servicecheck-v112.js").read().decode("utf-8")
 
     required = {
@@ -55,6 +62,10 @@ def main():
     assert_shell("installer CLI", cli_raw)
     assert_shell("installer xHTTP fix", xhttp_fix)
     assert_shell("installer ICMP fix", icmp_fix)
+    assert payload_modes["usr/bin/forkop-servicecheck"] == 0o755
+    assert payload_modes["usr/lib/forkop-servicecheck/xhttp_hotfix.sh"] == 0o755
+    assert payload_modes["usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh"] == 0o755
+    assert payload_modes["usr/lib/forkop-servicecheck/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
     assert "command -v ucode" in cli
     assert "    custom)" in cli
@@ -67,7 +78,7 @@ def main():
     assert 'Редактируйте список обычными полями' in view
     assert 'forkop-servicecheck-theme' in view
     assert 'theme-dark' in view and 'theme-light' in view and 'theme-auto' in view
-    assert 'Тёмная' in view and 'Светлая' in view and 'Авто' in view
+    assert 'Тёмная' in view and 'Светлая' in view and '["auto", "LuCI"]' in view
     assert 'color:var(--text) !important' in view
     assert 'match(host, /[ \\t\\r\\n\\/]/)' in engine
     assert '--surface-raised:#fff' in view
@@ -81,14 +92,25 @@ def main():
     assert 'else if (mode == "gemini-key-set")' in engine
     assert 'function probe_gemini_geo(ctx, target)' in engine
     assert 'function backend_id()' in engine
+    assert 'const TACHYON_BIN' in engine
+    assert 'override == "tachyon"' in engine
     assert 'const PODKOP_BIN' in engine
     assert '"get_sing_box_status"' in engine
-    assert 'uci_get("podkop.settings.config_path")' in engine
+    assert 'backend + ".settings.config_path"' in engine
+    assert 'backend == "tachyon" ? "tachyon"' in engine
+    assert 'TACHYON_BIN, "get_status"' in engine
+    assert 'TACHYON_BIN, "clash_api", "get_connections"' in engine
+    assert 'tachyon_installed: fs.stat(TACHYON_BIN) != null' in engine
+    assert 'backend_id() != "forkop" || fs.stat(FORKOP_BIN) == null' in engine
     assert 'controller + "/connections"' in engine
     assert 'backend_running: running' in engine
+    assert 'backendId === "tachyon" ? "Tachyon"' in view
     assert 'var showForkopFixes = backendId === "forkop"' in view
     assert 'showForkopFixes ? [checkTab, fixTab, listsTab] : [checkTab, listsTab]' in view
+    assert '[ -x /usr/bin/tachyon ]' in script
     assert '[ -x /usr/bin/podkop ]' in script
+    assert script.index('[ -x /usr/bin/tachyon ]') < script.index('[ -x /usr/bin/forkop ]') < script.index('[ -x /usr/bin/podkop ]')
+    assert engine.index('if (fs.stat(TACHYON_BIN) != null)') < engine.index('if (fs.stat(FORKOP_BIN) != null)') < engine.index('if (fs.stat(PODKOP_BIN) != null)')
     assert 'update-check|update-start|update-status)' in cli
     assert 'function latest_release_info()' in engine
     assert 'function update_worker()' in engine
@@ -110,18 +132,45 @@ def main():
     assert 'class: "fkpsc-tile-header"' in view
     assert 'tileHeader.addEventListener("click", toggle)' in view
     assert 'tile.addEventListener("click", toggle)' not in view
+    assert version_marker == "1.8.0"
+    assert 'var UI_VERSION = "1.8.0"' in view
     with tarfile.open(PACKAGE, mode="r:gz") as outer:
         control_archive = outer.extractfile("./control.tar.gz").read()
         data_archive = outer.extractfile("./data.tar.gz").read()
     with tarfile.open(fileobj=io.BytesIO(control_archive), mode="r:gz") as control_tar:
         control = control_tar.extractfile("./control").read().decode("utf-8")
         assert "Depends: luci-base, ucode" in control
+        assert "Version: 1.8.0-r1" in control
+        assert "для Tachyon, Forkop и оригинального Podkop" in control
         assert "оригинального Podkop" in control
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
         assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
         assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
         assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())
         assert_shell("IPK ICMP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read())
+        assert data_tar.extractfile("./usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8") == engine
+        assert data_tar.extractfile("./www/luci-static/resources/view/forkop/servicecheck-v112.js").read().decode("utf-8") == view
+        assert data_tar.extractfile("./usr/share/forkop-servicecheck/version").read().decode("utf-8").strip() == version_marker
+
+    feed_packages = (FEED_DIR / "Packages").read_text(encoding="utf-8")
+    assert "Version: 1.8.0-r1" in feed_packages
+    assert "для Tachyon, Forkop и оригинального Podkop" in feed_packages
+    assert (FEED_DIR / PACKAGE.name).read_bytes() == PACKAGE.read_bytes()
+    with gzip.open(FEED_DIR / "Packages.gz", "rt", encoding="utf-8") as compressed_feed:
+        assert compressed_feed.read() == feed_packages
+
+    apk_maker = APK_MAKER.read_text(encoding="utf-8")
+    assert 'VERSION="1.8.0-r1"' in apk_maker
+    assert "для Tachyon, Forkop и оригинального Podkop" in apk_maker
+
+    artifact_by_name = {
+        path.name: path
+        for path in (PACKAGE, INSTALLER, LEGACY_INSTALLER, APK_MAKER)
+    }
+    checksum_lines = [line.split(None, 1) for line in CHECKSUMS.read_text(encoding="utf-8").splitlines() if line]
+    assert {name for _, name in checksum_lines} == set(artifact_by_name)
+    for digest, name in checksum_lines:
+        assert digest == hashlib.sha256(artifact_by_name[name].read_bytes()).hexdigest()
 
     print(f"installer/IPK OK: {len(archive)} bytes, {len(names)} entries")
 

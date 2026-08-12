@@ -18,7 +18,10 @@ if "services" not in data:
     sys.exit(0)
 
 mode = data.get("mode", "?")
-backend = data.get("backend_name") or ("Podkop" if data.get("backend") == "podkop" else "Forkop")
+backend = data.get("backend_name") or {
+    "tachyon": "Tachyon",
+    "podkop": "Podkop",
+}.get(data.get("backend"), "Forkop")
 running = data.get("backend_running", data.get("forkop_running"))
 print(f"режим: {mode}   резолвер: {data.get('resolver', '?')}   {backend}: "
       f"{'запущен' if running else 'НЕ запущен'}   "
