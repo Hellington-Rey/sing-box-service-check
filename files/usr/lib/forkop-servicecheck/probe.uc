@@ -24,6 +24,8 @@ const NETNS_VETH_HOST = "fkpsc0";
 const NETNS_VETH_PEER = "fkpsc1";
 const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
 const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
+const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
+const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const DNS_TIMEOUT = 3;
@@ -810,6 +812,115 @@ function tcp_probe(ctx, target) {
     return tcp_probe_nc(ctx, target);
 }
 
+// Google возвращает отдельный FAILED_PRECONDITION для регионов, в которых
+// Gemini API недоступен. Обычная HTTPS-проверка этого не отличает от рабочего
+// API с ошибкой авторизации, поэтому для профиля Gemini разбираем JSON-ответ.
+function read_gemini_api_key() {
+    return trim(as_string(fs.readfile(GEMINI_API_KEY_FILE) || ""));
+}
+
+function probe_gemini_geo(ctx, target) {
+    let api_key = read_gemini_api_key();
+    if (api_key == "")
+        return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "укажите API-ключ Gemini в настройках карточки" };
+
+    let url = "https://" + as_string(target.host) + as_string(target.path);
+    let body_file = temp_path("gemini-body");
+    let error_file = temp_path("gemini-err");
+    let config_file = temp_path("gemini-curl");
+
+    // Ключ не передаётся в argv curl и не виден в списке процессов. Временный
+    // config доступен только root и удаляется сразу после завершения запроса.
+    if (fs.writefile(config_file, "header = \"x-goog-api-key: " + api_key + "\"\n") == null)
+        return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "gemini_geo_error", message: "не удалось подготовить запрос Gemini API" };
+    run_quiet([ "chmod", "600", config_file ]);
+
+    let started = now_ms();
+    let format = "%{http_code}|%{remote_ip}|%{time_total}";
+    let args = prefixed_args(ctx, [
+        "curl", "--config", config_file, "-sS",
+        "-o", body_file,
+        "--connect-timeout", as_string(CONNECT_TIMEOUT),
+        "--max-time", as_string(TOTAL_TIMEOUT),
+        "-A", USER_AGENT,
+        "-w", format,
+        url
+    ]);
+    let result = capture(command_from_args(args) + " 2>" + shell_quote(error_file));
+    let stderr = as_string(fs.readfile(error_file) || "");
+    let body_raw = as_string(fs.readfile(body_file) || "");
+    fs.unlink(config_file);
+    fs.unlink(error_file);
+    fs.unlink(body_file);
+
+    let elapsed = now_ms() - started;
+    if (result.status != 0) {
+        let failure = curl_failure_verdict(result.status, stderr);
+        return {
+            reached: false,
+            code: 0,
+            remote_ip: "",
+            tcp_ms: 0,
+            tls_ms: 0,
+            total_ms: int(elapsed),
+            verdict: failure.verdict,
+            message: failure.message
+        };
+    }
+
+    let fields = split(trim(as_string(result.output)), "|");
+    let http_code = int(fields[0]);
+    let remote_ip = as_string(fields[1]);
+    let total_ms = int(number_value(fields[2]) * 1000);
+    let body = parse_json(body_raw);
+    body = type(body) == "object" ? body : {};
+    let error_obj = object_or_empty(body.error);
+    let error_status = as_string(error_obj.status);
+    let error_message = as_string(error_obj.message);
+    let error_lc = lc(error_message);
+    let verdict = "gemini_geo_error";
+    let message = "";
+
+    if (http_code == 200) {
+        verdict = "gemini_geo_ok";
+        message = "Gemini API доступен в этом регионе";
+    }
+    else if (error_status == "FAILED_PRECONDITION" || index(error_lc, "user location is not supported") >= 0) {
+        verdict = "gemini_geo_blocked";
+        message = "регион VPN-сервера недоступен для Gemini — смените сервер на другой регион";
+    }
+    else if (error_status == "INVALID_ARGUMENT" || index(error_lc, "api key not valid") >= 0) {
+        verdict = "gemini_api_key_invalid";
+        message = "API-ключ Gemini невалиден — обновите его в настройках карточки";
+    }
+    else if (http_code == 401 || http_code == 403) {
+        if (index(error_lc, "location") >= 0 || index(error_lc, "supported") >= 0) {
+            verdict = "gemini_geo_blocked";
+            message = "регион недоступен для Gemini API — смените VPN-сервер";
+        }
+        else {
+            verdict = "gemini_api_key_invalid";
+            message = error_message != "" ? error_message : "Google отклонил API-ключ Gemini";
+        }
+    }
+    else {
+        message = error_message != ""
+            ? sprintf("неожиданный ответ Gemini API: HTTP %d — %s", http_code, error_message)
+            : sprintf("неожиданный ответ Gemini API: HTTP %d", http_code);
+    }
+
+    return {
+        reached: true,
+        code: http_code,
+        remote_ip,
+        tcp_ms: 0,
+        tls_ms: 0,
+        total_ms: total_ms > 0 ? total_ms : int(elapsed),
+        verdict,
+        message
+    };
+}
+
 function udp_probe(ctx, target) {
     if (!ctx.tools.nc)
         return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "нет nc для UDP-проверки" };
@@ -854,6 +965,11 @@ function udp_dns_probe(ctx, target) {
 }
 
 function connection_probe(ctx, target) {
+    if (as_string(target.kind) == "gemini_geo") {
+        if (!ctx.tools.curl)
+            return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "для геопроверки Gemini нужен curl" };
+        return probe_gemini_geo(ctx, target);
+    }
     if (as_string(target.kind) == "udp_dns")
         return udp_dns_probe(ctx, target);
     if (as_string(target.kind) == "udp")
@@ -993,6 +1109,16 @@ function target_verdict(target, dns, connection) {
         if (verdict == "redirect_loop")
             return { state: "warning", verdict, message: as_string(connection.message) };
         return { state: "error", verdict: verdict != "" ? verdict : "failed", message: as_string(connection.message) };
+    }
+
+    if (as_string(target.kind) == "gemini_geo") {
+        if (connection.verdict == "gemini_geo_ok")
+            return { state: "success", verdict: "ok", message: as_string(connection.message) };
+        if (connection.verdict == "gemini_geo_blocked")
+            return { state: "warning", verdict: "geo_blocked", message: as_string(connection.message) };
+        if (connection.verdict == "gemini_api_key_invalid")
+            return { state: "warning", verdict: "gemini_api_key_invalid", message: as_string(connection.message) };
+        return { state: "error", verdict: as_string(connection.verdict) != "" ? as_string(connection.verdict) : "failed", message: as_string(connection.message) };
     }
 
     if (as_string(target.kind) == "tcp" || as_string(target.kind) == "udp" || as_string(target.kind) == "udp_dns")
@@ -1556,6 +1682,36 @@ function list_profiles() {
     return 0;
 }
 
+function gemini_key_set(value) {
+    let key = trim(as_string(value));
+    if (match(key, /^[A-Za-z0-9_-]{20,200}$/) == null) {
+        write_json({ success: false, message: "ключ имеет недопустимый формат" });
+        return 1;
+    }
+
+    run_quiet([ "mkdir", "-p", CONFIG_DIR ]);
+    if (fs.writefile(GEMINI_API_KEY_FILE, key + "\n") == null) {
+        write_json({ success: false, message: "не удалось сохранить ключ" });
+        return 1;
+    }
+
+    run_quiet([ "chmod", "600", GEMINI_API_KEY_FILE ]);
+    write_json({ success: true, configured: true, message: "ключ сохранён" });
+    return 0;
+}
+
+function gemini_key_reset() {
+    fs.unlink(GEMINI_API_KEY_FILE);
+    write_json({ success: true, configured: false, message: "ключ удалён" });
+    return 0;
+}
+
+function gemini_key_status() {
+    let configured = read_gemini_api_key() != "";
+    write_json({ success: true, configured, message: configured ? "используется пользовательский ключ" : "ключ не задан" });
+    return 0;
+}
+
 // ---------------------------------------------------------------------------
 
 let mode = as_string(ARGV[0]);
@@ -1595,6 +1751,12 @@ else if (mode == "cleanup") {
     cleanup_jobs();
     exit(0);
 }
+else if (mode == "gemini-key-set")
+    exit(gemini_key_set(ARGV[1]));
+else if (mode == "gemini-key-reset")
+    exit(gemini_key_reset());
+else if (mode == "gemini-key-status")
+    exit(gemini_key_status());
 else if (mode == "netns-teardown") {
     netns_teardown();
     exit(0);

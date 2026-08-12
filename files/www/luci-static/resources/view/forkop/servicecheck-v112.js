@@ -17,7 +17,7 @@
  */
 
 var BIN = "/usr/bin/forkop-servicecheck";
-var UI_VERSION = "1.3.1"; // Filename stays v111 for compatibility with existing LuCI menu entries.
+var UI_VERSION = "1.4.0"; // Filename uses v112 to invalidate the previous cached LuCI view.
 var THEME_STORAGE_KEY = "forkop-servicecheck-theme";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
@@ -44,6 +44,8 @@ var VERDICT_LABEL = {
   tls_reset: "соединение сброшено",
   redirect_loop: "круг редиректов",
   geo_blocked: "блокировка по IP/региону",
+  gemini_api_key_invalid: "API-ключ невалиден",
+  gemini_geo_error: "ошибка геопроверки",
   http_server_error: "ошибка на стороне сервиса",
   http_unexpected: "неожиданный ответ",
   failed: "ошибка",
@@ -168,14 +170,16 @@ function injectStyles() {
 
     /* --- сетка плиток --- */
     ".fkpsc-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: .75em; align-items: start; }",
-    ".fkpsc-tile { border: 1px solid rgba(127,127,127,.35); border-radius: 10px; background:var(--surface-raised); box-shadow:0 3px 12px rgba(0,0,0,.10); overflow: hidden; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; position: relative; }",
-    ".fkpsc-tile::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--skip); }",
+    ".fkpsc-tile { border: 1px solid rgba(127,127,127,.35); border-radius: 10px; background:var(--surface-raised); box-shadow:0 3px 12px rgba(0,0,0,.10); overflow: hidden; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; position: relative; }",
+    ".fkpsc-tile::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--skip); z-index: 1; }",
     ".fkpsc-tile.state-success::before { background: var(--ok); }",
     ".fkpsc-tile.state-warning::before { background: var(--warn); }",
     ".fkpsc-tile.state-error::before { background: var(--err); }",
     ".fkpsc-tile:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.16); border-color: rgba(127,127,127,.5); }",
-    ".fkpsc-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }",
-    ".fkpsc-tile.open { grid-column: 1 / -1; cursor: default; transform: none; box-shadow: 0 4px 18px rgba(0,0,0,.14); }",
+    ".fkpsc-tile.open { grid-column: 1 / -1; transform: none; box-shadow: 0 4px 18px rgba(0,0,0,.14); }",
+    ".fkpsc-tile-header { cursor: pointer; user-select: none; border-radius: 10px 10px 0 0; transition: background .15s ease; }",
+    ".fkpsc-tile-header:hover { background: rgba(127,127,127,.07); }",
+    ".fkpsc-tile-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }",
     ".fkpsc-tile-head { display: flex; align-items: center; gap: .5em; padding: .8em .9em .1em; }",
     ".fkpsc-dot { width: .7em; height: .7em; border-radius: 50%; flex: none; background: var(--skip); }",
     ".state-success .fkpsc-dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(47,158,68,.18); }",
@@ -233,6 +237,21 @@ function injectStyles() {
     ".fkpsc-meta { margin: .3em 0 1.1em; opacity: .7; line-height: 1.6; font-size: .92em; }",
     ".fkpsc-dim { color:var(--muted) !important; opacity:1; }",
     ".fkpsc-empty { opacity: .6; padding: 2em 1em; text-align: center; }",
+
+    /* --- настройки Gemini API --- */
+    ".fkpsc-settings { margin: .9em 0 .2em; border: 1px solid rgba(127,127,127,.25); border-radius: 8px; overflow: hidden; }",
+    ".fkpsc-settings-toggle { display: flex; align-items: center; gap: .5em; padding: .55em .8em; cursor: pointer; user-select: none; background: rgba(127,127,127,.08); font-size: .9em; font-weight: 600; }",
+    ".fkpsc-settings-toggle:hover { background: rgba(127,127,127,.14); }",
+    ".fkpsc-settings-toggle .arr { font-size: .7em; opacity: .5; transition: transform .15s ease; }",
+    ".fkpsc-settings.open .fkpsc-settings-toggle .arr { transform: rotate(90deg); }",
+    ".fkpsc-settings-body { display: none; padding: .7em .9em; border-top: 1px solid rgba(127,127,127,.2); }",
+    ".fkpsc-settings.open .fkpsc-settings-body { display: block; }",
+    ".fkpsc-settings-row { display: flex; align-items: center; gap: .5em; flex-wrap: wrap; margin-bottom: .5em; }",
+    ".fkpsc-settings-row input[type=password] { flex: 1 1 14em; min-width: 10em; font-family: monospace; padding: .35em .5em; border: 1px solid rgba(127,127,127,.4); border-radius: 5px; background: transparent; color: inherit; }",
+    ".fkpsc-settings-status { font-size: .85em; opacity: .7; }",
+    ".fkpsc-settings-msg { display: none; font-size: .85em; padding: .3em .5em; border-radius: 5px; margin-top: .3em; }",
+    ".fkpsc-settings-msg.ok { display: block; background: rgba(47,158,68,.15); color: var(--ok); }",
+    ".fkpsc-settings-msg.err { display: block; background: rgba(224,49,49,.15); color: var(--err); }",
     ".fkpsc-service-tools { display:flex; flex-wrap:wrap; gap:.45em; align-items:center; margin:.45em 0; }",
     ".fkpsc-search { flex:1 1 190px; min-width:150px; }",
     "@media (prefers-color-scheme:dark) {",
@@ -427,6 +446,101 @@ function renderDetail(service) {
     });
   }
 
+  if (service.id === "gemini") {
+    var settingsWrap = E("div", { class: "fkpsc-settings" });
+    var statusSpan = E("span", { class: "fkpsc-settings-status" }, "загрузка…");
+    var msgDiv = E("div", { class: "fkpsc-settings-msg" });
+    var keyInput = E("input", {
+      type: "password",
+      placeholder: "Вставьте API-ключ Gemini",
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+
+    function showSettingsMessage(text, ok) {
+      msgDiv.textContent = text;
+      msgDiv.className = "fkpsc-settings-msg " + (ok ? "ok" : "err");
+      setTimeout(function () {
+        msgDiv.className = "fkpsc-settings-msg";
+      }, 4000);
+    }
+
+    function loadKeyStatus() {
+      callBin(["gemini_key_status"]).then(function (result) {
+        statusSpan.textContent = result.configured
+          ? "используется сохранённый ключ"
+          : "ключ не задан — геопроверка будет пропущена";
+      }).catch(function () {
+        statusSpan.textContent = "не удалось узнать статус ключа";
+      });
+    }
+
+    var saveButton = E("button", {
+      class: "cbi-button cbi-button-action",
+      click: function () {
+        var value = (keyInput.value || "").trim();
+        if (!value) {
+          showSettingsMessage("Введите ключ", false);
+          return;
+        }
+        callBin(["gemini_key_set", value]).then(function (result) {
+          showSettingsMessage(result.message || "ключ сохранён", result.success === true);
+          if (result.success) {
+            keyInput.value = "";
+            loadKeyStatus();
+          }
+        }).catch(function (error) {
+          showSettingsMessage(error.message || "не удалось сохранить ключ", false);
+        });
+      },
+    }, "Сохранить");
+
+    var resetButton = E("button", {
+      class: "cbi-button",
+      click: function () {
+        callBin(["gemini_key_reset"]).then(function (result) {
+          showSettingsMessage(result.message || "ключ удалён", result.success === true);
+          keyInput.value = "";
+          loadKeyStatus();
+        }).catch(function (error) {
+          showSettingsMessage(error.message || "не удалось удалить ключ", false);
+        });
+      },
+    }, "Удалить ключ");
+
+    var settingsBody = E("div", { class: "fkpsc-settings-body" }, [
+      E("div", { class: "fkpsc-settings-row" }, [keyInput, saveButton, resetButton]),
+      statusSpan,
+      msgDiv,
+    ]);
+    var settingsHeader = E("div", {
+      class: "fkpsc-settings-toggle",
+      tabindex: "0",
+      role: "button",
+      "aria-expanded": "false",
+    }, [
+      E("span", { class: "arr" }, "▶"),
+      E("span", {}, "Настройки API-ключа Gemini"),
+    ]);
+
+    function toggleSettings() {
+      var isOpen = settingsWrap.classList.toggle("open");
+      settingsHeader.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    }
+
+    settingsHeader.addEventListener("click", toggleSettings);
+    settingsHeader.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleSettings();
+      }
+    });
+    settingsWrap.appendChild(settingsHeader);
+    settingsWrap.appendChild(settingsBody);
+    nodes.push(settingsWrap);
+    loadKeyStatus();
+  }
+
   return E("div", { class: "fkpsc-detail" }, nodes);
 }
 
@@ -436,8 +550,8 @@ function renderTile(service) {
     return item.state === "success";
   }).length;
 
-  var tile = E("div", {
-    class: "fkpsc-tile state-" + service.state + (openTiles[service.id] ? " open" : ""),
+  var tileHeader = E("div", {
+    class: "fkpsc-tile-header",
     tabindex: "0",
     role: "button",
     "aria-expanded": openTiles[service.id] ? "true" : "false",
@@ -454,17 +568,23 @@ function renderTile(service) {
       })),
       E("span", { class: "fkpsc-count" }, okCount + "/" + items.length),
     ]),
+  ]);
+
+  var tile = E("div", {
+    class: "fkpsc-tile state-" + service.state + (openTiles[service.id] ? " open" : ""),
+  }, [
+    tileHeader,
     renderDetail(service),
   ]);
 
   function toggle() {
     var isOpen = tile.classList.toggle("open");
     openTiles[service.id] = isOpen;
-    tile.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    tileHeader.setAttribute("aria-expanded", isOpen ? "true" : "false");
   }
 
-  tile.addEventListener("click", toggle);
-  tile.addEventListener("keydown", function (event) {
+  tileHeader.addEventListener("click", toggle);
+  tileHeader.addEventListener("keydown", function (event) {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       toggle();

@@ -20,6 +20,9 @@ Available commands:
     start IDS [MODE] [IP]   Запустить проверку в фоне, вернуть job_id
     status JOB_ID           Показать состояние фоновой проверки
     cleanup                 Удалить устаревшие задания
+    gemini_key_set KEY      Сохранить API-ключ для геопроверки Gemini
+    gemini_key_reset        Удалить сохранённый API-ключ Gemini
+    gemini_key_status       Показать, задан ли API-ключ Gemini
     fixes                   Показать разрешённые исправления Forkop
     fix ID                  Применить исправление Forkop из белого списка
     profiles-get            Показать активный список проверок
@@ -56,6 +59,15 @@ command -v ucode >/dev/null 2>&1 || {
 case "$COMMAND" in
     list|capabilities|fixes|cleanup|profiles-get|profiles-reset)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND"
+        ;;
+    gemini_key_reset)
+        exec ucode -L "$LIB_DIR" "$ENGINE" gemini-key-reset
+        ;;
+    gemini_key_status)
+        exec ucode -L "$LIB_DIR" "$ENGINE" gemini-key-status
+        ;;
+    gemini_key_set)
+        exec ucode -L "$LIB_DIR" "$ENGINE" gemini-key-set "${2:-}"
         ;;
     fix|status|profiles-save)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}"

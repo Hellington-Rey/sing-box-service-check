@@ -38,6 +38,12 @@ printf '%s\n' "$CUSTOM_OUTPUT" | grep -Fxq -- '192.168.2.55'
 [ "$(run_wrapper netns_teardown | tail -n 1)" = "netns-teardown" ]
 [ "$(run_wrapper profiles-get | tail -n 1)" = "profiles-get" ]
 [ "$(run_wrapper profiles-reset | tail -n 1)" = "profiles-reset" ]
+[ "$(run_wrapper gemini_key_reset | tail -n 1)" = "gemini-key-reset" ]
+[ "$(run_wrapper gemini_key_status | tail -n 1)" = "gemini-key-status" ]
+GEMINI_KEY='test_gemini_key_1234567890'
+GEMINI_OUTPUT="$(run_wrapper gemini_key_set "$GEMINI_KEY")"
+[ "$(printf '%s\n' "$GEMINI_OUTPUT" | tail -n 2 | head -n 1)" = "gemini-key-set" ]
+[ "$(printf '%s\n' "$GEMINI_OUTPUT" | tail -n 1)" = "$GEMINI_KEY" ]
 PROFILES_JSON='{"profiles":[{"id":"test","title":"Test","targets":[{"kind":"https","host":"example.com"}]}]}'
 PROFILES_OUTPUT="$(run_wrapper profiles-save "$PROFILES_JSON")"
 [ "$(printf '%s\n' "$PROFILES_OUTPUT" | tail -n 2 | head -n 1)" = "profiles-save" ]

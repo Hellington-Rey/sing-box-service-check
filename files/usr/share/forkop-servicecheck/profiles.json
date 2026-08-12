@@ -80,11 +80,11 @@
       "id": "gemini",
       "title": "Gemini / Google AI",
       "group": "ai",
-      "description": "Веб-интерфейс Gemini, AI Studio и API generativelanguage. Чувствителен к региону выходного IP: из некоторых стран Google отдаёт отказ даже при рабочей сети.",
+      "description": "Веб-интерфейс Gemini, AI Studio и API. Геодоступность API проверяется отдельно по ответу Google; для неё укажите свой API-ключ в настройках карточки.",
       "targets": [
-        { "kind": "https", "host": "gemini.google.com", "path": "/", "expect": [200, 301, 302, 307] },
-        { "kind": "https", "host": "aistudio.google.com", "path": "/", "expect": [200, 301, 302, 307, 403] },
-        { "kind": "https", "host": "generativelanguage.googleapis.com", "path": "/", "expect": [200, 400, 401, 403, 404], "label": "API generativelanguage" },
+        { "kind": "https", "host": "gemini.google.com", "path": "/", "expect": [200, 301, 302, 307], "label": "gemini.google.com" },
+        { "kind": "https", "host": "aistudio.google.com", "path": "/", "expect": [200, 301, 302, 307, 403], "label": "aistudio.google.com" },
+        { "kind": "gemini_geo", "host": "generativelanguage.googleapis.com", "path": "/v1beta/models", "label": "Геодоступность Gemini API" },
         { "kind": "https", "host": "ai.google.dev", "path": "/", "expect": [200, 301, 302, 404], "optional": true, "label": "Документация ai.google.dev" },
         { "kind": "https", "host": "notebooklm.google.com", "path": "/", "expect": [200, 301, 302, 307, 403], "optional": true, "label": "NotebookLM" }
       ]

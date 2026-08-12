@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "install-forkop-servicecheck.sh"
-PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.3.1-r1_all.ipk"
+PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.4.0-r1_all.ipk"
 MARKER = "__FORKOP_SC_PAYLOAD__"
 
 
@@ -19,7 +19,7 @@ def assert_shell(name, shell_script):
 
 def main():
     script = INSTALLER.read_text(encoding="utf-8")
-    assert 'VERSION="1.3.1"' in script
+    assert 'VERSION="1.4.0"' in script
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
     assert "sed -n '/^__PAYLOAD_BELOW__$/,$p' \"$0\"" not in script
@@ -36,8 +36,8 @@ def main():
         icmp_fix = tar.extractfile("usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read()
         cli = cli_raw.decode("utf-8")
         engine = tar.extractfile("usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8")
-        view = tar.extractfile("www/luci-static/resources/view/forkop/servicecheck-v111.js").read().decode("utf-8")
         profiles = tar.extractfile("usr/share/forkop-servicecheck/profiles.json").read().decode("utf-8")
+        view = tar.extractfile("www/luci-static/resources/view/forkop/servicecheck-v112.js").read().decode("utf-8")
 
     required = {
         "usr/bin/forkop-servicecheck",
@@ -46,7 +46,7 @@ def main():
         "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh",
         "usr/share/forkop-servicecheck/profiles.json",
         "usr/share/forkop-servicecheck/version",
-        "www/luci-static/resources/view/forkop/servicecheck-v111.js",
+        "www/luci-static/resources/view/forkop/servicecheck-v112.js",
     }
     missing = required - names
     assert not missing, f"missing payload files: {sorted(missing)}"
@@ -73,6 +73,15 @@ def main():
     assert 'MTProto DC' not in profiles
     assert 'UDP / QUIC / Discord' not in profiles
     assert '"Проверить IP/домен"' in view
+    assert 'gemini_key_set)' in cli
+    assert 'else if (mode == "gemini-key-set")' in engine
+    assert 'function probe_gemini_geo(ctx, target)' in engine
+    assert "GEMINI_API_KEY_DEFAULT" not in engine
+    assert "AIza" not in engine
+    assert '"path": "/v1beta/models"' in profiles
+    assert 'class: "fkpsc-tile-header"' in view
+    assert 'tileHeader.addEventListener("click", toggle)' in view
+    assert 'tile.addEventListener("click", toggle)' not in view
     with tarfile.open(PACKAGE, mode="r:gz") as outer:
         data_archive = outer.extractfile("./data.tar.gz").read()
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:

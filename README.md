@@ -7,6 +7,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 ## Возможности
 
 - Проверка популярных сервисов: Telegram, YouTube, Instagram, Discord, WhatsApp, GitHub и других.
+- Отдельная геопроверка Gemini API по ответу Google с локальной настройкой собственного API-ключа.
 - Проверка DNS через локальный dnsmasq и sing-box.
 - HTTPS-проверки через forkop/tproxy.
 - TCP-проверки и best-effort проверки UDP/QUIC.
@@ -36,13 +37,13 @@ LuCI → forkop-servicecheck → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.3.1-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.4.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.3.1-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.4.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -59,6 +60,20 @@ wget -O- https://raw.githubusercontent.com/Hellington-Rey/forkop-servicecheck/ma
 
 ```sh
 /usr/bin/forkop-servicecheck custom example.com 443 router
+```
+
+## Геодоступность Gemini
+
+В карточке **Gemini / Google AI** есть отдельная цель **«Геодоступность Gemini API»**. Она разбирает ответ Google и отличает региональную блокировку (`FAILED_PRECONDITION`) от невалидного API-ключа и обычной сетевой ошибки.
+
+Для этой проверки нужен собственный Gemini API-ключ. Он задаётся в раскрытой карточке, хранится на роутере в `/etc/forkop-servicecheck/gemini_api_key` с правами `0600` и не включается в пакет. Без ключа геопроверка пропускается, а остальные цели Gemini продолжают проверяться как раньше.
+
+То же управление из консоли:
+
+```sh
+/usr/bin/forkop-servicecheck gemini_key_set ВАШ_API_КЛЮЧ
+/usr/bin/forkop-servicecheck gemini_key_status
+/usr/bin/forkop-servicecheck gemini_key_reset
 ```
 
 Удаление:
