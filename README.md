@@ -188,3 +188,10 @@ python3 build_packages.py
 ## Лицензия
 
 MIT.
+
+## Поддержать проект
+
+Если проект оказался полезен, его можно поддержать криптовалютой:
+
+- **GRAM (Toncoin):** `UQCd7Nc6xOE4yyNb218oYk8vTOCPMLlP7XZQ9jk4CAMrHz_i`
+- **USDT:** `UQCd7Nc6xOE4yyNb218oYk8vTOCPMLlP7XZQ9jk4CAMrHz_i`
