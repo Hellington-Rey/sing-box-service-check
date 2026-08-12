@@ -1,13 +1,13 @@
 #!/bin/sh
 #
-# Forkop Service Check - установщик модуля проверки доступности сервисов.
+# Sing-box Service Check - установщик модуля проверки доступности сервисов.
 #
 # Скрипт самодостаточный: полезная нагрузка лежит внутри в base64.
 # Поддерживаются Forkop и оригинальный Podkop. Их файлы при установке модуля
 # не изменяются; Forkop-фиксы доступны отдельно только на Forkop.
 #
-# Установка:   sh install-forkop-servicecheck.sh
-# Удаление:    sh install-forkop-servicecheck.sh --uninstall
+# Установка:   sh install-sing-box-service-check.sh
+# Удаление:    sh install-sing-box-service-check.sh --uninstall
 #
 
 set -e
@@ -15,7 +15,8 @@ set -e
 VERSION="@@VERSION@@"
 BUILT_AT="@@BUILT_AT@@"
 
-BIN_PATH="/usr/bin/forkop-servicecheck"
+BIN_PATH="/usr/bin/sing-box-service-check"
+LEGACY_BIN_PATH="/usr/bin/forkop-servicecheck"
 LIB_DIR="/usr/lib/forkop-servicecheck"
 SHARE_DIR="/usr/share/forkop-servicecheck"
 VERSION_FILE="$SHARE_DIR/version"
@@ -54,9 +55,11 @@ do_uninstall() {
 
     if [ -x "$BIN_PATH" ]; then
         "$BIN_PATH" netns_teardown >/dev/null 2>&1 || true
+    elif [ -x "$LEGACY_BIN_PATH" ]; then
+        "$LEGACY_BIN_PATH" netns_teardown >/dev/null 2>&1 || true
     fi
 
-    rm -f "$BIN_PATH" "$VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLDER_VIEW_FILE" "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$MENU_FILE" "$ACL_FILE"
+    rm -f "$BIN_PATH" "$LEGACY_BIN_PATH" "$VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLDER_VIEW_FILE" "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$MENU_FILE" "$ACL_FILE"
     rm -rf "$LIB_DIR" "$SHARE_DIR" "$STATE_DIR" "$NETNS_DIR"
 
     clear_luci_cache
@@ -72,7 +75,7 @@ case "$1" in
         ;;
 esac
 
-log "Forkop Service Check $VERSION (собран $BUILT_AT)"
+log "Sing-box Service Check $VERSION (собран $BUILT_AT)"
 
 detect_installed_version() {
     if [ -s "$VERSION_FILE" ]; then
@@ -95,7 +98,7 @@ detect_installed_version() {
         return
     fi
 
-    if [ -x "$BIN_PATH" ]; then
+    if [ -x "$BIN_PATH" ] || [ -x "$LEGACY_BIN_PATH" ]; then
         printf '%s\n' "legacy (без маркера версии)"
     fi
 }
@@ -177,7 +180,7 @@ else
 fi
 
 if ! sh -n "$TMP_DIR/usr/bin/forkop-servicecheck" >/dev/null 2>&1; then
-    fail "Синтаксическая ошибка в forkop-servicecheck - установка отменена, система не тронута."
+    fail "Синтаксическая ошибка в CLI - установка отменена, система не тронута."
 fi
 
 # --- Установка --------------------------------------------------------------
@@ -189,6 +192,7 @@ mkdir -p /usr/share/luci/menu.d /usr/share/rpcd/acl.d
 mkdir -p /www/luci-static/resources/view/forkop
 
 cp -f "$TMP_DIR/usr/bin/forkop-servicecheck" "$BIN_PATH"
+cp -f "$TMP_DIR/usr/bin/forkop-servicecheck" "$LEGACY_BIN_PATH"
 cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/probe.uc" "$LIB_DIR/probe.uc"
 cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/xhttp_hotfix.sh" "$LIB_DIR/xhttp_hotfix.sh"
 cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh" "$LIB_DIR/icmp_tproxy_hotfix.sh"
@@ -198,7 +202,7 @@ rm -f "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$OLDER_VIEW_FILE" "$PREVIOUS_VIEW
 cp -f "$TMP_DIR/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" "$MENU_FILE"
 cp -f "$TMP_DIR/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" "$ACL_FILE"
 
-chmod 0755 "$BIN_PATH"
+chmod 0755 "$BIN_PATH" "$LEGACY_BIN_PATH"
 chmod 0755 "$LIB_DIR/xhttp_hotfix.sh" "$LIB_DIR/icmp_tproxy_hotfix.sh"
 chmod 0644 "$LIB_DIR/probe.uc" "$SHARE_DIR/profiles.json" "$VIEW_FILE" "$MENU_FILE" "$ACL_FILE"
 printf '%s\n' "$VERSION" > "$VERSION_FILE"
@@ -236,17 +240,17 @@ cat <<'EOF'
 
 Готово.
 
-  Веб-интерфейс: LuCI -> Сервисы -> "Проверка сервисов Sing-box"
+  Веб-интерфейс: LuCI -> Сервисы -> "Sing-box Service Check"
   (если пункт не появился - обновите страницу с Ctrl+F5, кеш LuCI уже сброшен)
 
   Из консоли:
-    forkop-servicecheck list
-    forkop-servicecheck run telegram,youtube
-    forkop-servicecheck run all netns
-    forkop-servicecheck capabilities
+    sing-box-service-check list
+    sing-box-service-check run telegram,youtube
+    sing-box-service-check run all netns
+    sing-box-service-check capabilities
 
   Удалить:
-    sh install-forkop-servicecheck.sh --uninstall
+    sh install-sing-box-service-check.sh --uninstall
 
 EOF
 

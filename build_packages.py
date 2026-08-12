@@ -1,4 +1,4 @@
-"""Сборка пакетов forkop-servicecheck.
+"""Сборка пакетов Sing-box Service Check.
 
 Делает .ipk (формат opkg, OpenWrt <= 24.10) прямо здесь, на любой ОС: это
 обычный gzip-tar из debian-binary + control.tar.gz + data.tar.gz, и Python
@@ -23,15 +23,15 @@ FILES_DIR = ROOT / "files"
 OUT_DIR = ROOT / "dist"
 
 PACKAGE = "luci-app-forkop-servicecheck"
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 RELEASE = "r1"
 ARCH = "all"
 LICENSE = "MIT"
-MAINTAINER = "forkop-servicecheck"
-URL = "https://github.com/Hellington-Rey/forkop-servicecheck"
+MAINTAINER = "Sing-box Service Check"
+URL = "https://github.com/Hellington-Rey/sing-box-service-check"
 DEPENDS = ["luci-base", "ucode"]
 DESCRIPTION = (
-    "Проверка доступности сервисов для Forkop и оригинального Podkop. Добавляет в LuCI страницу с "
+    "Sing-box Service Check для Forkop и оригинального Podkop. Добавляет в LuCI страницу с "
     "кнопкой проверки: Telegram, YouTube, Instagram и другие сервисы проверяются "
     "тем же путём, которым идёт трафик клиента сети - через dnsmasq, sing-box и "
     "tproxy. Показывает DNS, TCP, TLS, код ответа и выбранный outbound."
@@ -42,6 +42,7 @@ MTIME = 1735689600  # 2025-01-01 00:00:00 UTC
 
 # (путь в пакете, путь в files/, режим)
 PAYLOAD = [
+    ("./usr/bin/sing-box-service-check", "usr/bin/forkop-servicecheck", 0o755),
     ("./usr/bin/forkop-servicecheck", "usr/bin/forkop-servicecheck", 0o755),
     ("./usr/lib/forkop-servicecheck/probe.uc", "usr/lib/forkop-servicecheck/probe.uc", 0o644),
     ("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh", "usr/lib/forkop-servicecheck/xhttp_hotfix.sh", 0o755),
@@ -84,7 +85,7 @@ PRERM = """#!/bin/sh
 [ -n "$IPKG_INSTROOT" ] && exit 0
 
 # Убираем временный network namespace, если проверка оборвалась на полпути.
-[ -x /usr/bin/forkop-servicecheck ] && /usr/bin/forkop-servicecheck netns_teardown >/dev/null 2>&1
+[ -x /usr/bin/sing-box-service-check ] && /usr/bin/sing-box-service-check netns_teardown >/dev/null 2>&1
 rm -rf /var/run/forkop-servicecheck 2>/dev/null
 
 exit 0

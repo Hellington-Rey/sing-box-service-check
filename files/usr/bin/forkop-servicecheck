@@ -5,7 +5,7 @@
 
 LIB_DIR="${FORKOP_SC_LIB:-/usr/lib/forkop-servicecheck}"
 ENGINE="$LIB_DIR/probe.uc"
-BIN_PATH="/usr/bin/forkop-servicecheck"
+BIN_PATH="/usr/bin/${0##*/}"
 
 show_help() {
     cat <<EOF

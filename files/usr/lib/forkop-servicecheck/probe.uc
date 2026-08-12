@@ -1,6 +1,6 @@
 #!/usr/bin/env ucode
 
-// Forkop Service Check - probe engine for Forkop and Podkop.
+// Sing-box Service Check - probe engine for Forkop and Podkop.
 //
 // Проверяет доступность сервисов так, как это делает клиент сети: имя резолвится
 // через тот же dnsmasq -> sing-box, а соединение уходит из роутера и попадает в
@@ -21,9 +21,9 @@ const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
 const FORKOP_BIN = getenv("FORKOP_BIN") || "/usr/bin/forkop";
 const PODKOP_BIN = getenv("PODKOP_BIN") || "/usr/bin/podkop";
 const DEFAULT_SING_BOX_CONFIG = "/etc/sing-box/config.json";
-const UPDATE_API = "https://api.github.com/repos/Hellington-Rey/forkop-servicecheck/releases/latest";
-const UPDATE_RELEASE_BASE = "https://github.com/Hellington-Rey/forkop-servicecheck/releases";
-const UPDATE_INSTALLER = "install-forkop-servicecheck.sh";
+const UPDATE_API = "https://api.github.com/repos/Hellington-Rey/sing-box-service-check/releases/latest";
+const UPDATE_RELEASE_BASE = "https://github.com/Hellington-Rey/sing-box-service-check/releases";
+const UPDATE_INSTALLER = "install-sing-box-service-check.sh";
 const UPDATE_STATE_FILE = STATE_DIR + "/update.json";
 const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "fkpsc";
 const NETNS_VETH_HOST = "fkpsc0";
@@ -1673,7 +1673,7 @@ function latest_release_info() {
     let result = capture_args([
         "curl", "-fL", "-sS", "--proto", "=https", "--tlsv1.2",
         "--connect-timeout", "10", "--max-time", "30",
-        "-A", "forkop-servicecheck-updater",
+        "-A", "sing-box-service-check-updater",
         "-H", "Accept: application/vnd.github+json",
         "-H", "X-GitHub-Api-Version: 2022-11-28",
         UPDATE_API
@@ -1768,7 +1768,7 @@ function update_worker() {
     let download = capture_args([
         "curl", "-fL", "-sS", "--proto", "=https", "--tlsv1.2",
         "--connect-timeout", "10", "--max-time", "180",
-        "-A", "forkop-servicecheck-updater",
+        "-A", "sing-box-service-check-updater",
         "-o", installer_path, info.installer_url
     ], true);
     if (download.status != 0) {

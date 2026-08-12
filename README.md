@@ -1,8 +1,8 @@
-# Forkop Service Check
+# Sing-box Service Check
 
 LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик Forkop или оригинального [Podkop](https://github.com/itdoginfo/podkop).
 
-Имя пакета и команды остаются `forkop-servicecheck`. Установленный backend определяется автоматически; существующие установки Forkop продолжают работать без изменения путей и настроек.
+Установленный backend определяется автоматически. Для совместимости с существующими установками имя пакета остаётся `luci-app-forkop-servicecheck`, а старая команда `forkop-servicecheck` работает как полный синоним новой `sing-box-service-check`.
 
 Модуль помогает понять, на каком этапе возникает проблема: DNS, TCP/UDP, TLS, HTTP или выбор outbound-маршрута.
 
@@ -28,7 +28,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 Обычная проверка проходит по цепочке:
 
 ```text
-LuCI → forkop-servicecheck → probe.uc
+LuCI → sing-box-service-check → probe.uc
                          → dnsmasq → sing-box → Forkop/Podkop tproxy → сервис
 ```
 
@@ -36,7 +36,7 @@ LuCI → forkop-servicecheck → probe.uc
 
 ## Установка
 
-Готовые файлы всех опубликованных версий находятся на странице [GitHub Releases](https://github.com/Hellington-Rey/forkop-servicecheck/releases). Для обычного OpenWrt с `opkg` скачайте файл `.ipk` из раздела Assets нужной версии.
+Готовые файлы всех опубликованных версий находятся на странице [GitHub Releases](https://github.com/Hellington-Rey/sing-box-service-check/releases). Для обычного OpenWrt с `opkg` скачайте файл `.ipk` из раздела Assets нужной версии.
 
 Для OpenWrt с opkg:
 
@@ -53,7 +53,7 @@ apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.6.0-r1.apk
 Установка без пакетного менеджера:
 
 ```sh
-wget -O- https://raw.githubusercontent.com/Hellington-Rey/forkop-servicecheck/main/install-forkop-servicecheck.sh | sh
+wget -O- https://raw.githubusercontent.com/Hellington-Rey/sing-box-service-check/main/install-sing-box-service-check.sh | sh
 ```
 
 Установщик определяет уже установленную версию и сообщает, выполняется ли чистая установка, обновление или переустановка текущей версии.
@@ -75,9 +75,9 @@ wget -O- https://raw.githubusercontent.com/Hellington-Rey/forkop-servicecheck/ma
 Те же операции из консоли:
 
 ```sh
-forkop-servicecheck update-check
-forkop-servicecheck update-start
-forkop-servicecheck update-status
+sing-box-service-check update-check
+sing-box-service-check update-start
+sing-box-service-check update-status
 ```
 
 ## Поддержка Forkop и Podkop
@@ -99,7 +99,7 @@ forkop-servicecheck update-status
 Та же проверка из консоли:
 
 ```sh
-/usr/bin/forkop-servicecheck custom example.com 443 router
+/usr/bin/sing-box-service-check custom example.com 443 router
 ```
 
 ## Геодоступность Gemini
@@ -111,15 +111,15 @@ forkop-servicecheck update-status
 То же управление из консоли:
 
 ```sh
-/usr/bin/forkop-servicecheck gemini_key_set ВАШ_API_КЛЮЧ
-/usr/bin/forkop-servicecheck gemini_key_status
-/usr/bin/forkop-servicecheck gemini_key_reset
+/usr/bin/sing-box-service-check gemini_key_set ВАШ_API_КЛЮЧ
+/usr/bin/sing-box-service-check gemini_key_status
+/usr/bin/sing-box-service-check gemini_key_reset
 ```
 
 Удаление:
 
 ```sh
-sh install-forkop-servicecheck.sh --uninstall
+sh install-sing-box-service-check.sh --uninstall
 ```
 
 ## xHTTP hotfix
@@ -136,7 +136,7 @@ sh install-forkop-servicecheck.sh --uninstall
 Ручной запуск:
 
 ```sh
-/usr/bin/forkop-servicecheck xhttp_patch
+/usr/bin/sing-box-service-check xhttp_patch
 ```
 
 ## ICMP/TProxy hotfix
@@ -148,7 +148,7 @@ sh install-forkop-servicecheck.sh --uninstall
 Ручной запуск:
 
 ```sh
-/usr/bin/forkop-servicecheck icmp_tproxy_patch
+/usr/bin/sing-box-service-check icmp_tproxy_patch
 ```
 
 Собственные профили редактируются графически на вкладке «Списки» в LuCI. Они сохраняются в:

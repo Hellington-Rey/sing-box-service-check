@@ -1,4 +1,4 @@
-# Собирает самодостаточный установщик install-forkop-servicecheck.sh
+# Собирает основной и совместимый самодостаточные установщики.
 # из содержимого каталога files\ и шаблона installer-template.sh.
 
 $ErrorActionPreference = 'Stop'
@@ -6,11 +6,12 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $filesDir = Join-Path $root 'files'
 $template = Join-Path $root 'installer-template.sh'
-$output = Join-Path $root 'install-forkop-servicecheck.sh'
+$output = Join-Path $root 'install-sing-box-service-check.sh'
+$legacyOutput = Join-Path $root 'install-forkop-servicecheck.sh'
 $archive = Join-Path $env:TEMP 'forkop-servicecheck-payload.tar.gz'
 $staging = Join-Path $env:TEMP ("forkop-servicecheck-payload-" + [Guid]::NewGuid().ToString('N'))
 
-$version = '1.6.0'
+$version = '1.7.0'
 $builtAt = (Get-Date).ToString('yyyy-MM-dd')
 
 if (Test-Path $archive) { Remove-Item $archive -Force }
@@ -58,11 +59,13 @@ $script = $script.Replace('@@PAYLOAD@@', $wrapped.ToString())
 $script = $script.Replace("`r`n", "`n")
 
 [System.IO.File]::WriteAllText($output, $script, $utf8NoBom)
+[System.IO.File]::WriteAllText($legacyOutput, $script, $utf8NoBom)
 
 Remove-Item $archive -Force
 
 $size = [Math]::Round((Get-Item $output).Length / 1KB, 1)
 Write-Output "Собрано: $output ($size КБ, payload $([Math]::Round($bytes.Length / 1KB, 1)) КБ)"
+Write-Output "Совместимая копия: $legacyOutput"
 
 # Пакеты для opkg и apk - в dist\
 & python (Join-Path $root 'build_packages.py')

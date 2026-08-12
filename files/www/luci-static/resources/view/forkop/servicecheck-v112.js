@@ -4,11 +4,11 @@
 "require ui";
 
 /*
- * Forkop Service Check - страница проверки доступности сервисов.
+ * Sing-box Service Check - страница проверки доступности сервисов.
  *
  * Страница намеренно не встраивается в SPA forkop: та собрана в один бандл
  * main.js, патчить который нельзя без пересборки. Здесь обычная LuCI-вьюха,
- * которая общается с /usr/bin/forkop-servicecheck.
+ * которая общается с /usr/bin/sing-box-service-check.
  *
  * Результаты показываются плитками: свёрнутая плитка отвечает на вопрос
  * "работает ли", развёрнутая - "что именно и на каком этапе сломалось".
@@ -16,8 +16,8 @@
  * на любой теме LuCI и не тянула ни шрифтов, ни картинок.
  */
 
-var BIN = "/usr/bin/forkop-servicecheck";
-var UI_VERSION = "1.6.0"; // Filename v112 remains compatible with existing menu entries.
+var BIN = "/usr/bin/sing-box-service-check";
+var UI_VERSION = "1.7.0"; // Filename v112 remains compatible with existing menu entries.
 var THEME_STORAGE_KEY = "forkop-servicecheck-theme";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
@@ -735,7 +735,7 @@ return view.extend({
 
     if (!capabilities || !catalogue) {
       return E("div", { class: "cbi-map fkpsc" }, [
-        E("h2", {}, "Forkop Service Check"),
+        E("h2", {}, "Sing-box Service Check"),
         E("div", { class: "alert-message error" },
           "Не удалось обратиться к " + BIN + ". Проверьте, что модуль установлен и у пользователя есть права на его запуск."),
       ]);
@@ -1139,7 +1139,7 @@ return view.extend({
             }
             checkUpdateButton.disabled = false;
             installUpdateButton.disabled = false;
-            updateStatusContent("Обновление выполняется слишком долго", "Проверьте состояние командой forkop-servicecheck update-status.");
+            updateStatusContent("Обновление выполняется слишком долго", "Проверьте состояние командой sing-box-service-check update-status.");
             return;
           }
 
@@ -1180,7 +1180,7 @@ return view.extend({
       if (!availableUpdate) {
         return;
       }
-      if (!window.confirm("Установить Forkop Service Check " + availableUpdate.latest_version + "? Во время обновления LuCI кратковременно потеряет связь.")) {
+      if (!window.confirm("Установить Sing-box Service Check " + availableUpdate.latest_version + "? Во время обновления LuCI кратковременно потеряет связь.")) {
         return;
       }
       checkUpdateButton.disabled = true;
@@ -1587,7 +1587,7 @@ return view.extend({
     pageRoot = E("div", { class: "cbi-map fkpsc theme-" + themeChoice }, [
       E("div", { class: "fkpsc-hero" }, [
         E("div", { class: "fkpsc-theme-line" }, [
-          E("h2", {}, "Forkop Service Check"),
+          E("h2", {}, "Sing-box Service Check"),
           themeSwitch,
         ]),
         E("p", {}, "Проверка идёт тем же путём, что и трафик клиента: имя резолвится через dnsmasq и sing-box, " +

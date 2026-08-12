@@ -1,6 +1,6 @@
 {
   "admin/services/forkop_servicecheck": {
-    "title": "Проверка сервисов Sing-box",
+    "title": "Sing-box Service Check",
     "order": 43,
     "action": {
       "type": "view",

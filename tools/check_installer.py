@@ -7,8 +7,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTALLER = ROOT / "install-forkop-servicecheck.sh"
-PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.6.0-r1_all.ipk"
+INSTALLER = ROOT / "install-sing-box-service-check.sh"
+LEGACY_INSTALLER = ROOT / "install-forkop-servicecheck.sh"
+PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.7.0-r1_all.ipk"
 MARKER = "__FORKOP_SC_PAYLOAD__"
 
 
@@ -19,7 +20,8 @@ def assert_shell(name, shell_script):
 
 def main():
     script = INSTALLER.read_text(encoding="utf-8")
-    assert 'VERSION="1.6.0"' in script
+    assert 'VERSION="1.7.0"' in script
+    assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
     assert "sed -n '/^__PAYLOAD_BELOW__$/,$p' \"$0\"" not in script
@@ -91,7 +93,8 @@ def main():
     assert 'function latest_release_info()' in engine
     assert 'function update_worker()' in engine
     assert 'function update_temp_dir_valid(path)' in engine
-    assert 'UPDATE_API = "https://api.github.com/repos/Hellington-Rey/forkop-servicecheck/releases/latest"' in engine
+    assert 'UPDATE_API = "https://api.github.com/repos/Hellington-Rey/sing-box-service-check/releases/latest"' in engine
+    assert 'UPDATE_INSTALLER = "install-sing-box-service-check.sh"' in engine
     assert 'download_url != expected_url' in engine
     assert 'match(digest, /^sha256:[0-9a-f]{64}$/)' in engine
     assert 'actual_digest != expected_digest' in engine
@@ -115,6 +118,7 @@ def main():
         assert "Depends: luci-base, ucode" in control
         assert "оригинального Podkop" in control
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
+        assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
         assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
         assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())
         assert_shell("IPK ICMP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read())
