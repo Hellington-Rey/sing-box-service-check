@@ -6,6 +6,27 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 
 Модуль помогает понять, на каком этапе возникает проблема: DNS, TCP/UDP, TLS, HTTP или выбор outbound-маршрута.
 
+## Интерфейс
+
+<p align="center">
+  <img src="docs/screenshots/overview-light.png" alt="Обзор результатов проверки сервисов с активным Tachyon" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/diagnostics-dark.png" alt="Подробная диагностика маршрута в тёмной теме" width="100%">
+      <br><sub><b>Подробная диагностика:</b> DNS, TCP, TLS, HTTP и подтверждённый outbound-маршрут.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/profiles-editor.png" alt="Графический редактор списков проверок" width="100%">
+      <br><sub><b>Редактор списков:</b> категории и цели настраиваются прямо в LuCI, без ручного редактирования JSON.</sub>
+    </td>
+  </tr>
+</table>
+
+<sub>На скриншотах используются демонстрационные адреса и результаты.</sub>
+
 ## Возможности
 
 - Проверка популярных сервисов: Telegram, YouTube, Instagram, Discord, WhatsApp, GitHub и других.

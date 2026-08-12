@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sing-box Service Check — README preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --ok:#2f9e44; --warn:#e8a33d; --err:#e03131; --accent:#367fc7;
+      --surface:#f4f6f8; --soft:#e9edf1; --card:#fff; --text:#17191c;
+      --muted:#58616b; --border:#d9dfe5; --strong:#a9b3bd; --field:#fff;
+      color-scheme: light;
+    }
+    body.dark {
+      --accent:#55a7ef; --surface:#15171a; --soft:#20242a; --card:#1b1f24;
+      --text:#f1f4f7; --muted:#aeb8c3; --border:#2a3139; --strong:#3b4652;
+      --field:#111419; color-scheme: dark;
+    }
+    body {
+      margin:0; min-width:1000px; background:#edf0f3; color:#28313a;
+      font:14px/1.42 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+    }
+    body.dark { background:#0d0f12; color:#e9edf2; }
+    .luci-top { height:46px; display:flex; align-items:center; padding:0 30px; color:#fff;
+      background:linear-gradient(110deg,#223953,#326d9d); box-shadow:0 2px 8px #0003; }
+    .brand { font-weight:800; letter-spacing:.2px; font-size:17px; margin-right:38px; }
+    .nav { display:flex; gap:28px; color:#e8f2fb; font-weight:600; }
+    .nav span.active { color:#fff; border-bottom:2px solid #82c9ff; padding:13px 0 11px; }
+    .shell { display:grid; grid-template-columns:190px minmax(0,1fr); min-height:674px; }
+    aside { padding:24px 16px; background:#fff; border-right:1px solid #dfe4e9; }
+    body.dark aside { background:#121519; border-color:#272d34; }
+    aside h4 { margin:0 10px 10px; color:#86919d; font-size:11px; letter-spacing:1px; text-transform:uppercase; }
+    .side { padding:9px 12px; border-radius:7px; color:#66717d; margin:2px 0; }
+    body.dark .side { color:#a7b1bd; }
+    .side.active { color:#276da7; background:#e9f3fb; font-weight:700; }
+    body.dark .side.active { color:#84c8ff; background:#1c2e3e; }
+    main { padding:22px 26px 34px; min-width:0; width:auto; margin:0; }
+    .app { min-width:0; padding:14px; border-radius:14px; background:var(--surface); color:var(--text); }
+    .hero { padding:16px 20px; border-radius:12px; background:var(--card); border:1px solid var(--border); box-shadow:0 5px 18px #172b3b0b; }
+    .title-row { display:flex; justify-content:space-between; align-items:center; gap:20px; }
+    h1 { margin:0; font-size:23px; letter-spacing:-.3px; }
+    h2 { margin:0 0 12px; font-size:18px; }
+    h3 { margin:0; font-size:15px; }
+    p { margin:8px 0; }
+    .desc { color:var(--muted); max-width:880px; }
+    .theme { padding:3px; background:var(--soft); border:1px solid var(--border); border-radius:9px; white-space:nowrap; }
+    .theme span { display:inline-block; padding:5px 9px; border-radius:6px; font-size:12px; font-weight:700; color:var(--muted); }
+    .theme span.active { color:#fff; background:var(--accent); box-shadow:0 2px 7px #0003; }
+    .badges { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+    .badge { padding:4px 9px; border-radius:999px; background:var(--soft); color:var(--muted); font-size:12px; border:1px solid var(--border); }
+    .badge.live { color:var(--ok); background:color-mix(in srgb,var(--ok) 9%,var(--card)); border-color:color-mix(in srgb,var(--ok) 28%,var(--border)); font-weight:700; }
+    .tabs { display:flex; gap:6px; margin:12px 0; padding:4px; border-radius:10px; background:var(--soft); border:1px solid var(--border); }
+    .tab { padding:8px 16px; border-radius:7px; color:var(--muted); font-weight:700; }
+    .tab.active { background:var(--card); color:var(--accent); box-shadow:0 2px 8px #00000010; }
+    .panel { padding:15px; background:var(--card); border:1px solid var(--border); border-radius:11px; margin-bottom:12px; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; min-width:0; }
+    .controls { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
+    button,.button { border:1px solid var(--strong); border-radius:7px; padding:8px 13px; background:var(--field); color:var(--text); font-weight:700; }
+    .primary { border-color:#2879ba; background:var(--accent); color:#fff; }
+    input,select,textarea { min-width:0; max-width:100%; border:1px solid var(--strong); background:var(--field); color:var(--text); border-radius:7px; padding:8px 10px; font:inherit; }
+    .radio { color:var(--muted); }
+    .radio strong { color:var(--text); }
+    .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:12px; }
+    .tile { background:var(--card); border:1px solid var(--border); border-left:4px solid var(--ok); border-radius:10px; padding:13px 14px; min-height:100px; box-shadow:0 3px 10px #0000000a; }
+    .tile.warn { border-left-color:var(--warn); }
+    .tile.error { border-left-color:var(--err); }
+    .tile-head { display:flex; justify-content:space-between; gap:8px; align-items:start; }
+    .status { font-size:11px; font-weight:800; text-transform:uppercase; color:var(--ok); }
+    .warn .status { color:var(--warn); } .error .status { color:var(--err); }
+    .meta { color:var(--muted); font-size:12px; margin-top:8px; }
+    .timing { margin-top:9px; display:flex; gap:5px; flex-wrap:wrap; }
+    .timing span { font-size:10px; border-radius:5px; padding:3px 5px; background:var(--soft); color:var(--muted); }
+    .summary { display:flex; gap:9px; align-items:center; }
+    .counter { font-size:12px; padding:5px 8px; border-radius:7px; background:var(--soft); color:var(--muted); }
+    .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); display:inline-block; margin-right:4px; }
+    .detail-head { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; }
+    .verdict { padding:6px 10px; border-radius:8px; color:#fff; background:var(--ok); font-size:12px; font-weight:800; }
+    .route { display:flex; gap:9px; align-items:center; margin:14px 0 10px; }
+    .route > span { flex:1; text-align:center; border:1px solid var(--border); background:var(--soft); padding:9px 6px; border-radius:8px; font-size:12px; font-weight:700; }
+    .route i { color:var(--accent); font-style:normal; font-size:18px; }
+    .checks { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+    .check { border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--surface); }
+    .check b { display:block; font-size:12px; margin-bottom:4px; }
+    .check span { color:var(--muted); font-size:11px; }
+    .code { margin-top:10px; background:#0d1117; color:#b8c7d9; border:1px solid #29323c; padding:10px 12px; border-radius:8px; font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .profile { padding:14px; border:1px solid var(--border); border-radius:10px; background:var(--surface); margin-top:10px; }
+    .profile-head { display:flex; gap:9px; align-items:center; }
+    .num { display:grid; place-items:center; width:27px; height:27px; border-radius:7px; color:#fff; background:var(--accent); font-weight:800; }
+    .profile-head h3 { flex:1; }
+    .icon { width:29px; height:29px; display:grid; place-items:center; padding:0; }
+    .editor { display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:10px; margin-top:12px; }
+    label small { display:block; color:var(--muted); margin-bottom:4px; font-weight:700; }
+    label { min-width:0; } label input,label select { width:100%; }
+    .target { margin-top:11px; padding:11px; border:1px dashed var(--strong); border-radius:9px; background:var(--card); }
+    .target-grid { display:grid; grid-template-columns:1fr 1.5fr .6fr 1fr; gap:9px; margin-top:8px; }
+    .footer-note { text-align:right; color:var(--muted); font-size:11px; margin:8px 2px -3px; }
+    @media(max-width:1080px) { .grid{grid-template-columns:repeat(3,1fr)} .shell{grid-template-columns:165px 1fr} main{padding:18px} }
+  </style>
+</head>
+<body>
+  <header class="luci-top"><div class="brand">OpenWrt</div><div class="nav"><span>Статус</span><span>Система</span><span>Сеть</span><span class="active">Сервисы</span></div></header>
+  <div class="shell">
+    <aside><h4>Сервисы</h4><div class="side">Tachyon</div><div class="side active">Service Check</div><div class="side">UPnP</div><div class="side">Dynamic DNS</div></aside>
+    <main><section class="app">
+      <div class="hero">
+        <div class="title-row"><h1>Sing-box Service Check</h1><div class="theme"><span>LuCI</span><span class="light-choice active">Светлая</span><span class="dark-choice">Тёмная</span></div></div>
+        <p class="desc">Проверка идёт тем же путём, что и трафик клиента: DNS через dnsmasq и sing-box, соединение — через TProxy выбранного backend.</p>
+        <div class="badges"><span class="badge">интерфейс v1.8.0</span><span class="badge live">● Tachyon запущен</span><span class="badge">HTTPS: точный</span><span class="badge">netns доступен</span></div>
+      </div>
+      <div class="tabs"><span class="tab check-tab active">Проверка сервисов</span><span class="tab list-tab">Списки</span></div>
+      <div id="overview">
+        <div class="panel toolbar"><div class="controls"><button class="primary">▶ Проверить всё</button><span class="radio"><strong>● Роутер</strong>　○ Клиент из LAN</span></div><div class="summary"><span class="counter"><span class="dot"></span> 10 работают</span><span class="counter">1 замечание</span></div></div>
+        <div class="panel"><div class="toolbar"><h2>Популярные сервисы</h2><span class="meta">последняя проверка: только что</span></div>
+          <div class="grid">
+            <article class="tile"><div class="tile-head"><h3>Telegram</h3><span class="status">работает</span></div><div class="meta">3 из 3 целей доступны</div><div class="timing"><span>DNS 8 мс</span><span>TLS 91 мс</span><span>HTTP 126 мс</span></div></article>
+            <article class="tile"><div class="tile-head"><h3>YouTube</h3><span class="status">работает</span></div><div class="meta">web, video и QUIC доступны</div><div class="timing"><span>DNS 12 мс</span><span>TLS 104 мс</span><span>HTTP 148 мс</span></div></article>
+            <article class="tile"><div class="tile-head"><h3>Instagram</h3><span class="status">работает</span></div><div class="meta">2 из 2 целей доступны</div><div class="timing"><span>DNS 9 мс</span><span>TLS 116 мс</span><span>HTTP 171 мс</span></div></article>
+            <article class="tile warn"><div class="tile-head"><h3>Discord</h3><span class="status">замечания</span></div><div class="meta">HTTPS работает, UDP не подтверждён</div><div class="timing"><span>DNS 7 мс</span><span>TLS 129 мс</span><span>UDP best effort</span></div></article>
+            <article class="tile"><div class="tile-head"><h3>WhatsApp</h3><span class="status">работает</span></div><div class="meta">web и media доступны</div><div class="timing"><span>DNS 11 мс</span><span>TLS 95 мс</span><span>HTTP 141 мс</span></div></article>
+            <article class="tile"><div class="tile-head"><h3>GitHub</h3><span class="status">работает</span></div><div class="meta">web, API и git доступны</div><div class="timing"><span>DNS 5 мс</span><span>TLS 82 мс</span><span>HTTP 120 мс</span></div></article>
+            <article class="tile"><div class="tile-head"><h3>Gemini / Google AI</h3><span class="status">работает</span></div><div class="meta">регион поддерживается</div><div class="timing"><span>DNS 10 мс</span><span>TLS 107 мс</span><span>API доступен</span></div></article>
+            <article class="tile"><div class="tile-head"><h3>Cloudflare</h3><span class="status">работает</span></div><div class="meta">DNS и HTTPS доступны</div><div class="timing"><span>DNS 4 мс</span><span>TLS 39 мс</span><span>HTTP 58 мс</span></div></article>
+          </div>
+        </div>
+        <div class="panel toolbar"><div><h3>Проверить свой IP или домен</h3><div class="meta">Тем же маршрутом, с подтверждением через Clash API</div></div><div class="controls"><input value="example.com"><input value="443" style="width:76px"><button>Проверить IP/домен</button></div></div>
+      </div>
+      <div id="detail" hidden>
+        <div class="panel"><div class="detail-head"><div><h2>GitHub · подробная диагностика</h2><p class="meta">Цель: github.com:443 · режим: роутер</p></div><span class="verdict">РАБОТАЕТ</span></div>
+          <div class="route"><span>dnsmasq<br><small>192.0.2.17</small></span><i>→</i><span>sing-box<br><small>FakeIP распознан</small></span><i>→</i><span>Tachyon TProxy<br><small>маршрут: proxy</small></span><i>→</i><span>GitHub<br><small>HTTP 200</small></span></div>
+          <div class="checks"><div class="check"><b>✓ DNS</b><span>ответ за 5 мс</span></div><div class="check"><b>✓ TCP</b><span>соединение за 43 мс</span></div><div class="check"><b>✓ TLS</b><span>TLS 1.3 · 82 мс</span></div><div class="check"><b>✓ HTTP</b><span>200 · 120 мс</span></div></div>
+          <div class="code">outbound: proxy<br>network: tcp · destination: github.com:443<br>route evidence: Clash API connection matched<br>certificate: valid · issuer: DigiCert</div>
+        </div>
+        <div class="panel"><div class="toolbar"><div><h2>Цели категории</h2><span class="meta">Каждая цель проверяется независимо</span></div><button class="primary">Проверить GitHub</button></div>
+          <div class="grid" style="grid-template-columns:repeat(3,1fr)"><article class="tile"><div class="tile-head"><h3>GitHub Web</h3><span class="status">OK</span></div><div class="meta">github.com · HTTPS 200</div><div class="timing"><span>120 мс</span><span>через proxy</span></div></article><article class="tile"><div class="tile-head"><h3>GitHub API</h3><span class="status">OK</span></div><div class="meta">api.github.com · HTTPS 200</div><div class="timing"><span>138 мс</span><span>через proxy</span></div></article><article class="tile"><div class="tile-head"><h3>Git Transport</h3><span class="status">OK</span></div><div class="meta">github.com:22 · TCP</div><div class="timing"><span>74 мс</span><span>через proxy</span></div></article></div>
+        </div>
+        <div class="panel toolbar"><div><h3>Свой адрес</h3><div class="meta">Проверка маршрута для произвольной цели</div></div><div class="controls"><input value="api.github.com"><input value="443" style="width:76px"><button>Проверить</button></div></div>
+      </div>
+      <div id="profiles" hidden>
+        <div class="panel"><div class="toolbar"><div><h2>Списки проверок</h2><div class="meta">Пользовательский список сохраняется при обновлении модуля</div></div><div class="controls"><span class="badge">Сейчас: встроенный список</span><button class="primary">Сохранить список</button><button>Вернуть встроенный</button></div></div>
+          <div class="profile"><div class="profile-head"><span class="num">1</span><h3>Telegram</h3><button class="icon">↑</button><button class="icon">↓</button><button class="icon">×</button></div><div class="editor"><label><small>Название категории</small><input value="Telegram"></label><label><small>ID</small><input value="telegram"></label><label><small>Группа</small><input value="messenger"></label></div><div class="target"><div class="toolbar"><b>Цель 1 · Telegram API</b><span class="meta">HTTPS-проверка</span></div><div class="target-grid"><label><small>Тип проверки</small><select><option>HTTPS</option></select></label><label><small>Домен или IP</small><input value="api.telegram.org"></label><label><small>Порт</small><input value="443"></label><label><small>Допустимые коды</small><input value="200, 301, 302"></label></div></div></div>
+          <div class="profile"><div class="profile-head"><span class="num">2</span><h3>YouTube</h3><button class="icon">↑</button><button class="icon">↓</button><button class="icon">×</button></div><div class="editor"><label><small>Название категории</small><input value="YouTube"></label><label><small>ID</small><input value="youtube"></label><label><small>Группа</small><input value="video"></label></div><div class="target"><div class="toolbar"><b>Цель 1 · YouTube Web</b><span class="meta">HTTPS-проверка</span></div><div class="target-grid"><label><small>Тип проверки</small><select><option>HTTPS</option></select></label><label><small>Домен или IP</small><input value="www.youtube.com"></label><label><small>Порт</small><input value="443"></label><label><small>Допустимые коды</small><input value="200, 301, 302"></label></div></div></div>
+          <div style="margin-top:12px"><button>＋ Добавить категорию</button></div>
+        </div>
+      </div>
+      <div class="footer-note">Демонстрационные данные · Sing-box Service Check v1.8.0</div>
+    </section></main>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const view = params.get('view') || 'overview';
+    const dark = params.get('theme') === 'dark';
+    if (dark) {
+      document.body.classList.add('dark');
+      document.querySelector('.light-choice').classList.remove('active');
+      document.querySelector('.dark-choice').classList.add('active');
+    }
+    if (view !== 'overview') document.querySelector('#overview').hidden = true;
+    if (view === 'detail') document.querySelector('#detail').hidden = false;
+    if (view === 'profiles') {
+      document.querySelector('#profiles').hidden = false;
+      document.querySelector('.check-tab').classList.remove('active');
+      document.querySelector('.list-tab').classList.add('active');
+    }
+  </script>
+</body>
+</html>
