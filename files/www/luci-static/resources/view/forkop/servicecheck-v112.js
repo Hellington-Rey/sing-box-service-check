@@ -86,7 +86,7 @@ function injectStyles() {
     /* и на светлой, и на тёмной теме LuCI. */
     ".fkpsc { --ok:#2f9e44; --warn:#e8a33d; --err:#e03131; --skip:#868e96; --accent:#367fc7; --accent-border:rgba(54,127,199,.38); --surface:#f4f6f8; --surface-soft:#e9edf1; --surface-raised:#fff; --text:#17191c; --muted:#505862; --field:#fff; --field-text:#17191c; --border-soft:#d9dfe5; --border:#c4ccd4; --border-strong:#9ba8b5; --field-border:#9ba8b5; box-sizing:border-box; padding:1em; border-radius:14px; background:var(--surface); color:var(--text) !important; color-scheme:light; }",
     ".fkpsc.theme-light, .fkpsc.theme-auto.theme-inherited-light { --accent:#367fc7; --accent-border:rgba(54,127,199,.38); --surface:#f4f6f8; --surface-soft:#e9edf1; --surface-raised:#fff; --text:#17191c; --muted:#505862; --field:#fff; --field-text:#17191c; --border-soft:#d9dfe5; --border:#c4ccd4; --border-strong:#9ba8b5; --field-border:#9ba8b5; color-scheme:light; }",
-    ".fkpsc.theme-dark, .fkpsc.theme-auto.theme-inherited-dark { --accent:#55a7ef; --accent-border:rgba(85,167,239,.30); --surface:#15171a; --surface-soft:#20242a; --surface-raised:#1b1f24; --text:#f1f4f7; --muted:#aeb8c3; --field:#111419; --field-text:#f5f7fa; --border-soft:#292f37; --border:#343c46; --border-strong:#46515e; --field-border:#46515e; color-scheme:dark; }",
+    ".fkpsc.theme-dark, .fkpsc.theme-auto.theme-inherited-dark { --accent:#55a7ef; --accent-border:rgba(85,167,239,.22); --surface:#15171a; --surface-soft:#20242a; --surface-raised:#1b1f24; --text:#f1f4f7; --muted:#aeb8c3; --field:#111419; --field-text:#f5f7fa; --border-soft:#22282f; --border:#2a3139; --border-strong:#38424d; --field-border:#3b4652; color-scheme:dark; }",
     ".fkpsc h1, .fkpsc h2, .fkpsc h3, .fkpsc h4, .fkpsc h5, .fkpsc h6, .fkpsc label, .fkpsc b, .fkpsc strong { color:var(--text) !important; }",
     ".fkpsc input:not([type=radio]):not([type=checkbox]), .fkpsc select, .fkpsc textarea { color:var(--field-text) !important; background:var(--field) !important; border-color:var(--field-border) !important; }",
     ".fkpsc input::placeholder, .fkpsc textarea::placeholder { color:var(--muted) !important; opacity:.85; }",
@@ -134,15 +134,25 @@ function injectStyles() {
     ".fkpsc-intro { margin-bottom: 1em; line-height: 1.55; max-width: 60em; }",
     ".fkpsc-note { background: rgba(232,163,61,.12); border-left: 3px solid var(--warn); padding: .65em .9em; margin: .9em 0; border-radius: 0 6px 6px 0; line-height: 1.5; }",
 
-    /* --- выбор сервисов: чипы вместо частокола чекбоксов --- */
-    ".fkpsc-chips-pick { display: flex; flex-wrap: wrap; gap: .45em; margin: .7em 0 1.1em; }",
-    ".fkpsc-pick { display: inline-flex; align-items: center; gap: .4em; padding: .38em .8em; border-radius: 999px; border: 1px solid var(--border); cursor: pointer; user-select: none; font-size: .93em; line-height: 1.2; transition: all .15s ease; background: transparent; }",
-    ".fkpsc-pick:hover { border-color: var(--accent); }",
+    /* --- выбор сервисов: категории и компактные чипы --- */
+    ".fkpsc-service-groups { display:grid; grid-template-columns:repeat(auto-fit,minmax(245px,1fr)); gap:.65em; margin:.7em 0 1.1em; align-items:start; }",
+    ".fkpsc-service-group { min-width:0; padding:.7em; border:1px solid var(--border-soft); border-radius:10px; background:var(--surface-soft); }",
+    ".fkpsc-service-group.has-selection { border-color:var(--border); }",
+    ".fkpsc-group-head { display:flex; align-items:center; gap:.45em; min-height:1.75em; margin:0 .1em .55em; }",
+    ".fkpsc-group-mark { width:.5em; height:.5em; flex:none; border-radius:50%; background:var(--group-color,var(--muted)); box-shadow:0 0 0 3px rgba(127,127,127,.10); }",
+    ".fkpsc-group-name { min-width:0; flex:1 1 auto; font-size:.82em; font-weight:700; letter-spacing:.025em; text-transform:uppercase; }",
+    ".fkpsc-group-count { color:var(--muted) !important; font-size:.78em; font-variant-numeric:tabular-nums; }",
+    ".fkpsc-group-toggle { padding:.12em .3em; border:0; background:transparent; color:var(--accent) !important; cursor:pointer; font-size:.78em; }",
+    ".fkpsc-group-toggle:hover { text-decoration:underline; }",
+    ".fkpsc-group-picks { display:flex; flex-wrap:wrap; gap:.4em; }",
+    ".fkpsc-pick { display:inline-flex; align-items:center; gap:.4em; max-width:100%; padding:.38em .72em; border-radius:999px; border:1px solid var(--border-soft); cursor:pointer; user-select:none; font-size:.9em; line-height:1.2; transition:background .15s ease,border-color .15s ease; background:var(--surface-raised); }",
+    ".fkpsc-pick > span:nth-child(2) { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }",
+    ".fkpsc-pick:hover { border-color:var(--border-strong); background:var(--surface-soft); }",
     ".fkpsc-pick .tick { width: 1em; height: 1em; border-radius: 50%; border: 1px solid var(--border-strong); display: inline-block; position: relative; flex: none; }",
-    ".fkpsc-pick.on { border-color: var(--accent); background: rgba(74,144,217,.14); }",
+    ".fkpsc-pick.on { border-color:var(--accent-border); background:rgba(74,144,217,.12); }",
     ".fkpsc-pick.on .tick { background: var(--accent); border-color: var(--accent); }",
     ".fkpsc-pick.on .tick::after { content: ''; position: absolute; left: .3em; top: .12em; width: .22em; height: .45em; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }",
-    ".fkpsc-pick .num { opacity: .55; font-size: .88em; }",
+    ".fkpsc-pick .num { color:var(--muted) !important; font-size:.78em; font-variant-numeric:tabular-nums; }",
 
     /* --- панель управления --- */
     ".fkpsc-mode label { display: block; margin-bottom: .35em; cursor: pointer; }",
@@ -273,7 +283,8 @@ function injectStyles() {
     "  .fkpsc-profile-edit { padding:.75em; }",
     "  .fkpsc-profile-head { flex-wrap:wrap; }",
     "  .fkpsc-actions .cbi-button { flex:1 1 45%; min-height:2.6em; }",
-    "  .fkpsc-chips-pick { gap:.35em; }",
+    "  .fkpsc-service-groups { grid-template-columns:1fr; gap:.5em; }",
+    "  .fkpsc-service-group { padding:.65em; }",
     "  .fkpsc-pick { padding:.42em .65em; }",
     "  .fkpsc-tiles { grid-template-columns:1fr; }",
     "}",
@@ -846,44 +857,115 @@ return view.extend({
       }
     });
 
+    var groupMeta = {
+      system: ["Основное", "#55a7ef"],
+      messenger: ["Мессенджеры", "#6f9ff8"],
+      social: ["Социальные сети", "#e879a9"],
+      video: ["Видео и стриминг", "#b789f7"],
+      ai: ["ИИ-сервисы", "#67c6ba"],
+      music: ["Музыка", "#55b889"],
+      games: ["Игры", "#e2a84b"],
+      dev: ["Разработка", "#8b9cad"],
+      bypass: ["Доступ", "#e07b67"],
+      network: ["Сеть и UDP", "#6bbbd8"],
+      custom: ["Свои сервисы", "#a78bfa"],
+    };
     var pickNodes = {};
-    var picker = E("div", { class: "fkpsc-chips-pick" }, profiles.map(function (profile) {
-      var chip = E("span", {
-        class: "fkpsc-pick" + (selected[profile.id] ? " on" : ""),
-        title: profile.description || "",
-        tabindex: "0",
-        role: "checkbox",
-        "aria-checked": selected[profile.id] ? "true" : "false",
+    var groupNodes = {};
+    var groups = [];
+
+    profiles.forEach(function (profile) {
+      var groupId = profile.group || "custom";
+      if (!groupNodes[groupId]) {
+        groupNodes[groupId] = { id: groupId, profiles: [] };
+        groups.push(groupNodes[groupId]);
+      }
+      groupNodes[groupId].profiles.push(profile);
+    });
+
+    function updatePick(profile) {
+      var chip = pickNodes[profile.id];
+      chip.classList.toggle("on", selected[profile.id]);
+      chip.setAttribute("aria-checked", selected[profile.id] ? "true" : "false");
+    }
+
+    function updateGroup(group) {
+      var selectedCount = group.profiles.filter(function (profile) {
+        return selected[profile.id];
+      }).length;
+      group.node.classList.toggle("has-selection", selectedCount > 0);
+      group.count.textContent = selectedCount + " / " + group.profiles.length;
+      group.toggle.textContent = selectedCount === group.profiles.length ? "Снять" : "Выбрать";
+      group.toggle.setAttribute("aria-label", (selectedCount === group.profiles.length ? "Снять группу " : "Выбрать группу ") + group.title);
+    }
+
+    var picker = E("div", { class: "fkpsc-service-groups" }, groups.map(function (group) {
+      var meta = groupMeta[group.id] || [group.id || "Другое", "#8b9cad"];
+      group.title = meta[0];
+      group.count = E("span", { class: "fkpsc-group-count" });
+      group.toggle = E("button", { class: "fkpsc-group-toggle", type: "button" });
+      var picks = E("div", { class: "fkpsc-group-picks" }, group.profiles.map(function (profile) {
+        var chip = E("span", {
+          class: "fkpsc-pick" + (selected[profile.id] ? " on" : ""),
+          title: profile.description || "",
+          tabindex: "0",
+          role: "checkbox",
+          "aria-checked": selected[profile.id] ? "true" : "false",
+        }, [
+          E("span", { class: "tick" }),
+          E("span", {}, profile.title),
+          E("span", { class: "num", title: "Целей проверки: " + profile.targets }, String(profile.targets)),
+        ]);
+
+        function toggle() {
+          selected[profile.id] = !selected[profile.id];
+          updatePick(profile);
+          updateGroup(group);
+        }
+
+        chip.addEventListener("click", toggle);
+        chip.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggle();
+          }
+        });
+        pickNodes[profile.id] = chip;
+        return chip;
+      }));
+
+      group.node = E("section", {
+        class: "fkpsc-service-group",
+        style: "--group-color:" + meta[1],
+        "data-group": group.id,
       }, [
-        E("span", { class: "tick" }),
-        E("span", {}, profile.title),
-        E("span", { class: "num" }, String(profile.targets)),
+        E("div", { class: "fkpsc-group-head" }, [
+          E("span", { class: "fkpsc-group-mark" }),
+          E("span", { class: "fkpsc-group-name" }, group.title),
+          group.count,
+          group.toggle,
+        ]),
+        picks,
       ]);
 
-      function toggle() {
-        selected[profile.id] = !selected[profile.id];
-        chip.classList.toggle("on", selected[profile.id]);
-        chip.setAttribute("aria-checked", selected[profile.id] ? "true" : "false");
-      }
-
-      chip.addEventListener("click", toggle);
-      chip.addEventListener("keydown", function (event) {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          toggle();
-        }
+      group.toggle.addEventListener("click", function () {
+        var allSelected = group.profiles.every(function (profile) { return selected[profile.id]; });
+        group.profiles.forEach(function (profile) {
+          selected[profile.id] = !allSelected;
+          updatePick(profile);
+        });
+        updateGroup(group);
       });
-
-      pickNodes[profile.id] = chip;
-      return chip;
+      updateGroup(group);
+      return group.node;
     }));
 
     function setAll(value) {
       profiles.forEach(function (profile) {
         selected[profile.id] = value;
-        pickNodes[profile.id].classList.toggle("on", value);
-        pickNodes[profile.id].setAttribute("aria-checked", value ? "true" : "false");
+        updatePick(profile);
       });
+      groups.forEach(updateGroup);
     }
 
     function selectOnly(ids) {
@@ -891,17 +973,23 @@ return view.extend({
       ids.forEach(function (id) { wanted[id] = true; });
       profiles.forEach(function (profile) {
         selected[profile.id] = !!wanted[profile.id];
-        pickNodes[profile.id].classList.toggle("on", selected[profile.id]);
-        pickNodes[profile.id].setAttribute("aria-checked", selected[profile.id] ? "true" : "false");
+        updatePick(profile);
       });
+      groups.forEach(updateGroup);
     }
 
     var serviceSearch = E("input", { type: "search", class: "cbi-input-text fkpsc-search", placeholder: "Найти сервис…" });
     serviceSearch.addEventListener("input", function () {
       var query = serviceSearch.value.trim().toLowerCase();
       profiles.forEach(function (profile) {
-        var haystack = (profile.title + " " + (profile.description || "")).toLowerCase();
+        var group = groupNodes[profile.group || "custom"];
+        var haystack = (profile.title + " " + (profile.description || "") + " " + group.title).toLowerCase();
         pickNodes[profile.id].style.display = !query || haystack.indexOf(query) >= 0 ? "" : "none";
+      });
+      groups.forEach(function (group) {
+        group.node.style.display = group.profiles.some(function (profile) {
+          return pickNodes[profile.id].style.display !== "none";
+        }) ? "" : "none";
       });
     });
 
