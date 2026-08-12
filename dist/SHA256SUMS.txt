@@ -1,3 +1,3 @@
-3b76e36378136d9e9c63a52ed4c3227cbb4b71e50db54ca36ce702aa1c1bb6cc  luci-app-forkop-servicecheck_1.5.0-r1_all.ipk
-fb5d394016b2d782a6bfb4d8c4475a76a3ec80e1600148302309ca17b0b05c32  install-forkop-servicecheck.sh
-41d26027f59f746e70788f694afd4465149b6fd72474eefadd47f679ab38171f  make-apk.sh
+c41ee5234b8292d225671adbb391b3dc0b27d4adc342d26589446829d0d06faf  luci-app-forkop-servicecheck_1.6.0-r1_all.ipk
+99dd17a265b359b486e0b8addbe7d5e8ff7be8cf1ac569a9ff75d7db846f832f  install-forkop-servicecheck.sh
+083b7746b344b1a3a3dff78cc738197fc21785c6278b3847610570e5b48e5b07  make-apk.sh

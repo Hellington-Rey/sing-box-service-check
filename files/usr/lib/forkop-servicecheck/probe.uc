@@ -17,9 +17,14 @@ const ENGINE = LIB_DIR + "/probe.uc";
 const PROFILES_OVERRIDE = "/etc/forkop-servicecheck/profiles.json";
 const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
 const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
+const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
 const FORKOP_BIN = getenv("FORKOP_BIN") || "/usr/bin/forkop";
 const PODKOP_BIN = getenv("PODKOP_BIN") || "/usr/bin/podkop";
 const DEFAULT_SING_BOX_CONFIG = "/etc/sing-box/config.json";
+const UPDATE_API = "https://api.github.com/repos/Hellington-Rey/forkop-servicecheck/releases/latest";
+const UPDATE_RELEASE_BASE = "https://github.com/Hellington-Rey/forkop-servicecheck/releases";
+const UPDATE_INSTALLER = "install-forkop-servicecheck.sh";
+const UPDATE_STATE_FILE = STATE_DIR + "/update.json";
 const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "fkpsc";
 const NETNS_VETH_HOST = "fkpsc0";
 const NETNS_VETH_PEER = "fkpsc1";
@@ -1627,6 +1632,235 @@ function write_state(path, value) {
     return fs.writefile(as_string(path), sprintf("%J", value) + "\n") != null;
 }
 
+// ---------------------------------------------------------------------------
+// Безопасное самообновление из GitHub Releases
+// ---------------------------------------------------------------------------
+
+function installed_version() {
+    let value = trim(as_string(fs.readfile(VERSION_FILE)));
+    return match(value, /^[0-9]+\.[0-9]+\.[0-9]+$/) != null ? value : "0.0.0";
+}
+
+function version_parts(value) {
+    let matched = match(as_string(value), /^v?([0-9]+)\.([0-9]+)\.([0-9]+)$/);
+    return matched == null ? null : [ int(matched[1]), int(matched[2]), int(matched[3]) ];
+}
+
+function version_compare(left, right) {
+    let a = version_parts(left);
+    let b = version_parts(right);
+    if (a == null || b == null)
+        return 0;
+    for (let i = 0; i < 3; i++) {
+        if (a[i] > b[i])
+            return 1;
+        if (a[i] < b[i])
+            return -1;
+    }
+    return 0;
+}
+
+function short_output(value) {
+    value = trim(as_string(value));
+    return length(value) > 2000 ? substr(value, 0, 2000) + "…" : value;
+}
+
+function latest_release_info() {
+    let current = installed_version();
+    if (!command_exists("curl"))
+        return { success: false, installed_version: current, message: "для проверки обновлений нужен curl" };
+
+    let result = capture_args([
+        "curl", "-fL", "-sS", "--proto", "=https", "--tlsv1.2",
+        "--connect-timeout", "10", "--max-time", "30",
+        "-A", "forkop-servicecheck-updater",
+        "-H", "Accept: application/vnd.github+json",
+        "-H", "X-GitHub-Api-Version: 2022-11-28",
+        UPDATE_API
+    ], true);
+    if (result.status != 0)
+        return { success: false, installed_version: current, message: "GitHub Release недоступен: " + short_output(result.output) };
+
+    let release = object_or_empty(parse_json(result.output));
+    let tag = as_string(release.tag_name);
+    let parts = version_parts(tag);
+    if (parts == null)
+        return { success: false, installed_version: current, message: "GitHub вернул некорректный тег релиза" };
+
+    let latest = sprintf("%d.%d.%d", parts[0], parts[1], parts[2]);
+    let expected_url = UPDATE_RELEASE_BASE + "/download/v" + latest + "/" + UPDATE_INSTALLER;
+    let installer = null;
+    for (let asset in array_or_empty(release.assets)) {
+        asset = object_or_empty(asset);
+        if (as_string(asset.name) == UPDATE_INSTALLER)
+            installer = asset;
+    }
+
+    if (installer == null)
+        return { success: false, installed_version: current, latest_version: latest, message: "в релизе нет штатного установщика" };
+
+    let download_url = as_string(installer.browser_download_url);
+    let digest = lc(as_string(installer.digest));
+    let size = int(installer.size || 0);
+    if (download_url != expected_url)
+        return { success: false, installed_version: current, latest_version: latest, message: "адрес установщика не соответствует официальному релизу" };
+    if (match(digest, /^sha256:[0-9a-f]{64}$/) == null)
+        return { success: false, installed_version: current, latest_version: latest, message: "GitHub не предоставил SHA-256 установщика" };
+    if (size < 10000 || size > 2097152)
+        return { success: false, installed_version: current, latest_version: latest, message: "размер установщика выходит за допустимые пределы" };
+
+    return {
+        success: true,
+        installed_version: current,
+        latest_version: latest,
+        update_available: version_compare(latest, current) > 0,
+        release_url: UPDATE_RELEASE_BASE + "/tag/v" + latest,
+        installer_url: download_url,
+        installer_digest: digest,
+        installer_size: size,
+        message: version_compare(latest, current) > 0
+            ? "доступна версия " + latest
+            : "установлена актуальная версия"
+    };
+}
+
+function update_check() {
+    let info = latest_release_info();
+    write_json(info);
+    return info.success ? 0 : 1;
+}
+
+function update_state_finish(state, success, message, output) {
+    state.running = false;
+    state.success = success;
+    state.finished_at = now_seconds();
+    state.phase = success ? "complete" : "error";
+    state.message = as_string(message);
+    state.output = short_output(output);
+    write_state(UPDATE_STATE_FILE, state);
+    return success ? 0 : 1;
+}
+
+function update_temp_dir_valid(path) {
+    return match(as_string(path), /^\/tmp\/forkop-servicecheck-update\.[A-Za-z0-9]+$/) != null;
+}
+
+function update_worker() {
+    let state = object_or_empty(read_json_file(UPDATE_STATE_FILE));
+    let info = latest_release_info();
+    if (!info.success)
+        return update_state_finish(state, false, info.message, "");
+    if (!info.update_available)
+        return update_state_finish(state, true, "обновление не требуется", "");
+
+    state.latest_version = info.latest_version;
+    state.release_url = info.release_url;
+    state.phase = "download";
+    state.message = "скачиваем проверенный установщик " + info.latest_version;
+    write_state(UPDATE_STATE_FILE, state);
+
+    let tmp_result = capture_args([ "mktemp", "-d", "/tmp/forkop-servicecheck-update.XXXXXX" ], true);
+    let tmp_dir = trim(as_string(tmp_result.output));
+    if (tmp_result.status != 0 || !update_temp_dir_valid(tmp_dir))
+        return update_state_finish(state, false, "не удалось создать временный каталог", tmp_result.output);
+
+    let installer_path = tmp_dir + "/" + UPDATE_INSTALLER;
+    let download = capture_args([
+        "curl", "-fL", "-sS", "--proto", "=https", "--tlsv1.2",
+        "--connect-timeout", "10", "--max-time", "180",
+        "-A", "forkop-servicecheck-updater",
+        "-o", installer_path, info.installer_url
+    ], true);
+    if (download.status != 0) {
+        run_quiet([ "rm", "-rf", tmp_dir ]);
+        return update_state_finish(state, false, "не удалось скачать установщик", download.output);
+    }
+
+    let checksum = capture_args([ "sha256sum", installer_path ], true);
+    let checksum_words = words(checksum.output);
+    let actual_digest = length(checksum_words) > 0 ? lc(checksum_words[0]) : "";
+    let expected_digest = substr(info.installer_digest, 7);
+    if (checksum.status != 0 || actual_digest != expected_digest) {
+        run_quiet([ "rm", "-rf", tmp_dir ]);
+        return update_state_finish(state, false, "SHA-256 установщика не совпал; обновление отменено", checksum.output);
+    }
+
+    let installer_text = as_string(fs.readfile(installer_path));
+    let version_marker = match(installer_text, /VERSION="([0-9]+\.[0-9]+\.[0-9]+)"/);
+    if (version_marker == null || as_string(version_marker[1]) != info.latest_version) {
+        run_quiet([ "rm", "-rf", tmp_dir ]);
+        return update_state_finish(state, false, "версия внутри установщика не совпадает с тегом релиза", "");
+    }
+
+    state.phase = "install";
+    state.message = "устанавливаем версию " + info.latest_version + "; LuCI может кратковременно потерять связь";
+    write_state(UPDATE_STATE_FILE, state);
+
+    let installed = capture_args([ "sh", installer_path ], true);
+    run_quiet([ "rm", "-rf", tmp_dir ]);
+    if (installed.status != 0)
+        return update_state_finish(state, false, "установщик завершился с ошибкой", installed.output);
+    if (installed_version() != info.latest_version)
+        return update_state_finish(state, false, "установщик завершился, но версия не обновилась", installed.output);
+
+    state.installed_version = info.latest_version;
+    return update_state_finish(state, true, "версия " + info.latest_version + " установлена", installed.output);
+}
+
+function update_start() {
+    if (!command_exists("sha256sum")) {
+        write_json({ success: false, message: "для безопасного обновления нужен sha256sum" });
+        return 1;
+    }
+
+    let previous = object_or_empty(read_json_file(UPDATE_STATE_FILE));
+    if (previous.running && now_seconds() - int(previous.started_at || 0) < 900) {
+        previous.success = true;
+        previous.started = false;
+        write_json(previous);
+        return 0;
+    }
+
+    let info = latest_release_info();
+    if (!info.success || !info.update_available) {
+        write_json(info);
+        return info.success ? 0 : 1;
+    }
+
+    let state = {
+        kind: "self_update",
+        running: true,
+        success: true,
+        started: true,
+        started_at: now_seconds(),
+        finished_at: 0,
+        phase: "prepare",
+        installed_version: info.installed_version,
+        latest_version: info.latest_version,
+        release_url: info.release_url,
+        message: "подготавливаем обновление до " + info.latest_version
+    };
+    if (!write_state(UPDATE_STATE_FILE, state)) {
+        write_json({ success: false, message: "не удалось записать состояние обновления" });
+        return 1;
+    }
+
+    let worker = command_from_args([ "ucode", "-L", LIB_DIR, ENGINE, "update-worker" ]);
+    system("(" + worker + " >/dev/null 2>&1 &)");
+    write_json(state);
+    return 0;
+}
+
+function update_status() {
+    let state = object_or_empty(read_json_file(UPDATE_STATE_FILE));
+    if (length(keys(state)) == 0) {
+        write_json({ success: true, running: false, idle: true, installed_version: installed_version() });
+        return 0;
+    }
+    write_json(state);
+    return 0;
+}
+
 function update_progress(path, done, total, services) {
     let state = object_or_empty(read_json_file(path));
     if (!state.running)
@@ -1868,6 +2102,14 @@ else if (mode == "cleanup") {
     cleanup_jobs();
     exit(0);
 }
+else if (mode == "update-check")
+    exit(update_check());
+else if (mode == "update-start")
+    exit(update_start());
+else if (mode == "update-status")
+    exit(update_status());
+else if (mode == "update-worker")
+    exit(update_worker());
 else if (mode == "gemini-key-set")
     exit(gemini_key_set(ARGV[1]));
 else if (mode == "gemini-key-reset")

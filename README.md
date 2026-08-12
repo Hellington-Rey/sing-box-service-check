@@ -41,13 +41,13 @@ LuCI → forkop-servicecheck → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.5.0-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.6.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.5.0-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.6.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -57,6 +57,28 @@ wget -O- https://raw.githubusercontent.com/Hellington-Rey/forkop-servicecheck/ma
 ```
 
 Установщик определяет уже установленную версию и сообщает, выполняется ли чистая установка, обновление или переустановка текущей версии.
+
+## Обновление из LuCI
+
+На вкладке проверки есть блок **«Обновление модуля»**. Кнопка **«Проверить обновления»** обращается только к последнему стабильному GitHub Release этого репозитория. Если опубликована более новая версия, появляется кнопка установки.
+
+Перед запуском загруженного установщика backend:
+
+1. проверяет формат тега версии;
+2. сверяет имя и URL asset с официальным адресом релиза;
+3. проверяет digest, полученный из GitHub API;
+4. повторно вычисляет SHA-256 загруженного файла;
+5. проверяет, что версия внутри установщика совпадает с тегом релиза.
+
+Установка выполняется в фоне. Во время перезапуска `rpcd` LuCI может на несколько секунд потерять связь, после чего страница обновится автоматически.
+
+Те же операции из консоли:
+
+```sh
+forkop-servicecheck update-check
+forkop-servicecheck update-start
+forkop-servicecheck update-status
+```
 
 ## Поддержка Forkop и Podkop
 
@@ -157,7 +179,8 @@ python3 build_packages.py
 
 - OpenWrt и установленный Forkop либо оригинальный Podkop;
 - LuCI и ucode;
-- `curl` рекомендуется для точных измерений;
+- `curl` требуется для обновления из интерфейса и рекомендуется для точных измерений;
+- `sha256sum` требуется для установки обновления;
 - `dig` рекомендуется для диагностики DNS;
 - `ip` и поддержка network namespace — для режима `netns`;
 - `nc` — для UDP-проверок.

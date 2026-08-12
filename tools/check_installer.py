@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "install-forkop-servicecheck.sh"
-PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.5.0-r1_all.ipk"
+PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.6.0-r1_all.ipk"
 MARKER = "__FORKOP_SC_PAYLOAD__"
 
 
@@ -19,7 +19,7 @@ def assert_shell(name, shell_script):
 
 def main():
     script = INSTALLER.read_text(encoding="utf-8")
-    assert 'VERSION="1.5.0"' in script
+    assert 'VERSION="1.6.0"' in script
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
     assert "sed -n '/^__PAYLOAD_BELOW__$/,$p' \"$0\"" not in script
@@ -87,6 +87,20 @@ def main():
     assert 'var showForkopFixes = backendId === "forkop"' in view
     assert 'showForkopFixes ? [checkTab, fixTab, listsTab] : [checkTab, listsTab]' in view
     assert '[ -x /usr/bin/podkop ]' in script
+    assert 'update-check|update-start|update-status)' in cli
+    assert 'function latest_release_info()' in engine
+    assert 'function update_worker()' in engine
+    assert 'function update_temp_dir_valid(path)' in engine
+    assert 'UPDATE_API = "https://api.github.com/repos/Hellington-Rey/forkop-servicecheck/releases/latest"' in engine
+    assert 'download_url != expected_url' in engine
+    assert 'match(digest, /^sha256:[0-9a-f]{64}$/)' in engine
+    assert 'actual_digest != expected_digest' in engine
+    assert 'version_marker == null || as_string(version_marker[1]) != info.latest_version' in engine
+    assert 'callBin(["update-check"])' in view
+    assert 'callBin(["update-start"])' in view
+    assert 'callBin(["update-status"])' in view
+    assert 'Обновление модуля' in view
+    assert 'Перед установкой будет проверен SHA-256' in view
     assert "GEMINI_API_KEY_DEFAULT" not in engine
     assert "AIza" not in engine
     assert '"path": "/v1beta/models"' in profiles

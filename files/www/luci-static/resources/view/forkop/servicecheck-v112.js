@@ -17,10 +17,11 @@
  */
 
 var BIN = "/usr/bin/forkop-servicecheck";
-var UI_VERSION = "1.5.0"; // Filename v112 remains compatible with existing menu entries.
+var UI_VERSION = "1.6.0"; // Filename v112 remains compatible with existing menu entries.
 var THEME_STORAGE_KEY = "forkop-servicecheck-theme";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
+var UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
 
 var STATE_LABEL = {
   success: "работает",
@@ -103,6 +104,9 @@ function injectStyles() {
     ".fkpsc-badge { padding:.25em .65em; border-radius:999px; background:rgba(127,127,127,.16); font-size:.84em; }",
     ".fkpsc-card { padding:1em 1.1em; margin:0 0 1em; border-radius:12px; border:1px solid rgba(127,127,127,.32); background:var(--surface-raised); box-shadow:0 5px 18px rgba(0,0,0,.10); }",
     ".fkpsc-card h3 { margin:.05em 0 .75em; }",
+    ".fkpsc-update-row { display:flex; flex-wrap:wrap; align-items:center; gap:.65em; }",
+    ".fkpsc-update-status { flex:1 1 260px; min-width:0; }",
+    ".fkpsc-update-actions { display:flex; flex-wrap:wrap; gap:.5em; }",
     ".fkpsc-tabs { display:flex; gap:.35em; margin:0 0 1em; padding:.25em; border-radius:11px; background:var(--surface-soft); border:1px solid rgba(127,127,127,.24); }",
     ".fkpsc-tab { flex:0 1 auto; padding:.55em .9em; border:0; border-radius:8px; background:transparent; color:inherit; cursor:pointer; font-weight:600; }",
     ".fkpsc-tab.active { color:#fff; background:var(--accent); box-shadow:0 2px 8px rgba(0,0,0,.18); }",
@@ -1072,6 +1076,140 @@ return view.extend({
       runButton.click();
     });
 
+    var updateStatusNode = E("div", { class: "fkpsc-update-status" }, [
+      E("b", {}, "Установлена версия " + UI_VERSION),
+      E("div", { class: "fkpsc-dim" }, "Нажмите «Проверить обновления», чтобы обратиться к GitHub Releases."),
+    ]);
+    var checkUpdateButton = E("button", { class: "cbi-button", type: "button" }, "Проверить обновления");
+    var installUpdateButton = E("button", {
+      class: "cbi-button cbi-button-action important",
+      type: "button",
+      style: "display:none",
+    }, "Обновить");
+    var updateTimer = null;
+    var availableUpdate = null;
+
+    function updateStatusContent(title, message, releaseUrl) {
+      var children = [E("b", {}, title)];
+      if (message) {
+        children.push(E("div", { class: "fkpsc-dim" }, message));
+      }
+      if (releaseUrl) {
+        children.push(E("a", {
+          href: releaseUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+        }, "Открыть описание версии"));
+      }
+      updateStatusNode.replaceChildren.apply(updateStatusNode, children);
+    }
+
+    function renderUpdateInfo(info) {
+      checkUpdateButton.disabled = false;
+      if (!info || !info.success) {
+        availableUpdate = null;
+        installUpdateButton.style.display = "none";
+        updateStatusContent("Не удалось проверить обновления", (info && info.message) || "Нет ответа от backend.");
+        return;
+      }
+
+      var current = info.installed_version || UI_VERSION;
+      var latest = info.latest_version || current;
+      if (info.update_available) {
+        availableUpdate = info;
+        installUpdateButton.textContent = "Обновить до " + latest;
+        installUpdateButton.style.display = "";
+        installUpdateButton.disabled = false;
+        updateStatusContent("Доступна версия " + latest, "Сейчас установлена " + current + ". Перед установкой будет проверен SHA-256.", info.release_url);
+      } else {
+        availableUpdate = null;
+        installUpdateButton.style.display = "none";
+        updateStatusContent("Установлена актуальная версия " + current, "Новых стабильных релизов нет.", info.release_url);
+      }
+    }
+
+    function pollUpdate(startedAt) {
+      updateTimer = window.setTimeout(function () {
+        callBin(["update-status"]).then(function (state) {
+          updateStatusContent(state.success === false ? "Ошибка обновления" : "Обновление выполняется", state.message || "Ожидаем завершения установки…", state.release_url);
+          if (state.running) {
+            if (Date.now() - startedAt <= UPDATE_TIMEOUT_MS) {
+              pollUpdate(startedAt);
+              return;
+            }
+            checkUpdateButton.disabled = false;
+            installUpdateButton.disabled = false;
+            updateStatusContent("Обновление выполняется слишком долго", "Проверьте состояние командой forkop-servicecheck update-status.");
+            return;
+          }
+
+          checkUpdateButton.disabled = false;
+          installUpdateButton.disabled = false;
+          if (state.success) {
+            updateStatusContent("Обновление установлено", state.message || "Перезагружаем страницу…", state.release_url);
+            ui.addNotification(null, E("p", {}, state.message || "Обновление установлено"), "info");
+            window.setTimeout(function () { window.location.reload(); }, 1800);
+          } else {
+            updateStatusContent("Обновление не установлено", state.message || "Неизвестная ошибка.", state.release_url);
+            ui.addNotification(null, E("p", {}, state.message || "Не удалось установить обновление"), "error");
+          }
+        }).catch(function (error) {
+          // Установщик перезапускает rpcd, поэтому кратковременная потеря связи ожидаема.
+          if (Date.now() - startedAt <= UPDATE_TIMEOUT_MS) {
+            updateStatusContent("Применяем обновление", "LuCI ожидает перезапуск rpcd…");
+            pollUpdate(startedAt);
+            return;
+          }
+          checkUpdateButton.disabled = false;
+          installUpdateButton.disabled = false;
+          updateStatusContent("Связь с backend не восстановилась", error.message || "Проверьте состояние из консоли.");
+        });
+      }, 2000);
+    }
+
+    checkUpdateButton.addEventListener("click", function () {
+      checkUpdateButton.disabled = true;
+      installUpdateButton.style.display = "none";
+      updateStatusContent("Проверяем GitHub Releases", "Получаем сведения о последней стабильной версии…");
+      callBin(["update-check"]).then(renderUpdateInfo).catch(function (error) {
+        renderUpdateInfo({ success: false, message: error.message });
+      });
+    });
+
+    installUpdateButton.addEventListener("click", function () {
+      if (!availableUpdate) {
+        return;
+      }
+      if (!window.confirm("Установить Forkop Service Check " + availableUpdate.latest_version + "? Во время обновления LuCI кратковременно потеряет связь.")) {
+        return;
+      }
+      checkUpdateButton.disabled = true;
+      installUpdateButton.disabled = true;
+      updateStatusContent("Запускаем обновление", "Backend повторно проверит релиз, адрес файла и SHA-256.", availableUpdate.release_url);
+      callBin(["update-start"]).then(function (state) {
+        if (!state.success) {
+          throw new Error(state.message || "не удалось запустить обновление");
+        }
+        if (!state.running) {
+          renderUpdateInfo(state);
+          return;
+        }
+        pollUpdate(Date.now());
+      }).catch(function (error) {
+        checkUpdateButton.disabled = false;
+        installUpdateButton.disabled = false;
+        updateStatusContent("Не удалось запустить обновление", error.message || "Неизвестная ошибка.");
+      });
+    });
+
+    var updateCard = E("div", { class: "fkpsc-card" }, [
+      E("h3", {}, "Обновление модуля"),
+      E("div", { class: "fkpsc-update-row" }, [
+        updateStatusNode,
+        E("div", { class: "fkpsc-update-actions" }, [checkUpdateButton, installUpdateButton]),
+      ]),
+    ]);
+
     var notes = [];
 
     if (!backendRunning) {
@@ -1093,6 +1231,7 @@ return view.extend({
       notes.length ? E("div", { class: "fkpsc-note" }, notes.map(function (note) {
         return E("div", {}, note);
       })) : "",
+      updateCard,
       E("div", { class: "fkpsc-card" }, [
         E("h3", {}, "Параметры проверки"),
         E("div", { class: "fkpsc-mode" }, [

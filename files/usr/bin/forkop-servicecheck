@@ -20,6 +20,9 @@ Available commands:
     start IDS [MODE] [IP]   Запустить проверку в фоне, вернуть job_id
     status JOB_ID           Показать состояние фоновой проверки
     cleanup                 Удалить устаревшие задания
+    update-check            Проверить последнюю версию в GitHub Releases
+    update-start            Безопасно установить доступное обновление в фоне
+    update-status           Показать состояние обновления
     gemini_key_set KEY      Сохранить API-ключ для геопроверки Gemini
     gemini_key_reset        Удалить сохранённый API-ключ Gemini
     gemini_key_status       Показать, задан ли API-ключ Gemini
@@ -57,7 +60,7 @@ command -v ucode >/dev/null 2>&1 || {
 }
 
 case "$COMMAND" in
-    list|capabilities|fixes|cleanup|profiles-get|profiles-reset)
+    list|capabilities|fixes|cleanup|profiles-get|profiles-reset|update-check|update-start|update-status)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND"
         ;;
     gemini_key_reset)
