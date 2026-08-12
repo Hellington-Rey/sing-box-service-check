@@ -1,6 +1,6 @@
 #!/usr/bin/env ucode
 
-// Forkop Service Check - probe engine.
+// Forkop Service Check - probe engine for Forkop and Podkop.
 //
 // Проверяет доступность сервисов так, как это делает клиент сети: имя резолвится
 // через тот же dnsmasq -> sing-box, а соединение уходит из роутера и попадает в
@@ -18,7 +18,8 @@ const PROFILES_OVERRIDE = "/etc/forkop-servicecheck/profiles.json";
 const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
 const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
 const FORKOP_BIN = getenv("FORKOP_BIN") || "/usr/bin/forkop";
-const SING_BOX_CONFIG = getenv("FORKOP_SC_SING_BOX_CONFIG") || "/etc/sing-box/config.json";
+const PODKOP_BIN = getenv("PODKOP_BIN") || "/usr/bin/podkop";
+const DEFAULT_SING_BOX_CONFIG = "/etc/sing-box/config.json";
 const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "fkpsc";
 const NETNS_VETH_HOST = "fkpsc0";
 const NETNS_VETH_PEER = "fkpsc1";
@@ -130,6 +131,11 @@ function icmp_tproxy_patch() {
 }
 
 function available_fixes() {
+    // Эти исправления меняют внутренние файлы Forkop и не должны предлагаться
+    // на Podkop, даже если общий диагностический backend работает нормально.
+    if (fs.stat(FORKOP_BIN) == null)
+        return [];
+
     return [
         {
             id: "xhttp_import",
@@ -152,6 +158,11 @@ function list_fixes() {
 }
 
 function run_fix(id) {
+    if (fs.stat(FORKOP_BIN) == null) {
+        write_json({ success: false, message: "фиксы доступны только при установленном Forkop" });
+        return 1;
+    }
+
     if (as_string(id) == "xhttp_import")
         return xhttp_patch();
     if (as_string(id) == "icmp_tproxy")
@@ -298,8 +309,43 @@ function uci_get(path) {
     return result.status == 0 ? trim_newlines(result.output) : "";
 }
 
+function backend_id() {
+    let override = lc(trim(as_string(getenv("FORKOP_SC_BACKEND"))));
+    if (override == "forkop" || override == "podkop")
+        return override;
+    if (fs.stat(FORKOP_BIN) != null)
+        return "forkop";
+    if (fs.stat(PODKOP_BIN) != null)
+        return "podkop";
+    return "none";
+}
+
+function backend_name(id) {
+    id = as_string(id);
+    if (id == "forkop")
+        return "Forkop";
+    if (id == "podkop")
+        return "Podkop";
+    return "Sing-box";
+}
+
+function sing_box_config_path() {
+    let overridden = trim(as_string(getenv("FORKOP_SC_SING_BOX_CONFIG")));
+    if (overridden != "")
+        return overridden;
+
+    if (backend_id() == "podkop") {
+        let configured = trim(uci_get("podkop.settings.config_path"));
+        if (configured != "")
+            return configured;
+    }
+
+    return DEFAULT_SING_BOX_CONFIG;
+}
+
 function lan_interface() {
-    let configured = words(uci_get("forkop.settings.source_network_interfaces"));
+    let namespace = backend_id() == "podkop" ? "podkop" : "forkop";
+    let configured = words(uci_get(namespace + ".settings.source_network_interfaces"));
     if (length(configured) > 0)
         return configured[0];
     return "br-lan";
@@ -317,7 +363,7 @@ function interface_ipv4(interface) {
 
 function fakeip_ranges() {
     let ranges = [];
-    let config = read_json_file(SING_BOX_CONFIG);
+    let config = read_json_file(sing_box_config_path());
     let dns = object_or_empty(object_or_empty(config).dns);
 
     for (let server in array_or_empty(dns.servers)) {
@@ -339,11 +385,27 @@ function fakeip_ranges() {
 }
 
 function forkop_running() {
-    let result = capture_args([ FORKOP_BIN, "get_status" ], false);
-    if (result.status != 0)
+    let backend = backend_id();
+    let result;
+
+    if (backend == "forkop")
+        result = capture_args([ FORKOP_BIN, "get_status" ], false);
+    else if (backend == "podkop")
+        result = capture_args([ PODKOP_BIN, "get_sing_box_status" ], false);
+    else
         return false;
+
+    if (result.status != 0) {
+        if (backend == "podkop")
+            return run_quiet([ "pgrep", "-f", "sing-box" ]);
+        return false;
+    }
     let status = object_or_empty(parse_json(result.output));
-    return int(status.running) == 1;
+    if (status.running === true || int(status.running) == 1)
+        return true;
+    if (backend == "podkop" && status.running == null)
+        return run_quiet([ "pgrep", "-f", "sing-box" ]);
+    return false;
 }
 
 // Сборки busybox сильно разнятся: где-то nc умеет -z и -w, где-то это
@@ -365,6 +427,8 @@ function detect_nc_mode() {
 }
 
 function capabilities() {
+    let backend = backend_id();
+    let running = forkop_running();
     let interface = lan_interface();
     let address = interface_ipv4(interface);
     let nc_mode = detect_nc_mode();
@@ -382,7 +446,16 @@ function capabilities() {
         lan_address: address == null ? "" : address.address,
         lan_prefix: address == null ? 0 : address.prefix,
         fakeip_ranges: fakeip_ranges(),
-        forkop_running: forkop_running(),
+        backend,
+        backend_name: backend_name(backend),
+        backend_installed: backend != "none",
+        backend_running: running,
+        forkop_installed: fs.stat(FORKOP_BIN) != null,
+        podkop_installed: fs.stat(PODKOP_BIN) != null,
+        fixes_available: backend == "forkop" && fs.stat(FORKOP_BIN) != null,
+        sing_box_config: sing_box_config_path(),
+        // Старое поле оставлено для совместимости со страницей предыдущих версий.
+        forkop_running: running,
         profiles_version: int(object_or_empty(read_json_file(profiles_file())).version || 0)
     };
 }
@@ -993,7 +1066,39 @@ function connection_probe(ctx, target) {
 // ---------------------------------------------------------------------------
 
 function clash_connections() {
-    let result = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
+    let backend = backend_id();
+    let result;
+
+    if (backend == "forkop") {
+        result = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
+    }
+    else if (backend == "podkop") {
+        let config = object_or_empty(read_json_file(sing_box_config_path()));
+        let clash = object_or_empty(object_or_empty(config.experimental).clash_api);
+        let controller = trim(as_string(clash.external_controller));
+        let secret = as_string(clash.secret);
+
+        if (controller == "")
+            controller = "127.0.0.1:9090";
+        if (match(controller, /^0\.0\.0\.0:/) != null)
+            controller = replace(controller, /^0\.0\.0\.0:/, "127.0.0.1:");
+        if (index(controller, "http://") != 0 && index(controller, "https://") != 0)
+            controller = "http://" + controller;
+
+        let args = [ "curl", "-sS", "--connect-timeout", "2", "--max-time", "4" ];
+        if (secret == "")
+            secret = uci_get("podkop.settings.yacd_secret_key");
+        if (secret != "") {
+            push(args, "-H");
+            push(args, "Authorization: Bearer " + secret);
+        }
+        push(args, controller + "/connections");
+        result = capture_args(args, false);
+    }
+    else {
+        return [];
+    }
+
     if (result.status != 0)
         return [];
 
@@ -1040,7 +1145,7 @@ function outbound_for(connections, host, remote_ip) {
 // короткого HTTP-запроса, который часто успевает закрыться до get_connections.
 function detect_live_route(ctx, host, port, remote_ip) {
     let unknown = { attempted: false, seen: false, outbound: "" };
-    if (!ctx.forkop_running)
+    if (!ctx.backend_running)
         return unknown;
 
     let command = "";
@@ -1307,6 +1412,9 @@ function build_context(mode, client_ip) {
         mode: as_string(mode) == "netns" ? "netns" : "router",
         lan_interface: caps.lan_interface,
         lan_address: caps.lan_address,
+        backend: caps.backend,
+        backend_name: caps.backend_name,
+        backend_running: caps.backend_running,
         forkop_running: caps.forkop_running,
         client_ip: "",
         netns_error: ""
@@ -1375,7 +1483,7 @@ function probe_service(ctx, profile) {
     // Атрибуция маршрута - best effort: Clash API отдаёт только живые соединения,
     // а короткие HTTP-запросы к моменту опроса часто уже закрыты. Поэтому один
     // запрос на сервис, а не на каждую цель, и пустой результат не считается ошибкой.
-    if (ctx.forkop_running) {
+    if (ctx.backend_running) {
         let connections = clash_connections();
         if (length(connections) > 0) {
             for (let item in items) {
@@ -1426,11 +1534,11 @@ function custom_check(host, port, mode, client_ip) {
     let route_message = "Маршрут не удалось подтвердить через Clash API.";
     let evidence = "";
 
-    if (!ctx.forkop_running) {
+    if (!ctx.backend_running) {
         through_sing_box = false;
         route_status = "direct";
-        evidence = "forkop_stopped";
-        route_message = "Forkop остановлен: соединение не проходит через sing-box.";
+        evidence = "backend_stopped";
+        route_message = ctx.backend_name + " остановлен: соединение не проходит через sing-box.";
     }
     else if (live_route.seen) {
         through_sing_box = true;
@@ -1468,6 +1576,9 @@ function custom_check(host, port, mode, client_ip) {
         requested_mode: as_string(mode) == "netns" ? "netns" : "router",
         client_ip: as_string(ctx.client_ip),
         netns_error: as_string(ctx.netns_error),
+        backend: ctx.backend,
+        backend_name: ctx.backend_name,
+        backend_running: ctx.backend_running,
         forkop_running: ctx.forkop_running,
         route: {
             status: route_status,
@@ -1554,6 +1665,9 @@ function run_check(ids, mode, client_ip, progress_path) {
         netns_error: as_string(ctx.netns_error),
         client_ip: as_string(ctx.client_ip),
         resolver: ctx.resolver,
+        backend: ctx.backend,
+        backend_name: ctx.backend_name,
+        backend_running: ctx.backend_running,
         forkop_running: ctx.forkop_running,
         tools: ctx.tools,
         fakeip_ranges: ctx.fakeip_ranges,
@@ -1640,6 +1754,9 @@ function worker(path, ids, mode, client_ip) {
     state.mode = result.mode;
     state.netns_error = result.netns_error;
     state.client_ip = result.client_ip;
+    state.backend = result.backend;
+    state.backend_name = result.backend_name;
+    state.backend_running = result.backend_running;
     state.forkop_running = result.forkop_running;
 
     write_state(path, state);

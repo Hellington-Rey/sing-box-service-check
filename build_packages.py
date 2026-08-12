@@ -23,15 +23,15 @@ FILES_DIR = ROOT / "files"
 OUT_DIR = ROOT / "dist"
 
 PACKAGE = "luci-app-forkop-servicecheck"
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 RELEASE = "r1"
 ARCH = "all"
 LICENSE = "MIT"
 MAINTAINER = "forkop-servicecheck"
-URL = "https://github.com/ushan0v/forkop"
-DEPENDS = ["forkop", "luci-base"]
+URL = "https://github.com/Hellington-Rey/forkop-servicecheck"
+DEPENDS = ["luci-base", "ucode"]
 DESCRIPTION = (
-    "Проверка доступности сервисов для Forkop. Добавляет в LuCI страницу с "
+    "Проверка доступности сервисов для Forkop и оригинального Podkop. Добавляет в LuCI страницу с "
     "кнопкой проверки: Telegram, YouTube, Instagram и другие сервисы проверяются "
     "тем же путём, которым идёт трафик клиента сети - через dnsmasq, sing-box и "
     "tproxy. Показывает DNS, TCP, TLS, код ответа и выбранный outbound."

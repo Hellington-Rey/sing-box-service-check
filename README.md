@@ -1,6 +1,8 @@
 # Forkop Service Check
 
-LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик Forkop.
+LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик Forkop или оригинального [Podkop](https://github.com/itdoginfo/podkop).
+
+Имя пакета и команды остаются `forkop-servicecheck`. Установленный backend определяется автоматически; существующие установки Forkop продолжают работать без изменения путей и настроек.
 
 Модуль помогает понять, на каком этапе возникает проблема: DNS, TCP/UDP, TLS, HTTP или выбор outbound-маршрута.
 
@@ -9,7 +11,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Проверка популярных сервисов: Telegram, YouTube, Instagram, Discord, WhatsApp, GitHub и других.
 - Отдельная геопроверка Gemini API по ответу Google с локальной настройкой собственного API-ключа.
 - Проверка DNS через локальный dnsmasq и sing-box.
-- HTTPS-проверки через forkop/tproxy.
+- HTTPS-проверки через Forkop/Podkop и tproxy.
 - TCP-проверки и best-effort проверки UDP/QUIC.
 - Режим проверки с роутера и режим проверки от имени клиента через временный network namespace.
 - Отображение fakeip, времени DNS/TCP/TLS/HTTP и выбранного outbound через Clash API.
@@ -18,7 +20,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Классификация причин ошибок: DNS failure, timeout, TCP refused, TLS reset, ошибки сертификата, HTTP 403/451 и медленные соединения.
 - Кнопка **«Починить импорт xHTTP»** с проверкой совместимости, backup и проверкой ucode-компиляции до замены файла.
 - Кнопка **«Фикс ping/ICMP для правил подсетей»**: priority-правила TProxy ограничиваются TCP/UDP, чтобы ICMP не получал proxy-маркер.
-- Расширяемая панель **«Фиксы Forkop»**: новые исправления добавляются в whitelist-реестр backend и не позволяют запускать произвольные команды из браузера.
+- Расширяемая панель **«Фиксы Forkop»** показывается только при установленном Forkop: новые исправления добавляются в whitelist-реестр backend и не позволяют запускать произвольные команды из браузера.
 - Двусторонние UDP-проверки через DNS в составе обычной проверки сервисов.
 
 ## Как это работает
@@ -27,23 +29,25 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 
 ```text
 LuCI → forkop-servicecheck → probe.uc
-                         → dnsmasq → sing-box → forkop/tproxy → сервис
+                         → dnsmasq → sing-box → Forkop/Podkop tproxy → сервис
 ```
 
 В режиме `netns` создаётся временный network namespace с отдельным IP-адресом в LAN. Это позволяет воспроизвести правила маршрутизации, зависящие от source IP клиента.
 
 ## Установка
 
+Готовые файлы всех опубликованных версий находятся на странице [GitHub Releases](https://github.com/Hellington-Rey/forkop-servicecheck/releases). Для обычного OpenWrt с `opkg` скачайте файл `.ipk` из раздела Assets нужной версии.
+
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.4.0-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.5.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.4.0-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.5.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -53,6 +57,20 @@ wget -O- https://raw.githubusercontent.com/Hellington-Rey/forkop-servicecheck/ma
 ```
 
 Установщик определяет уже установленную версию и сообщает, выполняется ли чистая установка, обновление или переустановка текущей версии.
+
+## Поддержка Forkop и Podkop
+
+Модуль автоматически выбирает backend по установленному исполняемому файлу. Сначала проверяется `/usr/bin/forkop`, затем `/usr/bin/podkop`. Для отладки выбор можно переопределить переменной `FORKOP_SC_BACKEND=forkop` или `FORKOP_SC_BACKEND=podkop`.
+
+На Podkop модуль:
+
+- берёт путь к конфигурации Sing-box из `podkop.settings.config_path`;
+- использует `podkop.settings.source_network_interfaces` для режима клиента;
+- проверяет состояние через `podkop get_sing_box_status`;
+- читает активные соединения через штатный Clash API Sing-box, включая настроенный секрет YACD;
+- не показывает вкладку и кнопки исправлений Forkop.
+
+Если одновременно установлены оба backend, автоматически выбирается Forkop.
 
 На основной вкладке можно ввести домен или IPv4-адрес, указать TCP-порт и нажать **«Проверить IP/домен»**. Модуль проверит DNS и TCP-доступность, затем сопоставит удерживаемое тестовое соединение с Clash API sing-box. Для доменов FakeIP также используется как подтверждение маршрута через sing-box.
 
@@ -133,9 +151,11 @@ python3 build_packages.py
 
 Результаты появятся в каталоге `dist/`.
 
+История пользовательских изменений ведётся в [CHANGELOG.md](CHANGELOG.md) и дублируется в описании каждого GitHub Release.
+
 ## Требования
 
-- OpenWrt и Forkop;
+- OpenWrt и установленный Forkop либо оригинальный Podkop;
 - LuCI и ucode;
 - `curl` рекомендуется для точных измерений;
 - `dig` рекомендуется для диагностики DNS;

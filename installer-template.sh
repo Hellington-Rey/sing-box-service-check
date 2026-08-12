@@ -3,8 +3,8 @@
 # Forkop Service Check - установщик модуля проверки доступности сервисов.
 #
 # Скрипт самодостаточный: полезная нагрузка лежит внутри в base64.
-# Ни один файл самого forkop не изменяется - добавляются только новые файлы,
-# поэтому обновление forkop модуль не ломает и не ломается само.
+# Поддерживаются Forkop и оригинальный Podkop. Их файлы при установке модуля
+# не изменяются; Forkop-фиксы доступны отдельно только на Forkop.
 #
 # Установка:   sh install-forkop-servicecheck.sh
 # Удаление:    sh install-forkop-servicecheck.sh --uninstall
@@ -116,20 +116,22 @@ fi
 
 [ "$(id -u)" = "0" ] || fail "Нужны права root."
 
-command -v ucode >/dev/null 2>&1 || fail "Не найден ucode - это не роутер с forkop?"
+command -v ucode >/dev/null 2>&1 || fail "Не найден ucode. Установите пакет ucode."
 command -v base64 >/dev/null 2>&1 || fail "Не найдена утилита base64."
 command -v tar >/dev/null 2>&1 || fail "Не найдена утилита tar."
 
-if [ ! -x /usr/bin/forkop ]; then
-    fail "Не найден /usr/bin/forkop. Установите forkop перед этим модулем."
+if [ -x /usr/bin/forkop ]; then
+    BACKEND="Forkop"
+    BACKEND_VERSION="$(/usr/bin/forkop show_version 2>/dev/null || echo unknown)"
+elif [ -x /usr/bin/podkop ]; then
+    BACKEND="Podkop"
+    BACKEND_VERSION="$(/usr/bin/podkop show_version 2>/dev/null || echo unknown)"
+else
+    fail "Не найден ни /usr/bin/forkop, ни /usr/bin/podkop. Сначала установите Forkop или Podkop."
 fi
+log "Обнаружен $BACKEND $BACKEND_VERSION"
 
-FORKOP_VERSION="$(/usr/bin/forkop show_version 2>/dev/null || echo unknown)"
-log "Обнаружен forkop $FORKOP_VERSION"
-
-if [ ! -d /www/luci-static/resources/view/forkop ]; then
-    fail "Не найден каталог LuCI-приложения forkop. Установлен ли luci-app-forkop?"
-fi
+[ -d /www/luci-static/resources ] || fail "Не найдены ресурсы LuCI. Установите luci-base."
 
 # --- Распаковка во временный каталог ----------------------------------------
 
@@ -184,6 +186,7 @@ log "Устанавливаю файлы"
 
 mkdir -p "$LIB_DIR" "$SHARE_DIR" "$STATE_DIR"
 mkdir -p /usr/share/luci/menu.d /usr/share/rpcd/acl.d
+mkdir -p /www/luci-static/resources/view/forkop
 
 cp -f "$TMP_DIR/usr/bin/forkop-servicecheck" "$BIN_PATH"
 cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/probe.uc" "$LIB_DIR/probe.uc"
@@ -225,15 +228,15 @@ if ! echo "$CAPS" | grep -q '"curl": *true'; then
     log "       тайминги TCP/TLS и коды ответов определяются приблизительно."
 fi
 
-if ! echo "$CAPS" | grep -q '"forkop_running": *true'; then
-    log "Внимание: forkop сейчас не запущен - проверка покажет доступность без обхода."
+if ! echo "$CAPS" | grep -q '"backend_running": *true'; then
+    log "Внимание: $BACKEND сейчас не запущен - проверка покажет доступность без обхода."
 fi
 
 cat <<'EOF'
 
 Готово.
 
-  Веб-интерфейс: LuCI -> Сервисы -> "Forkop: проверка сервисов"
+  Веб-интерфейс: LuCI -> Сервисы -> "Проверка сервисов Sing-box"
   (если пункт не появился - обновите страницу с Ctrl+F5, кеш LuCI уже сброшен)
 
   Из консоли:

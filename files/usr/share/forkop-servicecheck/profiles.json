@@ -140,10 +140,10 @@
       "id": "netflix",
       "title": "Netflix",
       "group": "video",
-      "description": "Сайт и раздающие CDN. Гео-блокировка отображается отдельно от сетевой недоступности.",
+      "description": "Сайт, публичная статика и раздающая инфраструктура Netflix. Проверка показывает доступность сети без входа в аккаунт.",
       "targets": [
         { "kind": "https", "host": "www.netflix.com", "path": "/", "expect": [200, 301, 302] },
-        { "kind": "https", "host": "api-global.netflix.com", "path": "/", "expect": [200, 400, 403, 404], "optional": true },
+        { "kind": "https", "host": "assets.nflxext.com", "path": "/", "expect": [200, 301, 302, 403, 404], "label": "Публичная статика nflxext.com" },
         { "kind": "https", "host": "occ-0-1360-1361.1.nflxso.net", "path": "/", "expect": [200, 400, 403, 404, 422], "optional": true, "label": "CDN nflxso.net" }
       ]
     },
@@ -184,7 +184,7 @@
       "id": "github",
       "title": "GitHub",
       "group": "dev",
-      "description": "Сайт, API и раздача файлов — важно для обновлений самого forkop и списков правил.",
+      "description": "Сайт, API и раздача файлов — важно для обновлений Forkop/Podkop и списков правил.",
       "targets": [
         { "kind": "https", "host": "github.com", "path": "/", "expect": [200, 301, 302] },
         { "kind": "https", "host": "api.github.com", "path": "/", "expect": [200] },

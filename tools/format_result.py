@@ -18,8 +18,10 @@ if "services" not in data:
     sys.exit(0)
 
 mode = data.get("mode", "?")
-print(f"режим: {mode}   резолвер: {data.get('resolver', '?')}   forkop: "
-      f"{'запущен' if data.get('forkop_running') else 'НЕ запущен'}   "
+backend = data.get("backend_name") or ("Podkop" if data.get("backend") == "podkop" else "Forkop")
+running = data.get("backend_running", data.get("forkop_running"))
+print(f"режим: {mode}   резолвер: {data.get('resolver', '?')}   {backend}: "
+      f"{'запущен' if running else 'НЕ запущен'}   "
       f"client_ip: {data.get('client_ip') or '-'}")
 if data.get("netns_error"):
     print(f"netns не поднялся: {data['netns_error']}")

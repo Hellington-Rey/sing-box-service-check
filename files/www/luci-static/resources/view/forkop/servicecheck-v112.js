@@ -17,7 +17,7 @@
  */
 
 var BIN = "/usr/bin/forkop-servicecheck";
-var UI_VERSION = "1.4.0"; // Filename uses v112 to invalidate the previous cached LuCI view.
+var UI_VERSION = "1.5.0"; // Filename v112 remains compatible with existing menu entries.
 var THEME_STORAGE_KEY = "forkop-servicecheck-theme";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
@@ -624,6 +624,11 @@ function renderSummary(services) {
 
 function renderRunMeta(state) {
   var lines = [];
+  var backendName = state.backend_name || (state.backend === "podkop" ? "Podkop" : "Forkop");
+  var backendRunning = state.backend_running;
+  if (backendRunning === undefined) {
+    backendRunning = state.forkop_running;
+  }
 
   if (state.mode === "netns") {
     lines.push("Режим: от имени клиента в LAN" + (state.client_ip ? " (" + state.client_ip + ")" : ""));
@@ -635,8 +640,8 @@ function renderRunMeta(state) {
     lines.push("Режим клиента не запустился (" + state.netns_error + "), проверка выполнена с роутера.");
   }
 
-  if (state.forkop_running === false) {
-    lines.push("Внимание: forkop не запущен, соединения шли напрямую.");
+  if (backendRunning === false) {
+    lines.push("Внимание: " + backendName + " не запущен, соединения шли напрямую.");
   }
 
   if (state.resolver) {
@@ -726,11 +731,19 @@ return view.extend({
 
     if (!capabilities || !catalogue) {
       return E("div", { class: "cbi-map fkpsc" }, [
-        E("h2", {}, "Проверка сервисов Forkop"),
+        E("h2", {}, "Forkop Service Check"),
         E("div", { class: "alert-message error" },
           "Не удалось обратиться к " + BIN + ". Проверьте, что модуль установлен и у пользователя есть права на его запуск."),
       ]);
     }
+
+    var backendId = capabilities.backend || "forkop";
+    var backendName = capabilities.backend_name || (backendId === "podkop" ? "Podkop" : "Forkop");
+    var backendRunning = capabilities.backend_running;
+    if (backendRunning === undefined) {
+      backendRunning = capabilities.forkop_running;
+    }
+    var showForkopFixes = backendId === "forkop" && capabilities.forkop_installed !== false;
 
     var profiles = catalogue.profiles || [];
     var selected = {};
@@ -1061,8 +1074,8 @@ return view.extend({
 
     var notes = [];
 
-    if (!capabilities.forkop_running) {
-      notes.push("Forkop сейчас не запущен — проверка покажет доступность без обхода.");
+    if (!backendRunning) {
+      notes.push(backendName + " сейчас не запущен — проверка покажет доступность без обхода.");
     }
 
     if (!capabilities.curl) {
@@ -1375,7 +1388,9 @@ return view.extend({
     }
 
     checkTab.addEventListener("click", function () { showPage("check"); });
-    fixTab.addEventListener("click", function () { showPage("fix"); });
+    if (showForkopFixes) {
+      fixTab.addEventListener("click", function () { showPage("fix"); });
+    }
     listsTab.addEventListener("click", function () { showPage("lists"); });
 
     var themeChoice = "auto";
@@ -1441,14 +1456,14 @@ return view.extend({
           "чтобы увидеть, на каком этапе всё сломалось — DNS, TCP, TLS или HTTP."),
         E("div", { class: "fkpsc-badges" }, [
           E("span", { class: "fkpsc-badge" }, "интерфейс v" + UI_VERSION),
-          E("span", { class: "fkpsc-badge" }, capabilities.forkop_running ? "● Forkop запущен" : "○ Forkop остановлен"),
+          E("span", { class: "fkpsc-badge" }, (backendRunning ? "● " : "○ ") + backendName + (backendRunning ? " запущен" : " остановлен")),
           E("span", { class: "fkpsc-badge" }, capabilities.curl ? "HTTPS: точный" : "HTTPS: упрощённый"),
           E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
         ]),
       ]),
-      E("div", { class: "fkpsc-tabs", role: "tablist" }, [checkTab, fixTab, listsTab]),
+      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, fixTab, listsTab] : [checkTab, listsTab]),
       checkPage,
-      fixPage,
+      showForkopFixes ? fixPage : "",
       listsPage,
     ]);
     applyTheme(themeChoice, false);

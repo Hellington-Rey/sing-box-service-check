@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "install-forkop-servicecheck.sh"
-PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.4.0-r1_all.ipk"
+PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.5.0-r1_all.ipk"
 MARKER = "__FORKOP_SC_PAYLOAD__"
 
 
@@ -19,7 +19,7 @@ def assert_shell(name, shell_script):
 
 def main():
     script = INSTALLER.read_text(encoding="utf-8")
-    assert 'VERSION="1.4.0"' in script
+    assert 'VERSION="1.5.0"' in script
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
     assert "sed -n '/^__PAYLOAD_BELOW__$/,$p' \"$0\"" not in script
@@ -72,10 +72,21 @@ def main():
     assert 'background:var(--surface-raised)' in view
     assert 'MTProto DC' not in profiles
     assert 'UDP / QUIC / Discord' not in profiles
+    assert '"host": "assets.nflxext.com"' in profiles
+    assert '"host": "api-global.netflix.com"' not in profiles
     assert '"Проверить IP/домен"' in view
     assert 'gemini_key_set)' in cli
     assert 'else if (mode == "gemini-key-set")' in engine
     assert 'function probe_gemini_geo(ctx, target)' in engine
+    assert 'function backend_id()' in engine
+    assert 'const PODKOP_BIN' in engine
+    assert '"get_sing_box_status"' in engine
+    assert 'uci_get("podkop.settings.config_path")' in engine
+    assert 'controller + "/connections"' in engine
+    assert 'backend_running: running' in engine
+    assert 'var showForkopFixes = backendId === "forkop"' in view
+    assert 'showForkopFixes ? [checkTab, fixTab, listsTab] : [checkTab, listsTab]' in view
+    assert '[ -x /usr/bin/podkop ]' in script
     assert "GEMINI_API_KEY_DEFAULT" not in engine
     assert "AIza" not in engine
     assert '"path": "/v1beta/models"' in profiles
@@ -83,7 +94,12 @@ def main():
     assert 'tileHeader.addEventListener("click", toggle)' in view
     assert 'tile.addEventListener("click", toggle)' not in view
     with tarfile.open(PACKAGE, mode="r:gz") as outer:
+        control_archive = outer.extractfile("./control.tar.gz").read()
         data_archive = outer.extractfile("./data.tar.gz").read()
+    with tarfile.open(fileobj=io.BytesIO(control_archive), mode="r:gz") as control_tar:
+        control = control_tar.extractfile("./control").read().decode("utf-8")
+        assert "Depends: luci-base, ucode" in control
+        assert "оригинального Podkop" in control
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
         assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
         assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())
