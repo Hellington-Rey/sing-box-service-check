@@ -193,6 +193,52 @@
       ]
     },
     {
+      "id": "signal",
+      "title": "Signal",
+      "group": "messenger",
+      "description": "Заблокированный в РФ мессенджер: публичный сайт, обновления клиента и достижимость серверов сообщений и вложений.",
+      "targets": [
+        { "kind": "https", "host": "signal.org", "path": "/", "expect": [200, 301, 302] },
+        { "kind": "https", "host": "updates.signal.org", "path": "/desktop/apt/keys.asc", "expect": [200], "label": "Обновления Signal Desktop" },
+        { "kind": "tcp", "host": "chat.signal.org", "port": 443, "label": "Сервер сообщений chat.signal.org:443" },
+        { "kind": "tcp", "host": "cdn.signal.org", "port": 443, "optional": true, "label": "Вложения cdn.signal.org:443" }
+      ]
+    },
+    {
+      "id": "viber",
+      "title": "Viber",
+      "group": "messenger",
+      "description": "Заблокированный в РФ мессенджер: сайт, официальный Chat API и CDN загрузок.",
+      "targets": [
+        { "kind": "https", "host": "www.viber.com", "path": "/", "expect": [200, 301, 302] },
+        { "kind": "https", "host": "chatapi.viber.com", "path": "/pa/get_account_info", "expect": [200, 400, 401, 403], "label": "Viber Chat API" },
+        { "kind": "https", "host": "download.cdn.viber.com", "path": "/", "expect": [200, 301, 302, 403, 404], "label": "CDN загрузок Viber" }
+      ]
+    },
+    {
+      "id": "snapchat",
+      "title": "Snapchat",
+      "group": "social",
+      "description": "Заблокированный в РФ сервис: основной сайт, веб-клиент и сервер авторизации.",
+      "targets": [
+        { "kind": "https", "host": "www.snapchat.com", "path": "/", "expect": [200, 301, 302, 403] },
+        { "kind": "https", "host": "web.snapchat.com", "path": "/", "expect": [200, 301, 302, 307, 403], "label": "Веб-клиент Snapchat" },
+        { "kind": "https", "host": "accounts.snapchat.com", "path": "/", "expect": [200, 301, 302, 403], "label": "Авторизация Snapchat" }
+      ]
+    },
+    {
+      "id": "roblox",
+      "title": "Roblox",
+      "group": "games",
+      "description": "Заблокированная в РФ игровая платформа: сайт, облачный API, игровые API и CDN клиента.",
+      "targets": [
+        { "kind": "https", "host": "www.roblox.com", "path": "/", "expect": [200, 301, 302, 403] },
+        { "kind": "https", "host": "apis.roblox.com", "path": "/", "expect": [200, 400, 401, 403, 404], "label": "Roblox Open Cloud API" },
+        { "kind": "https", "host": "games.roblox.com", "path": "/", "expect": [200, 400, 401, 403, 404], "label": "Игровой API Roblox" },
+        { "kind": "https", "host": "setup.rbxcdn.com", "path": "/", "expect": [200, 301, 302, 403, 404], "optional": true, "label": "CDN обновлений Roblox" }
+      ]
+    },
+    {
       "id": "blocked_ru",
       "title": "Заблокированные в РФ",
       "group": "bypass",
