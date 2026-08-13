@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "agent/**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate project version and release tag
+        run: python tools/project_version.py
+
+      - name: Build installers and packages
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Validate generated artifacts
+        run: python tools/check_installer.py
+
+      - name: Validate ucode, JavaScript and JSON structure
+        run: >-
+          python tools/check_ucode.py
+          files/usr/bin/forkop-servicecheck
+          files/usr/lib/forkop-servicecheck/probe.uc
+          files/www/luci-static/resources/view/forkop/servicecheck-v112.js
+          files/usr/share/forkop-servicecheck/profiles.json
+
+      - name: Validate POSIX shell syntax
+        run: |
+          sh -n installer-template.sh
+          sh -n install-sing-box-service-check.sh
+          sh -n install-forkop-servicecheck.sh
+          sh -n make-apk-template.sh
+          sh -n dist/make-apk.sh
+          sh -n files/usr/bin/forkop-servicecheck
+          sh -n files/usr/lib/forkop-servicecheck/xhttp_hotfix.sh
+          sh -n files/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh
+
+      - name: Run shell integration tests
+        run: |
+          sh tools/test_cli_wrapper.sh
+          sh tools/test_icmp_tproxy_hotfix.sh
+
+      - name: Check reproducible build
+        shell: pwsh
+        run: |
+          $before = Get-FileHash -Algorithm SHA256 install-sing-box-service-check.sh, install-forkop-servicecheck.sh, dist/*.ipk, dist/make-apk.sh, dist/SHA256SUMS.txt
+          ./build.ps1
+          $after = Get-FileHash -Algorithm SHA256 install-sing-box-service-check.sh, install-forkop-servicecheck.sh, dist/*.ipk, dist/make-apk.sh, dist/SHA256SUMS.txt
+          if (Compare-Object $before.Hash $after.Hash) { throw 'Build is not reproducible' }
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sing-box-service-check-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            install-sing-box-service-check.sh
+            install-forkop-servicecheck.sh
+            dist/*.ipk
+            dist/make-apk.sh
+            dist/SHA256SUMS.txt

@@ -17,7 +17,6 @@
  */
 
 var BIN = "/usr/bin/sing-box-service-check";
-var UI_VERSION = "1.8.0"; // Filename v112 remains compatible with existing menu entries.
 var THEME_STORAGE_KEY = "forkop-servicecheck-theme";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
@@ -1742,7 +1741,7 @@ return view.extend({
           "а соединение попадает в цепочку mangle_output и уходит в tproxy. Нажмите на плитку сервиса, " +
           "чтобы увидеть, на каком этапе всё сломалось — DNS, TCP, TLS или HTTP."),
         E("div", { class: "fkpsc-badges" }, [
-          E("span", { class: "fkpsc-badge" }, "интерфейс v" + UI_VERSION),
+          E("span", { class: "fkpsc-badge" }, "интерфейс v" + (capabilities.module_version || "unknown")),
           E("span", { class: "fkpsc-badge" }, (backendRunning ? "● " : "○ ") + backendName + (backendRunning ? " запущен" : " остановлен")),
           E("span", { class: "fkpsc-badge" }, capabilities.curl ? "HTTPS: точный" : "HTTPS: упрощённый"),
           E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),

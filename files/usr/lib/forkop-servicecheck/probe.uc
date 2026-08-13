@@ -464,6 +464,7 @@ function capabilities() {
         fakeip_ranges: fakeip_ranges(),
         backend,
         backend_name: backend_name(backend),
+        module_version: trim(as_string(fs.readfile(VERSION_FILE))) || "unknown",
         backend_installed: backend != "none",
         backend_running: running,
         tachyon_installed: fs.stat(TACHYON_BIN) != null,

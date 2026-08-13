@@ -7,11 +7,14 @@ import io
 import tarfile
 from pathlib import Path
 
+from project_version import project_version
+
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "install-sing-box-service-check.sh"
 LEGACY_INSTALLER = ROOT / "install-forkop-servicecheck.sh"
-PACKAGE = ROOT / "dist" / "luci-app-forkop-servicecheck_1.8.0-r1_all.ipk"
+VERSION = project_version()
+PACKAGE = ROOT / "dist" / f"luci-app-forkop-servicecheck_{VERSION}-r1_all.ipk"
 APK_MAKER = ROOT / "dist" / "make-apk.sh"
 CHECKSUMS = ROOT / "dist" / "SHA256SUMS.txt"
 FEED_DIR = ROOT / "dist" / "feed"
@@ -25,7 +28,7 @@ def assert_shell(name, shell_script):
 
 def main():
     script = INSTALLER.read_text(encoding="utf-8")
-    assert 'VERSION="1.8.0"' in script
+    assert f'VERSION="{VERSION}"' in script
     assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
@@ -132,15 +135,15 @@ def main():
     assert 'class: "fkpsc-tile-header"' in view
     assert 'tileHeader.addEventListener("click", toggle)' in view
     assert 'tile.addEventListener("click", toggle)' not in view
-    assert version_marker == "1.8.0"
-    assert 'var UI_VERSION = "1.8.0"' in view
+    assert version_marker == VERSION
+    assert 'capabilities.module_version || "unknown"' in view
     with tarfile.open(PACKAGE, mode="r:gz") as outer:
         control_archive = outer.extractfile("./control.tar.gz").read()
         data_archive = outer.extractfile("./data.tar.gz").read()
     with tarfile.open(fileobj=io.BytesIO(control_archive), mode="r:gz") as control_tar:
         control = control_tar.extractfile("./control").read().decode("utf-8")
         assert "Depends: luci-base, ucode" in control
-        assert "Version: 1.8.0-r1" in control
+        assert f"Version: {VERSION}-r1" in control
         assert "для Tachyon, Forkop и оригинального Podkop" in control
         assert "оригинального Podkop" in control
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
@@ -153,14 +156,14 @@ def main():
         assert data_tar.extractfile("./usr/share/forkop-servicecheck/version").read().decode("utf-8").strip() == version_marker
 
     feed_packages = (FEED_DIR / "Packages").read_text(encoding="utf-8")
-    assert "Version: 1.8.0-r1" in feed_packages
+    assert f"Version: {VERSION}-r1" in feed_packages
     assert "для Tachyon, Forkop и оригинального Podkop" in feed_packages
     assert (FEED_DIR / PACKAGE.name).read_bytes() == PACKAGE.read_bytes()
     with gzip.open(FEED_DIR / "Packages.gz", "rt", encoding="utf-8") as compressed_feed:
         assert compressed_feed.read() == feed_packages
 
     apk_maker = APK_MAKER.read_text(encoding="utf-8")
-    assert 'VERSION="1.8.0-r1"' in apk_maker
+    assert f'VERSION="{VERSION}-r1"' in apk_maker
     assert "для Tachyon, Forkop и оригинального Podkop" in apk_maker
 
     artifact_by_name = {

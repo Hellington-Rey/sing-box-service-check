@@ -11,7 +11,8 @@ $legacyOutput = Join-Path $root 'install-forkop-servicecheck.sh'
 $archive = Join-Path $env:TEMP 'forkop-servicecheck-payload.tar.gz'
 $staging = Join-Path $env:TEMP ("forkop-servicecheck-payload-" + [Guid]::NewGuid().ToString('N'))
 
-$version = '1.8.0'
+$version = [System.IO.File]::ReadAllText((Join-Path $root 'VERSION')).Trim()
+if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Некорректная версия в VERSION: $version" }
 $builtAt = (Get-Date).ToString('yyyy-MM-dd')
 
 if (Test-Path $archive) { Remove-Item $archive -Force }
@@ -20,6 +21,8 @@ New-Item -ItemType Directory -Path $staging | Out-Null
 try {
     Copy-Item -Recurse -Force (Join-Path $filesDir 'usr') $staging
     Copy-Item -Recurse -Force (Join-Path $filesDir 'www') $staging
+    $versionMarker = Join-Path $staging 'usr\share\forkop-servicecheck\version'
+    [System.IO.File]::WriteAllText($versionMarker, "$version`n", (New-Object System.Text.UTF8Encoding($false)))
 
     # Git can check the repository out with CRLF on Windows. BusyBox ash then
     # reads "set -eu\r" as an illegal option, so executable shell payloads are

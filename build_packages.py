@@ -19,12 +19,14 @@ import io
 import tarfile
 from pathlib import Path
 
+from tools.project_version import project_version
+
 ROOT = Path(__file__).parent
 FILES_DIR = ROOT / "files"
 OUT_DIR = ROOT / "dist"
 
 PACKAGE = "luci-app-forkop-servicecheck"
-VERSION = "1.8.0"
+VERSION = project_version()
 RELEASE = "r1"
 ARCH = "all"
 LICENSE = "MIT"
@@ -49,7 +51,7 @@ PAYLOAD = [
     ("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh", "usr/lib/forkop-servicecheck/xhttp_hotfix.sh", 0o755),
     ("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh", "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh", 0o755),
     ("./usr/share/forkop-servicecheck/profiles.json", "usr/share/forkop-servicecheck/profiles.json", 0o644),
-    ("./usr/share/forkop-servicecheck/version", "usr/share/forkop-servicecheck/version", 0o644),
+    ("./usr/share/forkop-servicecheck/version", None, 0o644),
     ("./www/luci-static/resources/view/forkop/servicecheck-v112.js", "www/luci-static/resources/view/forkop/servicecheck-v112.js", 0o644),
     ("./usr/share/luci/menu.d/luci-app-forkop-servicecheck.json", "usr/share/luci/menu.d/luci-app-forkop-servicecheck.json", 0o644),
     ("./usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json", "usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json", 0o644),
@@ -65,6 +67,8 @@ OWNED_DIRS = [
 
 def read_payload(source_path):
     """Read the text payload using Unix line endings expected by OpenWrt."""
+    if source_path is None:
+        return (VERSION + "\n").encode("ascii")
     data = (FILES_DIR / source_path).read_bytes()
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
