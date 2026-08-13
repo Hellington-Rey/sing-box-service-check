@@ -69,6 +69,7 @@ jobs:
             -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF
           cmake --build /tmp/openwrt-ucode/build --parallel 2
           sudo cmake --install /tmp/openwrt-ucode/build
+          sudo ldconfig
 
       - name: Run shell integration tests
         run: |
