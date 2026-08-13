@@ -1593,6 +1593,9 @@ return view.extend({
     }
     var dnsChainButton = E("button", { class: "cbi-button", type: "button", style: "margin-top:.8em" }, "Проверить DNS-цепочку");
     var dnsChainResult = E("div", {});
+    var doctorButton = E("button", { class: "cbi-button", type: "button", style: "margin-top:.8em;margin-left:.5em" }, "Проверить установку");
+    var repairButton = E("button", { class: "cbi-button cbi-button-negative", type: "button", style: "margin-top:.8em;margin-left:.5em" }, "Восстановить файлы");
+    var doctorResult = E("div", {});
     var backendDiagnosticsCard = E("details", { class: "fkpsc-card" }, [
       E("summary", { style: "cursor:pointer;font-weight:700" }, "Backend и DNS · расширенная диагностика"),
       E("div", { class: "fkpsc-diagnostic-grid" }, [
@@ -1606,7 +1609,10 @@ return view.extend({
         diagnosticCell("Инструменты", [capabilities.curl ? "curl" : "без curl", capabilities.dig ? "dig" : "без dig", capabilities.nc ? "nc" : "без nc", capabilities.netns ? "netns" : "без netns"].join(" · ")),
       ]),
       dnsChainButton,
+      doctorButton,
+      repairButton,
       dnsChainResult,
+      doctorResult,
     ]);
     dnsChainButton.addEventListener("click", function () {
       var target = customTargetInput.value.trim() || "cp.cloudflare.com";
@@ -1623,6 +1629,34 @@ return view.extend({
       }).then(function () {
         dnsChainButton.disabled = false;
         dnsChainButton.textContent = "Проверить DNS-цепочку";
+      });
+    });
+    doctorButton.addEventListener("click", function () {
+      doctorButton.disabled = true;
+      callBin(["doctor"]).then(function (result) {
+        var rows = (result.checks || []).map(function (check) {
+          return E("div", { class: "fkpsc-custom-result state-" + (check.ok ? "success" : (check.critical ? "error" : "warning")), style: "margin:.35em 0" },
+            (check.ok ? "✓ " : "✕ ") + check.message);
+        });
+        doctorResult.replaceChildren.apply(doctorResult, rows);
+      }).catch(function (error) {
+        doctorResult.replaceChildren(E("div", { class: "fkpsc-custom-result state-error" }, error.message));
+      }).then(function () { doctorButton.disabled = false; });
+    });
+    repairButton.addEventListener("click", function () {
+      if (!window.confirm("Восстановить файлы Sing-box Service Check из локальной проверенной копии? Пользовательские профили в /etc не изменятся.")) {
+        return;
+      }
+      repairButton.disabled = true;
+      repairButton.textContent = "Восстанавливаем…";
+      callBin(["repair"]).then(function (result) {
+        if (!result.success) { throw new Error(result.output || result.message); }
+        ui.addNotification(null, E("p", {}, result.message + ". Страница будет обновлена."), "info");
+        window.setTimeout(function () { window.location.reload(); }, 1200);
+      }).catch(function (error) {
+        repairButton.disabled = false;
+        repairButton.textContent = "Восстановить файлы";
+        ui.addNotification(null, E("p", {}, "Восстановление не выполнено: " + error.message), "error");
       });
     });
 

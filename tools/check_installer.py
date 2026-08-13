@@ -45,6 +45,9 @@ def main():
         cli_raw = tar.extractfile("usr/bin/forkop-servicecheck").read()
         xhttp_fix = tar.extractfile("usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read()
         icmp_fix = tar.extractfile("usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read()
+        repair_script = tar.extractfile("usr/lib/forkop-servicecheck/repair.sh").read()
+        recovery_archive = tar.extractfile("usr/share/forkop-servicecheck/recovery.tar.gz").read()
+        recovery_checksum = tar.extractfile("usr/share/forkop-servicecheck/recovery.sha256").read().decode("ascii")
         cli = cli_raw.decode("utf-8")
         engine = tar.extractfile("usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8")
         profiles = tar.extractfile("usr/share/forkop-servicecheck/profiles.json").read().decode("utf-8")
@@ -56,6 +59,9 @@ def main():
         "usr/lib/forkop-servicecheck/probe.uc",
         "usr/lib/forkop-servicecheck/xhttp_hotfix.sh",
         "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh",
+        "usr/lib/forkop-servicecheck/repair.sh",
+        "usr/share/forkop-servicecheck/recovery.tar.gz",
+        "usr/share/forkop-servicecheck/recovery.sha256",
         "usr/share/forkop-servicecheck/profiles.json",
         "usr/share/forkop-servicecheck/version",
         "www/luci-static/resources/view/forkop/servicecheck-v112.js",
@@ -65,9 +71,16 @@ def main():
     assert_shell("installer CLI", cli_raw)
     assert_shell("installer xHTTP fix", xhttp_fix)
     assert_shell("installer ICMP fix", icmp_fix)
+    assert_shell("installer repair", repair_script)
     assert payload_modes["usr/bin/forkop-servicecheck"] == 0o755
     assert payload_modes["usr/lib/forkop-servicecheck/xhttp_hotfix.sh"] == 0o755
     assert payload_modes["usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh"] == 0o755
+    assert payload_modes["usr/lib/forkop-servicecheck/repair.sh"] == 0o755
+    assert hashlib.sha256(recovery_archive).hexdigest() in recovery_checksum
+    with tarfile.open(fileobj=io.BytesIO(recovery_archive), mode="r:gz") as recovery_tar:
+        recovery_names = set(recovery_tar.getnames())
+        assert "usr/bin/forkop-servicecheck" in recovery_names or "./usr/bin/forkop-servicecheck" in recovery_names
+        assert not any(name.startswith("/") or "../" in name for name in recovery_names)
     assert payload_modes["usr/lib/forkop-servicecheck/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
     assert "command -v ucode" in cli
@@ -107,6 +120,11 @@ def main():
     assert 'function dns_chain_diagnostics(host)' in engine
     assert 'dns-diagnostics' in cli
     assert 'callBin(["dns-diagnostics", target])' in view
+    assert 'function doctor()' in engine and 'function repair()' in engine
+    assert 'doctor|repair' in cli
+    assert 'callBin(["doctor"])' in view and 'callBin(["repair"])' in view
+    assert 'begin_transaction' in script and 'rollback_transaction' in script
+    assert 'recovery.sha256' in script
     assert 'status == 28 && connect_ms <= 0 && remote_ip == ""' in engine
     assert 'else if (mode == "profiles-save")' in engine
     assert 'callBin(["profiles-save", JSON.stringify(profilesDraft)])' in view

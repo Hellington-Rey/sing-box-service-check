@@ -122,6 +122,7 @@ fi
 command -v ucode >/dev/null 2>&1 || fail "Не найден ucode. Установите пакет ucode."
 command -v base64 >/dev/null 2>&1 || fail "Не найдена утилита base64."
 command -v tar >/dev/null 2>&1 || fail "Не найдена утилита tar."
+command -v sha256sum >/dev/null 2>&1 || fail "Не найдена утилита sha256sum."
 
 if [ -x /usr/bin/tachyon ]; then
     BACKEND="Tachyon"
@@ -142,10 +143,67 @@ log "Обнаружен $BACKEND $BACKEND_VERSION"
 # --- Распаковка во временный каталог ----------------------------------------
 
 TMP_DIR="$(mktemp -d /tmp/forkop-servicecheck.XXXXXX)"
-cleanup() {
-    rm -rf "$TMP_DIR"
+BACKUP_ARCHIVE="$TMP_DIR/rollback.tar"
+TRANSACTION_ACTIVE=0
+
+transaction_paths() {
+    cat <<EOF
+$BIN_PATH
+$LEGACY_BIN_PATH
+$LIB_DIR/probe.uc
+$LIB_DIR/xhttp_hotfix.sh
+$LIB_DIR/icmp_tproxy_hotfix.sh
+$LIB_DIR/repair.sh
+$SHARE_DIR/profiles.json
+$SHARE_DIR/version
+$SHARE_DIR/recovery.tar.gz
+$SHARE_DIR/recovery.sha256
+$VIEW_FILE
+$PREVIOUS_VIEW_FILE
+$OLDER_VIEW_FILE
+$LEGACY_VIEW_FILE
+$BROKEN_VIEW_FILE
+$MENU_FILE
+$ACL_FILE
+EOF
 }
-trap cleanup EXIT INT TERM
+
+begin_transaction() {
+    backup_root="$TMP_DIR/rollback"
+    mkdir -p "$backup_root"
+    transaction_paths | while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        if [ -f "$path" ]; then
+            mkdir -p "$backup_root$(dirname "$path")"
+            cp -p "$path" "$backup_root$path"
+        fi
+    done
+    tar -cf "$BACKUP_ARCHIVE" -C "$backup_root" .
+    TRANSACTION_ACTIVE=1
+}
+
+rollback_transaction() {
+    log "Ошибка после начала установки — возвращаю предыдущую версию"
+    transaction_paths | while IFS= read -r path; do
+        [ -n "$path" ] && rm -f "$path"
+    done
+    tar -xf "$BACKUP_ARCHIVE" -C / 2>/dev/null || true
+    clear_luci_cache
+    reload_rpcd
+}
+
+cleanup() {
+    status=$?
+    trap - EXIT INT TERM
+    if [ "$TRANSACTION_ACTIVE" = "1" ] && [ "$status" -ne 0 ]; then
+        rollback_transaction
+    fi
+    rm -rf "$TMP_DIR"
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 log "Распаковываю файлы"
 
@@ -190,6 +248,8 @@ fi
 
 log "Устанавливаю файлы"
 
+begin_transaction
+
 mkdir -p "$LIB_DIR" "$SHARE_DIR" "$STATE_DIR"
 mkdir -p /usr/share/luci/menu.d /usr/share/rpcd/acl.d
 mkdir -p /www/luci-static/resources/view/forkop
@@ -199,15 +259,18 @@ cp -f "$TMP_DIR/usr/bin/forkop-servicecheck" "$LEGACY_BIN_PATH"
 cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/probe.uc" "$LIB_DIR/probe.uc"
 cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/xhttp_hotfix.sh" "$LIB_DIR/xhttp_hotfix.sh"
 cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh" "$LIB_DIR/icmp_tproxy_hotfix.sh"
+cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/repair.sh" "$LIB_DIR/repair.sh"
 cp -f "$TMP_DIR/usr/share/forkop-servicecheck/profiles.json" "$SHARE_DIR/profiles.json"
+cp -f "$TMP_DIR/usr/share/forkop-servicecheck/recovery.tar.gz" "$SHARE_DIR/recovery.tar.gz"
+cp -f "$TMP_DIR/usr/share/forkop-servicecheck/recovery.sha256" "$SHARE_DIR/recovery.sha256"
 cp -f "$TMP_DIR/www/luci-static/resources/view/forkop/servicecheck-v112.js" "$VIEW_FILE"
 rm -f "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$OLDER_VIEW_FILE" "$PREVIOUS_VIEW_FILE"
 cp -f "$TMP_DIR/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" "$MENU_FILE"
 cp -f "$TMP_DIR/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" "$ACL_FILE"
 
 chmod 0755 "$BIN_PATH" "$LEGACY_BIN_PATH"
-chmod 0755 "$LIB_DIR/xhttp_hotfix.sh" "$LIB_DIR/icmp_tproxy_hotfix.sh"
-chmod 0644 "$LIB_DIR/probe.uc" "$SHARE_DIR/profiles.json" "$VIEW_FILE" "$MENU_FILE" "$ACL_FILE"
+chmod 0755 "$LIB_DIR/xhttp_hotfix.sh" "$LIB_DIR/icmp_tproxy_hotfix.sh" "$LIB_DIR/repair.sh"
+chmod 0644 "$LIB_DIR/probe.uc" "$SHARE_DIR/profiles.json" "$SHARE_DIR/recovery.tar.gz" "$SHARE_DIR/recovery.sha256" "$VIEW_FILE" "$MENU_FILE" "$ACL_FILE"
 printf '%s\n' "$VERSION" > "$VERSION_FILE"
 
 # --- Дожимаем LuCI ----------------------------------------------------------
@@ -226,6 +289,12 @@ fi
 echo "$CAPS" | grep -q '"fakeip_ranges"' || fail "Неожиданный ответ модуля: $CAPS"
 
 PROFILES="$("$BIN_PATH" list 2>/dev/null | grep -o '"id":' | wc -l)"
+
+if ! (cd "$SHARE_DIR" && sha256sum -c recovery.sha256 >/dev/null 2>&1); then
+    fail "Локальный архив восстановления не прошёл проверку SHA-256"
+fi
+
+TRANSACTION_ACTIVE=0
 
 log "Модуль отвечает, профилей сервисов: $PROFILES"
 

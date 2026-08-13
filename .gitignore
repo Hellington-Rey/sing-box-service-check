@@ -2,4 +2,5 @@
 .tmp.driveupload/
 __pycache__/
 *.pyc
+dist/opkg-feed-*.zip
 

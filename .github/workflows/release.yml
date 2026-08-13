@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate tag
+        run: python tools/project_version.py
+
+      - name: Build release artifacts
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Verify release artifacts and feed
+        run: |
+          python tools/check_installer.py
+          python tools/check_feed.py
+          python tools/bundle_feed.py
+
+      - name: Publish GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python tools/project_version.py)"
+          release="v${version}"
+          gh release view "$release" >/dev/null 2>&1 || \
+            gh release create "$release" --verify-tag --title "Sing-box Service Check ${version}" --generate-notes
+          gh release upload "$release" --clobber \
+            install-sing-box-service-check.sh \
+            install-forkop-servicecheck.sh \
+            "dist/luci-app-forkop-servicecheck_${version}-r1_all.ipk" \
+            dist/make-apk.sh \
+            dist/SHA256SUMS.txt \
+            "dist/opkg-feed-${version}.zip"

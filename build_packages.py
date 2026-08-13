@@ -50,6 +50,7 @@ PAYLOAD = [
     ("./usr/lib/forkop-servicecheck/probe.uc", "usr/lib/forkop-servicecheck/probe.uc", 0o644),
     ("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh", "usr/lib/forkop-servicecheck/xhttp_hotfix.sh", 0o755),
     ("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh", "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh", 0o755),
+    ("./usr/lib/forkop-servicecheck/repair.sh", "usr/lib/forkop-servicecheck/repair.sh", 0o755),
     ("./usr/share/forkop-servicecheck/profiles.json", "usr/share/forkop-servicecheck/profiles.json", 0o644),
     ("./usr/share/forkop-servicecheck/version", None, 0o644),
     ("./www/luci-static/resources/view/forkop/servicecheck-v112.js", "www/luci-static/resources/view/forkop/servicecheck-v112.js", 0o644),
@@ -148,7 +149,20 @@ def build_data_tar():
         installed_size += len(data)
         entries.append((package_path, data, mode, False))
 
+    recovery = build_recovery_archive()
+    recovery_checksum = f"{hashlib.sha256(recovery).hexdigest()}  recovery.tar.gz\n".encode("ascii")
+    installed_size += len(recovery) + len(recovery_checksum)
+    entries.append(("./usr/share/forkop-servicecheck/recovery.tar.gz", recovery, 0o644, False))
+    entries.append(("./usr/share/forkop-servicecheck/recovery.sha256", recovery_checksum, 0o644, False))
+
     return make_tar_gz(entries), installed_size
+
+
+def build_recovery_archive():
+    entries = [(owned, None, 0o755, True) for owned in OWNED_DIRS]
+    for package_path, source_path, mode in PAYLOAD:
+        entries.append((package_path, read_payload(source_path), mode, False))
+    return make_tar_gz(entries)
 
 
 def build_control_tar(installed_size):
@@ -255,6 +269,10 @@ def build_apk_maker():
         entries.append((package_path, data, mode, False))
     for owned in OWNED_DIRS:
         entries.append((owned, None, 0o755, True))
+    recovery = build_recovery_archive()
+    entries.append(("./usr/share/forkop-servicecheck/recovery.tar.gz", recovery, 0o644, False))
+    entries.append(("./usr/share/forkop-servicecheck/recovery.sha256",
+                    f"{hashlib.sha256(recovery).hexdigest()}  recovery.tar.gz\n".encode("ascii"), 0o644, False))
 
     payload = base64.b64encode(make_tar_gz(entries)).decode("ascii")
     wrapped = "\n".join(payload[i:i + 76] for i in range(0, len(payload), 76))

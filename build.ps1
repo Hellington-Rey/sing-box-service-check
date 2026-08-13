@@ -8,8 +8,9 @@ $filesDir = Join-Path $root 'files'
 $template = Join-Path $root 'installer-template.sh'
 $output = Join-Path $root 'install-sing-box-service-check.sh'
 $legacyOutput = Join-Path $root 'install-forkop-servicecheck.sh'
-$archive = Join-Path $env:TEMP 'forkop-servicecheck-payload.tar.gz'
-$staging = Join-Path $env:TEMP ("forkop-servicecheck-payload-" + [Guid]::NewGuid().ToString('N'))
+$taskTemp = [System.IO.Path]::GetTempPath()
+$archive = Join-Path $taskTemp 'forkop-servicecheck-payload.tar.gz'
+$staging = Join-Path $taskTemp ("forkop-servicecheck-payload-" + [Guid]::NewGuid().ToString('N'))
 
 $version = [System.IO.File]::ReadAllText((Join-Path $root 'VERSION')).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Некорректная версия в VERSION: $version" }
@@ -36,6 +37,13 @@ try {
         $text = [System.IO.File]::ReadAllText($_.FullName).Replace("`r`n", "`n").Replace("`r", "`n")
         [System.IO.File]::WriteAllText($_.FullName, $text, $utf8NoBom)
     }
+
+    $recoveryArchive = Join-Path $staging 'usr\share\forkop-servicecheck\recovery.tar.gz'
+    & python (Join-Path $root 'tools\build_payload.py') $staging $recoveryArchive
+    if ($LASTEXITCODE -ne 0) { throw "Не удалось собрать архив восстановления" }
+    $recoveryDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $recoveryArchive).Hash.ToLowerInvariant()
+    $recoveryChecksum = Join-Path $staging 'usr\share\forkop-servicecheck\recovery.sha256'
+    [System.IO.File]::WriteAllText($recoveryChecksum, "$recoveryDigest  recovery.tar.gz`n", $utf8NoBom)
 
     # ustar, а не pax: busybox tar на роутере разбирает его без сюрпризов.
     # Python-сборщик фиксирует порядок, mtime, владельца и gzip-заголовок.

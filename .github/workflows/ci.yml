@@ -31,6 +31,9 @@ jobs:
       - name: Validate generated artifacts
         run: python tools/check_installer.py
 
+      - name: Validate opkg feed
+        run: python tools/check_feed.py
+
       - name: Validate ucode, JavaScript and JSON structure
         run: >-
           python tools/check_ucode.py

@@ -34,6 +34,9 @@ const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
 const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
 const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
 const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
+const REPAIR_SCRIPT = LIB_DIR + "/repair.sh";
+const RECOVERY_ARCHIVE = "/usr/share/forkop-servicecheck/recovery.tar.gz";
+const RECOVERY_CHECKSUM = "/usr/share/forkop-servicecheck/recovery.sha256";
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const DNS_TIMEOUT = 3;
@@ -2166,6 +2169,80 @@ function history_get() {
     return 0;
 }
 
+function doctor() {
+    let checks = [];
+    let healthy = true;
+
+    let version = installed_version();
+    let version_ok = version != "0.0.0";
+    push(checks, { id: "version", ok: version_ok, critical: true, message: version_ok ? "версия " + version : "маркер версии повреждён" });
+    healthy = healthy && version_ok;
+
+    let required = [
+        [ "cli", "/usr/bin/sing-box-service-check" ],
+        [ "engine", ENGINE ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v112.js" ],
+        [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
+        [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
+    ];
+    for (let entry in required) {
+        let ok = fs.stat(entry[1]) != null;
+        push(checks, { id: entry[0], ok, critical: true, message: ok ? entry[1] : "файл отсутствует: " + entry[1] });
+        healthy = healthy && ok;
+    }
+
+    let shell_ok = capture_args([ "sh", "-n", "/usr/bin/sing-box-service-check" ], true).status == 0;
+    push(checks, { id: "shell_syntax", ok: shell_ok, critical: true, message: shell_ok ? "CLI: синтаксис корректен" : "CLI: синтаксическая ошибка" });
+    healthy = healthy && shell_ok;
+
+    let ucode_check = capture_args([ "ucode", "-c", "-o", "/dev/null", ENGINE ], true);
+    let ucode_ok = ucode_check.status == 0 || index(lc(ucode_check.output), "invalid option") >= 0;
+    push(checks, { id: "ucode_syntax", ok: ucode_ok, critical: true, message: ucode_ok ? "probe.uc загружается" : short_output(ucode_check.output) });
+    healthy = healthy && ucode_ok;
+
+    let profile_config = read_json_file(profiles_file());
+    let profile_error = validate_profiles_config(profile_config);
+    let profiles_ok = profile_error == "";
+    push(checks, { id: "profiles", ok: profiles_ok, critical: true, message: profiles_ok ? "профили корректны" : profile_error });
+    healthy = healthy && profiles_ok;
+
+    let recovery_files = fs.stat(RECOVERY_ARCHIVE) != null && fs.stat(RECOVERY_CHECKSUM) != null;
+    let recovery_check = recovery_files
+        ? capture("cd /usr/share/forkop-servicecheck && sha256sum -c recovery.sha256 2>&1")
+        : { status: 1, output: "архив восстановления отсутствует" };
+    let recovery_ok = recovery_check.status == 0;
+    push(checks, { id: "recovery", ok: recovery_ok, critical: true, message: recovery_ok ? "архив восстановления проверен" : short_output(recovery_check.output) });
+    healthy = healthy && recovery_ok;
+
+    let backend = backend_id();
+    let backend_ok = backend != "none";
+    push(checks, { id: "backend", ok: backend_ok, critical: true, message: backend_ok ? backend_name(backend) + " " + backend_version(backend) : "backend не найден" });
+    healthy = healthy && backend_ok;
+
+    let running = backend_running();
+    push(checks, { id: "backend_running", ok: running, critical: false, message: running ? "backend запущен" : "backend остановлен" });
+    let clash = clash_api_diagnostic();
+    push(checks, { id: "clash_api", ok: clash.reachable, critical: false, message: clash.reachable ? "Clash API доступен" : "Clash API недоступен" });
+
+    write_json({ success: true, healthy, version, backend, checks });
+    return 0;
+}
+
+function repair() {
+    if (fs.stat(REPAIR_SCRIPT) == null) {
+        write_json({ success: false, message: "скрипт восстановления не установлен" });
+        return 1;
+    }
+    let result = capture_args([ "sh", REPAIR_SCRIPT ], true);
+    write_json({
+        success: result.status == 0,
+        code: result.status,
+        message: result.status == 0 ? "файлы текущей версии восстановлены" : "восстановление завершилось ошибкой",
+        output: short_output(result.output)
+    });
+    return result.status;
+}
+
 function history_clear() {
     if (fs.stat(HISTORY_FILE) != null)
         fs.unlink(HISTORY_FILE);
@@ -2460,6 +2537,10 @@ else if (mode == "update-start")
     exit(update_start());
 else if (mode == "update-status")
     exit(update_status());
+else if (mode == "doctor")
+    exit(doctor());
+else if (mode == "repair")
+    exit(repair());
 else if (mode == "update-worker")
     exit(update_worker());
 else if (mode == "gemini-key-set")
