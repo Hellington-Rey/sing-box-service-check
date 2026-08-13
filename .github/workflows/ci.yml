@@ -27,6 +27,9 @@ jobs:
       - name: Validate assembled sources
         run: python tools/assemble_sources.py --check
 
+      - name: Validate project structure and documentation
+        run: python tools/check_project.py
+
       - name: Build installers and packages
         shell: pwsh
         run: ./build.ps1
@@ -55,11 +58,23 @@ jobs:
           sh -n files/usr/bin/forkop-servicecheck
           sh -n files/usr/lib/forkop-servicecheck/xhttp_hotfix.sh
           sh -n files/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh
+          sh -n files/usr/lib/forkop-servicecheck/repair.sh
+
+      - name: Build the OpenWrt ucode runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libjson-c-dev
+          git clone --depth 1 --branch v0.0.20250529 https://github.com/jow-/ucode.git /tmp/openwrt-ucode
+          cmake -S /tmp/openwrt-ucode -B /tmp/openwrt-ucode/build \
+            -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF
+          cmake --build /tmp/openwrt-ucode/build --parallel 2
+          sudo cmake --install /tmp/openwrt-ucode/build
 
       - name: Run shell integration tests
         run: |
           sh tools/test_cli_wrapper.sh
           sh tools/test_icmp_tproxy_hotfix.sh
+          sh tools/test_backend_matrix.sh
 
       - name: Check reproducible build
         shell: pwsh

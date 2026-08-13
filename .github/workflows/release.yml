@@ -23,6 +23,7 @@ jobs:
         run: |
           python tools/project_version.py
           python tools/assemble_sources.py --check
+          python tools/check_project.py
 
       - name: Build release artifacts
         shell: pwsh

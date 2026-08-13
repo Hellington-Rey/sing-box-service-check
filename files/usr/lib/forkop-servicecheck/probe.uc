@@ -472,12 +472,11 @@ function clash_api_diagnostic() {
     else
         return result;
 
-    result.reachable = response.status == 0;
-    if (result.reachable) {
-        let parsed = parse_json(response.output);
-        result.connections = type(parsed) == "array"
-            ? length(parsed) : length(array_or_empty(object_or_empty(parsed).connections));
-    }
+    let parsed = response.status == 0 ? parse_json(response.output) : null;
+    let connection_list = type(parsed) == "array"
+        ? parsed : (type(object_or_empty(parsed).connections) == "array" ? parsed.connections : null);
+    result.reachable = connection_list != null;
+    result.connections = result.reachable ? length(connection_list) : 0;
     return result;
 }
 
@@ -564,7 +563,6 @@ function capabilities() {
         profiles_version: int(object_or_empty(read_json_file(profiles_file())).version || 0)
     };
 }
-
 // ---------------------------------------------------------------------------
 // Профили
 // ---------------------------------------------------------------------------
