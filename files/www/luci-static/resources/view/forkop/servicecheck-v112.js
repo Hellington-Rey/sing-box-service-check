@@ -1045,6 +1045,7 @@ return view.extend({
       runButton.disabled = running;
       runButton.textContent = running ? "Проверяем…" : "Проверить сервис";
       stopButton.style.display = running ? "" : "none";
+      stopButton.disabled = false;
       progressWrap.style.display = running ? "" : "none";
     }
 
@@ -1089,8 +1090,12 @@ return view.extend({
 
           if (state.running) {
             if (Date.now() - startedAt > JOB_TIMEOUT_MS) {
-              setRunning(false);
-              ui.addNotification(null, E("p", {}, "Проверка не завершилась за отведённое время."), "warning");
+              runState.cancelled = true;
+              callBin(["cancel", jobId]).catch(function () { return null; }).then(function () {
+                setRunning(false);
+                runState.jobId = "";
+                ui.addNotification(null, E("p", {}, "Проверка остановлена по таймауту."), "warning");
+              });
               return;
             }
 
@@ -1099,6 +1104,7 @@ return view.extend({
           }
 
           setRunning(false);
+          runState.jobId = "";
         }).catch(function (error) {
           setRunning(false);
           ui.addNotification(null, E("p", {}, "Ошибка чтения состояния: " + error.message), "error");
@@ -1145,12 +1151,28 @@ return view.extend({
     });
 
     stopButton.addEventListener("click", function () {
+      if (!runState.jobId) {
+        return;
+      }
       runState.cancelled = true;
+      stopButton.disabled = true;
+      stopButton.textContent = "Останавливаем…";
       if (runState.timer) {
         window.clearTimeout(runState.timer);
         runState.timer = null;
       }
-      setRunning(false);
+      callBin(["cancel", runState.jobId]).then(function (state) {
+        renderResults(state);
+        setRunning(false);
+        stopButton.textContent = "Остановить";
+        runState.jobId = "";
+        ui.addNotification(null, E("p", {}, state.message || "Проверка остановлена."), "info");
+      }).catch(function (error) {
+        setRunning(false);
+        stopButton.textContent = "Остановить";
+        runState.jobId = "";
+        ui.addNotification(null, E("p", {}, "Не удалось подтвердить остановку: " + error.message), "warning");
+      });
     });
 
     retryButton.addEventListener("click", function () {

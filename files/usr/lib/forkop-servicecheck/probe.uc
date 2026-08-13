@@ -1643,6 +1643,10 @@ function job_path(job_id) {
     return job_id_valid(job_id) ? STATE_DIR + "/" + as_string(job_id) + ".json" : "";
 }
 
+function job_pid_path(job_id) {
+    return job_id_valid(job_id) ? STATE_DIR + "/" + as_string(job_id) + ".pid" : "";
+}
+
 function write_state(path, value) {
     ensure_state_dir();
     return fs.writefile(as_string(path), sprintf("%J", value) + "\n") != null;
@@ -1886,6 +1890,13 @@ function update_progress(path, done, total, services) {
     write_state(path, state);
 }
 
+function job_cancel_requested(path) {
+    if (as_string(path) == "")
+        return false;
+    let state = object_or_empty(read_json_file(path));
+    return state.cancel_requested || state.cancelled || state.running == false;
+}
+
 function run_check(ids, mode, client_ip, progress_path) {
     let profiles = selected_profiles(ids);
     let ctx = build_context(mode, client_ip);
@@ -1898,6 +1909,8 @@ function run_check(ids, mode, client_ip, progress_path) {
     let done = 0;
 
     for (let profile in profiles) {
+        if (job_cancel_requested(progress_path))
+            break;
         let result = probe_service(ctx, profile);
         push(services, result);
         done += length(result.items);
@@ -1921,6 +1934,7 @@ function run_check(ids, mode, client_ip, progress_path) {
         forkop_running: ctx.forkop_running,
         tools: ctx.tools,
         fakeip_ranges: ctx.fakeip_ranges,
+        cancelled: job_cancel_requested(progress_path),
         progress: { done, total },
         services
     };
@@ -1936,8 +1950,20 @@ function cleanup_jobs() {
     for (let path in fs.glob(STATE_DIR + "/*.json")) {
         let state = object_or_empty(read_json_file(path));
         let started = int(state.started_at || 0);
-        if (started > 0 && now - started > JOB_MAX_AGE)
+        if (started > 0 && now - started > JOB_MAX_AGE) {
+            let job_id = as_string(state.job_id);
+            let pid_path = job_pid_path(job_id);
+            let pid = trim(as_string(fs.readfile(pid_path)));
+            let cmdline = match(pid, /^[0-9]+$/) != null
+                ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
+            if (cmdline != "" && index(cmdline, ENGINE) >= 0 && index(cmdline, path) >= 0)
+                run_quiet([ "kill", "-TERM", pid ]);
+            if (as_string(state.mode) == "netns")
+                netns_teardown();
+            if (pid_path != "")
+                fs.unlink(pid_path);
             fs.unlink(path);
+        }
     }
 }
 
@@ -1947,6 +1973,7 @@ function start_job(ids, mode, client_ip) {
 
     let job_id = sprintf("sc-%d-%d", now_seconds(), int(now_ms() % 100000));
     let path = job_path(job_id);
+    let pid_path = job_pid_path(job_id);
     if (path == "") {
         write_json({ success: false, message: "не удалось создать задание" });
         return 1;
@@ -1980,18 +2007,39 @@ function start_job(ids, mode, client_ip) {
         return 1;
     }
 
-    let worker = command_from_args([
+    let launch = command_from_args([
+        "sh", "-c", "pid_file=$1; shift; echo $$ > \"$pid_file\"; exec \"$@\"",
+        "service-check-worker", pid_path,
         "ucode", "-L", LIB_DIR, ENGINE, "worker", path, as_string(ids), as_string(mode), as_string(client_ip)
     ]);
-    system("(" + worker + " >/dev/null 2>&1 &)");
+    system("(" + launch + " >/dev/null 2>&1 &)");
 
     write_json({ success: true, job_id, progress: state.progress });
     return 0;
 }
 
 function worker(path, ids, mode, client_ip) {
+    let initial = object_or_empty(read_json_file(path));
+    if (initial.cancelled || initial.cancel_requested || initial.running == false) {
+        fs.unlink(job_pid_path(initial.job_id));
+        return 0;
+    }
+
     let result = run_check(ids, mode, client_ip, path);
     let state = object_or_empty(read_json_file(path));
+
+    if (state.cancelled || state.cancel_requested || result.cancelled) {
+        state.running = false;
+        state.success = false;
+        state.cancelled = true;
+        state.finished_at = state.finished_at || now_seconds();
+        state.services = result.services;
+        state.progress = result.progress;
+        state.message = as_string(state.message) || "проверка остановлена";
+        write_state(path, state);
+        fs.unlink(job_pid_path(state.job_id));
+        return 0;
+    }
 
     state.running = false;
     state.success = true;
@@ -2010,6 +2058,47 @@ function worker(path, ids, mode, client_ip) {
     state.forkop_running = result.forkop_running;
 
     write_state(path, state);
+    fs.unlink(job_pid_path(state.job_id));
+    return 0;
+}
+
+function cancel_job(job_id) {
+    let path = job_path(job_id);
+    let pid_path = job_pid_path(job_id);
+    if (path == "" || fs.stat(path) == null) {
+        write_json({ success: false, running: false, message: "задание не найдено" });
+        return 1;
+    }
+
+    let state = object_or_empty(read_json_file(path));
+    if (length(keys(state)) == 0) {
+        write_json({ success: false, running: false, message: "не удалось прочитать состояние задания" });
+        return 1;
+    }
+    if (!state.running) {
+        write_json(state);
+        return 0;
+    }
+
+    state.cancel_requested = true;
+    state.cancelled = true;
+    state.running = false;
+    state.success = false;
+    state.finished_at = now_seconds();
+    state.message = "проверка остановлена пользователем";
+    write_state(path, state);
+
+    let pid = trim(as_string(fs.readfile(pid_path)));
+    let cmdline = match(pid, /^[0-9]+$/) != null
+        ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
+    if (cmdline != "" && index(cmdline, ENGINE) >= 0 && index(cmdline, path) >= 0)
+        run_quiet([ "kill", "-TERM", pid ]);
+    if (pid_path != "")
+        fs.unlink(pid_path);
+    if (as_string(state.mode) == "netns")
+        netns_teardown();
+
+    write_json(state);
     return 0;
 }
 
@@ -2112,6 +2201,8 @@ else if (mode == "start")
     exit(start_job(ARGV[1], ARGV[2], ARGV[3]));
 else if (mode == "status")
     exit(job_status(ARGV[1]));
+else if (mode == "cancel")
+    exit(cancel_job(ARGV[1]));
 else if (mode == "worker")
     exit(worker(ARGV[1], ARGV[2], ARGV[3], ARGV[4]));
 else if (mode == "cleanup") {

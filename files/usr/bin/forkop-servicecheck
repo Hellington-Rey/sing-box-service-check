@@ -19,6 +19,7 @@ Available commands:
     run IDS [MODE] [IP]     Проверить сервисы синхронно и напечатать JSON
     start IDS [MODE] [IP]   Запустить проверку в фоне, вернуть job_id
     status JOB_ID           Показать состояние фоновой проверки
+    cancel JOB_ID           Остановить фоновую проверку и очистить netns
     cleanup                 Удалить устаревшие задания
     update-check            Проверить последнюю версию в GitHub Releases
     update-start            Безопасно установить доступное обновление в фоне
@@ -72,7 +73,7 @@ case "$COMMAND" in
     gemini_key_set)
         exec ucode -L "$LIB_DIR" "$ENGINE" gemini-key-set "${2:-}"
         ;;
-    fix|status|profiles-save)
+    fix|status|cancel|profiles-save)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}"
         ;;
     custom)

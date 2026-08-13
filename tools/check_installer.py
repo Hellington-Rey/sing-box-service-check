@@ -73,6 +73,11 @@ def main():
     assert "command -v ucode" in cli
     assert "    custom)" in cli
     assert 'else if (mode == "custom")' in engine
+    assert 'else if (mode == "cancel")' in engine
+    assert 'function cancel_job(job_id)' in engine
+    assert 'callBin(["cancel", runState.jobId])' in view
+    assert 'callBin(["cancel", jobId])' in view
+    assert 'cancel JOB_ID' in cli
     assert 'status == 28 && connect_ms <= 0 && remote_ip == ""' in engine
     assert 'else if (mode == "profiles-save")' in engine
     assert 'callBin(["profiles-save", JSON.stringify(profilesDraft)])' in view
