@@ -120,6 +120,10 @@ function injectStyles() {
     ".fkpsc-profile-number { display:inline-flex; align-items:center; justify-content:center; min-width:2em; height:2em; border-radius:50%; color:#fff; background:var(--accent); font-weight:700; }",
     ".fkpsc-profile-name { flex:1 1 auto; font-size:1.05em; font-weight:700; overflow-wrap:anywhere; }",
     ".fkpsc-editor-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75em; }",
+    ".fkpsc-diagnostic-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.6em; margin-top:.8em; }",
+    ".fkpsc-diagnostic-cell { padding:.7em .8em; border:1px solid var(--border-soft); border-radius:8px; background:var(--surface-soft); }",
+    ".fkpsc-diagnostic-cell b { display:block; margin-bottom:.2em; font-size:.82em; }",
+    ".fkpsc-diagnostic-cell span { color:var(--muted); word-break:break-word; }",
     ".fkpsc-editor-field { display:flex; flex-direction:column; gap:.3em; min-width:0; }",
     ".fkpsc-editor-field.wide { grid-column:1/-1; }",
     ".fkpsc-editor-field > span { font-size:.82em; font-weight:600; opacity:.72; }",
@@ -1579,6 +1583,49 @@ return view.extend({
       ]),
     ]);
 
+    var clashDiagnostic = capabilities.clash_api || {};
+    var dnsDiagnostic = capabilities.dns || {};
+    function diagnosticCell(title, value) {
+      return E("div", { class: "fkpsc-diagnostic-cell" }, [
+        E("b", {}, title),
+        E("span", {}, value == null || value === "" ? "—" : String(value)),
+      ]);
+    }
+    var dnsChainButton = E("button", { class: "cbi-button", type: "button", style: "margin-top:.8em" }, "Проверить DNS-цепочку");
+    var dnsChainResult = E("div", {});
+    var backendDiagnosticsCard = E("details", { class: "fkpsc-card" }, [
+      E("summary", { style: "cursor:pointer;font-weight:700" }, "Backend и DNS · расширенная диагностика"),
+      E("div", { class: "fkpsc-diagnostic-grid" }, [
+        diagnosticCell("Активный backend", backendName + " · " + (capabilities.backend_version || "версия неизвестна")),
+        diagnosticCell("Состояние", backendRunning ? "запущен" : "остановлен"),
+        diagnosticCell("Clash API", clashDiagnostic.reachable ? "доступен · соединений: " + (clashDiagnostic.connections || 0) : "недоступен"),
+        diagnosticCell("Конфигурация sing-box", dnsDiagnostic.config_readable ? dnsDiagnostic.config_path : "не удалось прочитать " + (dnsDiagnostic.config_path || "")),
+        diagnosticCell("LAN-интерфейс", capabilities.lan_interface || "не определён"),
+        diagnosticCell("DNS-серверы", (dnsDiagnostic.server_count || 0) + " · " + ((dnsDiagnostic.server_types || []).join(", ") || "тип не определён")),
+        diagnosticCell("FakeIP", dnsDiagnostic.fakeip_enabled ? "включён · " + (dnsDiagnostic.fakeip_ranges || []).join(", ") : "не обнаружен"),
+        diagnosticCell("Инструменты", [capabilities.curl ? "curl" : "без curl", capabilities.dig ? "dig" : "без dig", capabilities.nc ? "nc" : "без nc", capabilities.netns ? "netns" : "без netns"].join(" · ")),
+      ]),
+      dnsChainButton,
+      dnsChainResult,
+    ]);
+    dnsChainButton.addEventListener("click", function () {
+      var target = customTargetInput.value.trim() || "cp.cloudflare.com";
+      dnsChainButton.disabled = true;
+      dnsChainButton.textContent = "Проверяем…";
+      callBin(["dns-diagnostics", target]).then(function (result) {
+        var stages = (result.stages || []).map(function (stage) {
+          return E("div", { class: "fkpsc-custom-result state-" + (stage.ok ? "success" : "error"), style: "margin:.35em 0" },
+            (stage.ok ? "✓ " : "✕ ") + stage.message);
+        });
+        dnsChainResult.replaceChildren.apply(dnsChainResult, stages);
+      }).catch(function (error) {
+        dnsChainResult.replaceChildren(E("div", { class: "fkpsc-custom-result state-error" }, error.message || "DNS-диагностика не выполнена"));
+      }).then(function () {
+        dnsChainButton.disabled = false;
+        dnsChainButton.textContent = "Проверить DNS-цепочку";
+      });
+    });
+
     var notes = [];
 
     if (!backendRunning) {
@@ -1601,6 +1648,7 @@ return view.extend({
         return E("div", {}, note);
       })) : "",
       updateCard,
+      backendDiagnosticsCard,
       E("div", { class: "fkpsc-card" }, [
         E("h3", {}, "Параметры проверки"),
         E("div", { class: "fkpsc-mode" }, [
@@ -1649,9 +1697,64 @@ return view.extend({
     var profilesCardsNode = E("div", {});
     var saveProfilesButton = E("button", { class: "cbi-button cbi-button-action important", type: "button" }, "Сохранить список");
     var resetProfilesButton = E("button", { class: "cbi-button cbi-button-negative", type: "button" }, "Вернуть встроенный");
+    var exportProfilesButton = E("button", { class: "cbi-button", type: "button" }, "Экспорт JSON");
+    var importProfilesButton = E("button", { class: "cbi-button", type: "button" }, "Импорт JSON");
+    var importProfilesInput = E("input", { type: "file", accept: "application/json,.json", style: "display:none" });
     var addProfileButton = E("button", { class: "fkpsc-add-profile", type: "button" }, "+ Добавить категорию");
     saveProfilesButton.disabled = !profilesData;
     resetProfilesButton.disabled = !profilesData;
+
+    exportProfilesButton.addEventListener("click", function () {
+      var blob = new Blob([JSON.stringify(profilesDraft, null, 2) + "\n"], { type: "application/json;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var link = E("a", { href: url, download: "sing-box-service-check-profiles.json" });
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
+
+    importProfilesButton.addEventListener("click", function () { importProfilesInput.click(); });
+    importProfilesInput.addEventListener("change", function () {
+      var file = importProfilesInput.files && importProfilesInput.files[0];
+      if (!file) { return; }
+      if (file.size > 131072) {
+        ui.addNotification(null, E("p", {}, "Файл больше допустимых 128 КиБ."), "warning");
+        importProfilesInput.value = "";
+        return;
+      }
+      importProfilesButton.disabled = true;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var raw = String(reader.result || "");
+        var parsed;
+        try { parsed = JSON.parse(raw); }
+        catch (error) {
+          ui.addNotification(null, E("p", {}, "Не удалось разобрать JSON: " + error.message), "error");
+          importProfilesButton.disabled = false;
+          importProfilesInput.value = "";
+          return;
+        }
+        callBin(["profiles-validate", raw]).then(function (result) {
+          if (!result.success) { throw new Error(result.message || "список не прошёл проверку"); }
+          profilesDraft = parsed;
+          if (!Array.isArray(profilesDraft.profiles)) { profilesDraft.profiles = []; }
+          renderProfilesCards();
+          ui.addNotification(null, E("p", {}, "Импортировано категорий: " + profilesDraft.profiles.length + ". Нажмите «Сохранить список», чтобы применить изменения."), "info");
+        }).catch(function (error) {
+          ui.addNotification(null, E("p", {}, "Импорт отклонён: " + error.message), "error");
+        }).then(function () {
+          importProfilesButton.disabled = false;
+          importProfilesInput.value = "";
+        });
+      };
+      reader.onerror = function () {
+        importProfilesButton.disabled = false;
+        importProfilesInput.value = "";
+        ui.addNotification(null, E("p", {}, "Не удалось прочитать выбранный файл."), "error");
+      };
+      reader.readAsText(file, "utf-8");
+    });
 
     function editorField(label, value, onInput, options) {
       options = options || {};
@@ -1885,6 +1988,9 @@ return view.extend({
         E("p", { class: "fkpsc-dim" }, "Редактируйте список обычными полями — код и JSON трогать не нужно. Пользовательская копия хранится в /etc/forkop-servicecheck/profiles.json и сохраняется при обновлении модуля."),
         E("div", { class: "fkpsc-list-toolbar" }, [
           E("span", { class: "fkpsc-source" }, "Сейчас: " + (profilesData && profilesData.source === "custom" ? "пользовательский список" : "встроенный список")),
+          importProfilesInput,
+          importProfilesButton,
+          exportProfilesButton,
           saveProfilesButton,
           resetProfilesButton,
         ]),

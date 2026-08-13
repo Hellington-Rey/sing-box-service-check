@@ -16,6 +16,7 @@ Available commands:
     capabilities            Показать возможности роутера (curl, dig, netns, fakeip)
     custom HOST [PORT] [MODE] [IP]
                             Проверить любой IPv4/домен и маршрут через sing-box
+    dns-diagnostics [HOST]  Проверить цепочку dnsmasq → sing-box → backend
     run IDS [MODE] [IP]     Проверить сервисы синхронно и напечатать JSON
     start IDS [MODE] [IP]   Запустить проверку в фоне, вернуть job_id
     status JOB_ID           Показать состояние фоновой проверки
@@ -33,6 +34,7 @@ Available commands:
     fix ID                  Применить исправление Forkop из белого списка
     profiles-get            Показать активный список проверок
     profiles-save JSON      Проверить и сохранить пользовательский список
+    profiles-validate JSON  Проверить список без сохранения
     profiles-reset          Вернуться к встроенному списку
     netns_teardown          Снести временный network namespace
 
@@ -75,11 +77,14 @@ case "$COMMAND" in
     gemini_key_set)
         exec ucode -L "$LIB_DIR" "$ENGINE" gemini-key-set "${2:-}"
         ;;
-    fix|status|cancel|profiles-save)
+    fix|status|cancel|profiles-save|profiles-validate)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}"
         ;;
     custom)
         exec ucode -L "$LIB_DIR" "$ENGINE" custom "${2:-}" "${3:-}" "${4:-}" "${5:-}"
+        ;;
+    dns-diagnostics)
+        exec ucode -L "$LIB_DIR" "$ENGINE" dns-diagnostics "${2:-}"
         ;;
     run|start)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}" "${3:-}" "${4:-}"

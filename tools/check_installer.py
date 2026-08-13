@@ -95,6 +95,18 @@ def main():
     assert 'callBin(["history"])' in view
     assert 'callBin(["history-clear"])' in view
     assert 'history-clear' in cli
+    assert 'function profiles_validate(payload)' in engine
+    assert 'profiles-validate' in cli
+    assert '"Импорт JSON"' in view and '"Экспорт JSON"' in view
+    assert 'callBin(["profiles-validate", raw])' in view
+    assert 'new FileReader()' in view
+    assert 'function clash_api_diagnostic()' in engine
+    assert 'function dns_diagnostic()' in engine
+    assert 'backend_version: backend_version(backend)' in engine
+    assert '"Backend и DNS · расширенная диагностика"' in view
+    assert 'function dns_chain_diagnostics(host)' in engine
+    assert 'dns-diagnostics' in cli
+    assert 'callBin(["dns-diagnostics", target])' in view
     assert 'status == 28 && connect_ms <= 0 && remote_ip == ""' in engine
     assert 'else if (mode == "profiles-save")' in engine
     assert 'callBin(["profiles-save", JSON.stringify(profilesDraft)])' in view

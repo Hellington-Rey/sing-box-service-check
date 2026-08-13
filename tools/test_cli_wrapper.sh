@@ -32,6 +32,9 @@ printf '%s\n' "$CUSTOM_OUTPUT" | grep -Fxq -- 'example.com'
 printf '%s\n' "$CUSTOM_OUTPUT" | grep -Fxq -- '443'
 printf '%s\n' "$CUSTOM_OUTPUT" | grep -Fxq -- 'netns'
 printf '%s\n' "$CUSTOM_OUTPUT" | grep -Fxq -- '192.168.2.55'
+DNS_DIAGNOSTICS_OUTPUT="$(run_wrapper dns-diagnostics example.com)"
+[ "$(printf '%s\n' "$DNS_DIAGNOSTICS_OUTPUT" | tail -n 2 | head -n 1)" = "dns-diagnostics" ]
+[ "$(printf '%s\n' "$DNS_DIAGNOSTICS_OUTPUT" | tail -n 1)" = "example.com" ]
 
 [ "$(run_wrapper xhttp_patch | tail -n 1)" = "xhttp-patch" ]
 [ "$(run_wrapper icmp_tproxy_patch | tail -n 1)" = "icmp-tproxy-patch" ]
@@ -55,6 +58,9 @@ PROFILES_JSON='{"profiles":[{"id":"test","title":"Test","targets":[{"kind":"http
 PROFILES_OUTPUT="$(run_wrapper profiles-save "$PROFILES_JSON")"
 [ "$(printf '%s\n' "$PROFILES_OUTPUT" | tail -n 2 | head -n 1)" = "profiles-save" ]
 [ "$(printf '%s\n' "$PROFILES_OUTPUT" | tail -n 1)" = "$PROFILES_JSON" ]
+PROFILES_VALIDATE_OUTPUT="$(run_wrapper profiles-validate "$PROFILES_JSON")"
+[ "$(printf '%s\n' "$PROFILES_VALIDATE_OUTPUT" | tail -n 2 | head -n 1)" = "profiles-validate" ]
+[ "$(printf '%s\n' "$PROFILES_VALIDATE_OUTPUT" | tail -n 1)" = "$PROFILES_JSON" ]
 
 if run_wrapper unknown >/dev/null 2>&1; then
     echo "ERROR: unknown command must fail" >&2

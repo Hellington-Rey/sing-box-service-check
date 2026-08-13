@@ -425,6 +425,84 @@ function backend_running() {
     return false;
 }
 
+function backend_version(id) {
+    id = as_string(id);
+    let binary = id == "tachyon" ? TACHYON_BIN : (id == "forkop" ? FORKOP_BIN : (id == "podkop" ? PODKOP_BIN : ""));
+    if (binary == "")
+        return "unknown";
+    let result = capture_args([ binary, "show_version" ], false);
+    let value = trim_newlines(result.output);
+    return result.status == 0 && value != "" ? substr(value, 0, 160) : "unknown";
+}
+
+function clash_api_diagnostic() {
+    let backend = backend_id();
+    let result = { configured: backend != "none", reachable: false, controller: "", connections: 0 };
+    let response;
+
+    if (backend == "tachyon")
+        response = capture_args([ TACHYON_BIN, "clash_api", "get_connections" ], false);
+    else if (backend == "forkop")
+        response = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
+    else if (backend == "podkop") {
+        let config = object_or_empty(read_json_file(sing_box_config_path()));
+        let clash = object_or_empty(object_or_empty(config.experimental).clash_api);
+        let controller = trim(as_string(clash.external_controller));
+        let secret = as_string(clash.secret);
+        if (controller == "")
+            controller = "127.0.0.1:9090";
+        if (match(controller, /^0\.0\.0\.0:/) != null)
+            controller = replace(controller, /^0\.0\.0\.0:/, "127.0.0.1:");
+        if (index(controller, "http://") != 0 && index(controller, "https://") != 0)
+            controller = "http://" + controller;
+        result.controller = controller;
+        if (secret == "")
+            secret = uci_get("podkop.settings.yacd_secret_key");
+        let args = [ "curl", "-sS", "--connect-timeout", "2", "--max-time", "4" ];
+        if (secret != "") {
+            push(args, "-H");
+            push(args, "Authorization: Bearer " + secret);
+        }
+        push(args, controller + "/connections");
+        response = capture_args(args, false);
+    }
+    else
+        return result;
+
+    result.reachable = response.status == 0;
+    if (result.reachable) {
+        let parsed = parse_json(response.output);
+        result.connections = type(parsed) == "array"
+            ? length(parsed) : length(array_or_empty(object_or_empty(parsed).connections));
+    }
+    return result;
+}
+
+function dns_diagnostic() {
+    let config_path = sing_box_config_path();
+    let config = read_json_file(config_path);
+    let dns = object_or_empty(object_or_empty(config).dns);
+    let types = [];
+    let fakeip = false;
+    for (let server in array_or_empty(dns.servers)) {
+        let server_type = as_string(object_or_empty(server).type || "legacy");
+        if (index(types, server_type) < 0)
+            push(types, server_type);
+        if (server_type == "fakeip")
+            fakeip = true;
+    }
+    if (length(keys(object_or_empty(dns.fakeip))) > 0)
+        fakeip = true;
+    return {
+        config_path,
+        config_readable: type(config) == "object",
+        server_count: length(array_or_empty(dns.servers)),
+        server_types: types,
+        fakeip_enabled: fakeip,
+        fakeip_ranges: fakeip_ranges()
+    };
+}
+
 // Сборки busybox сильно разнятся: где-то nc умеет -z и -w, где-то это
 // "Usage: nc [IPADDR PORT]" вообще без флагов. Пробуем от лучшего к худшему.
 function nc_option_rejected(command) {
@@ -449,6 +527,8 @@ function capabilities() {
     let interface = lan_interface();
     let address = interface_ipv4(interface);
     let nc_mode = detect_nc_mode();
+    let clash_api = clash_api_diagnostic();
+    let dns = dns_diagnostic();
 
     return {
         curl: command_exists("curl"),
@@ -465,6 +545,7 @@ function capabilities() {
         fakeip_ranges: fakeip_ranges(),
         backend,
         backend_name: backend_name(backend),
+        backend_version: backend_version(backend),
         module_version: trim(as_string(fs.readfile(VERSION_FILE))) || "unknown",
         backend_installed: backend != "none",
         backend_running: running,
@@ -473,6 +554,8 @@ function capabilities() {
         podkop_installed: fs.stat(PODKOP_BIN) != null,
         fixes_available: backend == "forkop" && fs.stat(FORKOP_BIN) != null,
         sing_box_config: sing_box_config_path(),
+        clash_api,
+        dns,
         // Старое поле оставлено для совместимости со страницей предыдущих версий.
         forkop_running: running,
         profiles_version: int(object_or_empty(read_json_file(profiles_file())).version || 0)
@@ -579,6 +662,22 @@ function profiles_save(payload) {
     }
 
     write_json({ success: true, message: "пользовательский список сохранён", profiles: length(config.profiles) });
+    return 0;
+}
+
+function profiles_validate(payload) {
+    payload = as_string(payload);
+    if (length(payload) == 0 || length(payload) > 131072) {
+        write_json({ success: false, message: "размер списка должен быть от 1 байта до 128 КиБ" });
+        return 1;
+    }
+    let config = parse_json(payload);
+    let error = validate_profiles_config(config);
+    if (error != "") {
+        write_json({ success: false, message: error });
+        return 1;
+    }
+    write_json({ success: true, message: "список корректен", profiles: length(array_or_empty(config.profiles)) });
     return 0;
 }
 
@@ -2017,6 +2116,40 @@ function history_entry(state) {
     };
 }
 
+function dns_chain_diagnostics(host) {
+    host = lc(trim(as_string(host || "cp.cloudflare.com")));
+    if (!valid_custom_host(host)) {
+        write_json({ success: false, message: "некорректный домен для DNS-диагностики" });
+        return 1;
+    }
+
+    let ctx = build_context("router", "");
+    let dns = probe_dns(ctx, host);
+    let diagnostic = dns_diagnostic();
+    write_json({
+        success: dns.ok,
+        target: host,
+        resolver: ctx.resolver,
+        dnsmasq_running: run_quiet([ "pgrep", "-x", "dnsmasq" ]),
+        backend: ctx.backend,
+        backend_name: ctx.backend_name,
+        backend_running: ctx.backend_running,
+        config_readable: diagnostic.config_readable,
+        fakeip_enabled: diagnostic.fakeip_enabled,
+        resolved: dns.ok,
+        fakeip_received: dns.fakeip === true,
+        elapsed_ms: int(dns.ms),
+        error: as_string(dns.error),
+        stages: [
+            { id: "dnsmasq", ok: run_quiet([ "pgrep", "-x", "dnsmasq" ]), message: "локальный dnsmasq" },
+            { id: "sing_box_config", ok: diagnostic.config_readable, message: diagnostic.config_path },
+            { id: "backend", ok: ctx.backend_running, message: ctx.backend_name },
+            { id: "resolve", ok: dns.ok, message: dns.ok ? (dns.fakeip ? "получен FakeIP" : "получен обычный адрес") : as_string(dns.error) }
+        ]
+    });
+    return dns.ok ? 0 : 1;
+}
+
 function save_history(state) {
     ensure_state_dir();
     let history = object_or_empty(read_json_file(HISTORY_FILE));
@@ -2290,6 +2423,8 @@ else if (mode == "profiles-get")
     exit(profiles_get());
 else if (mode == "profiles-save")
     exit(profiles_save(ARGV[1]));
+else if (mode == "profiles-validate")
+    exit(profiles_validate(ARGV[1]));
 else if (mode == "profiles-reset")
     exit(profiles_reset());
 else if (mode == "custom") {
@@ -2313,6 +2448,8 @@ else if (mode == "cleanup") {
     cleanup_jobs();
     exit(0);
 }
+else if (mode == "dns-diagnostics")
+    exit(dns_chain_diagnostics(ARGV[1]));
 else if (mode == "history")
     exit(history_get());
 else if (mode == "history-clear")
