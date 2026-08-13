@@ -1,0 +1,259 @@
+#!/usr/bin/env ucode
+
+// Sing-box Service Check - probe engine for Tachyon, Forkop and Podkop.
+//
+// Проверяет доступность сервисов так, как это делает клиент сети: имя резолвится
+// через тот же dnsmasq -> sing-box, а соединение уходит из роутера и попадает в
+// цепочку mangle_output -> tproxy, то есть тем же путём, что трафик из LAN.
+// В режиме netns трафик реально входит через br-lan из отдельного namespace,
+// что дополнительно воспроизводит правила секций, привязанные к source IP.
+
+let fs = require("fs");
+
+const LIB_DIR = getenv("FORKOP_SC_LIB") || "/usr/lib/forkop-servicecheck";
+const ENGINE = LIB_DIR + "/probe.uc";
+// Пользовательские профили в /etc имеют приоритет: пакет обновляет только свою
+// копию в /usr/share, поэтому правки переживают переустановку.
+const PROFILES_OVERRIDE = "/etc/forkop-servicecheck/profiles.json";
+const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
+const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
+const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
+const TACHYON_BIN = getenv("TACHYON_BIN") || "/usr/bin/tachyon";
+const FORKOP_BIN = getenv("FORKOP_BIN") || "/usr/bin/forkop";
+const PODKOP_BIN = getenv("PODKOP_BIN") || "/usr/bin/podkop";
+const DEFAULT_SING_BOX_CONFIG = "/etc/sing-box/config.json";
+const UPDATE_API = "https://api.github.com/repos/Hellington-Rey/sing-box-service-check/releases/latest";
+const UPDATE_RELEASE_BASE = "https://github.com/Hellington-Rey/sing-box-service-check/releases";
+const UPDATE_INSTALLER = "install-sing-box-service-check.sh";
+const UPDATE_STATE_FILE = STATE_DIR + "/update.json";
+const HISTORY_FILE = STATE_DIR + "/history.json";
+const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "fkpsc";
+const NETNS_VETH_HOST = "fkpsc0";
+const NETNS_VETH_PEER = "fkpsc1";
+const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
+const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
+const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
+const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
+const REPAIR_SCRIPT = LIB_DIR + "/repair.sh";
+const RECOVERY_ARCHIVE = "/usr/share/forkop-servicecheck/recovery.tar.gz";
+const RECOVERY_CHECKSUM = "/usr/share/forkop-servicecheck/recovery.sha256";
+
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const DNS_TIMEOUT = 3;
+const CONNECT_TIMEOUT = 7;
+const TOTAL_TIMEOUT = 15;
+const SLOW_THRESHOLD_MS = 5000;
+const JOB_MAX_AGE = 1800;
+
+function as_string(value) {
+    return value == null ? "" : "" + value;
+}
+
+function object_or_empty(value) {
+    return type(value) == "object" ? value : {};
+}
+
+function array_or_empty(value) {
+    return type(value) == "array" ? value : [];
+}
+
+function shell_quote(value) {
+    return "'" + replace(as_string(value), /'/g, "'\\''") + "'";
+}
+
+function command_from_args(args) {
+    let parts = [];
+    for (let arg in args)
+        push(parts, shell_quote(arg));
+    return join(" ", parts);
+}
+
+function normalize_status(status) {
+    status = int(status);
+    if (status < 0)
+        return 1;
+    return status > 255 ? int(status / 256) : status;
+}
+
+function now_ms() {
+    let value = null;
+    try {
+        value = clock(true);
+    }
+    catch (e) {
+        value = null;
+    }
+    if (type(value) != "array")
+        value = clock();
+    if (type(value) != "array")
+        return 0;
+    return value[0] * 1000 + int(value[1] / 1000000);
+}
+
+function now_seconds() {
+    let value = clock();
+    return type(value) == "array" ? int(value[0]) : 0;
+}
+
+function capture(command) {
+    let pipe = fs.popen(command, "r");
+    if (!pipe)
+        return { status: 1, output: "" };
+    let data = pipe.read("all");
+    let status = normalize_status(pipe.close());
+    return { status, output: data == null ? "" : as_string(data) };
+}
+
+function capture_args(args, merge_stderr) {
+    return capture(command_from_args(args) + (merge_stderr ? " 2>&1" : " 2>/dev/null"));
+}
+
+function run_quiet(args) {
+    return normalize_status(system(command_from_args(args) + " >/dev/null 2>&1")) == 0;
+}
+
+function command_exists(name) {
+    return run_quiet([ "command", "-v", as_string(name) ]);
+}
+
+function write_json(value) {
+    print(sprintf("%J", value), "\n");
+}
+
+function xhttp_patch() {
+    if (fs.stat(XHTTP_PATCH) == null) {
+        write_json({ success: false, message: "xHTTP-патч не установлен в пакет" });
+        return 1;
+    }
+    let result = capture_args([ "sh", XHTTP_PATCH ], true);
+    write_json({ success: result.status == 0, code: result.status, output: trim(as_string(result.output)) });
+    return result.status;
+}
+
+function icmp_tproxy_patch() {
+    if (fs.stat(ICMP_TPROXY_PATCH) == null) {
+        write_json({ success: false, message: "ICMP/TProxy-патч не установлен в пакет" });
+        return 1;
+    }
+    let result = capture_args([ "sh", ICMP_TPROXY_PATCH ], true);
+    write_json({ success: result.status == 0, code: result.status, output: trim(as_string(result.output)) });
+    return result.status;
+}
+
+function backend_id() {
+    let override = lc(trim(as_string(getenv("FORKOP_SC_BACKEND"))));
+    if (override == "tachyon" || override == "forkop" || override == "podkop")
+        return override;
+    // Tachyon may coexist with binaries left after migration from Forkop/Podkop.
+    // Prefer the active successor so UCI, status and Clash API come from one backend.
+    if (fs.stat(TACHYON_BIN) != null)
+        return "tachyon";
+    if (fs.stat(FORKOP_BIN) != null)
+        return "forkop";
+    if (fs.stat(PODKOP_BIN) != null)
+        return "podkop";
+    return "none";
+}
+
+function backend_name(id) {
+    id = as_string(id);
+    if (id == "tachyon")
+        return "Tachyon";
+    if (id == "forkop")
+        return "Forkop";
+    if (id == "podkop")
+        return "Podkop";
+    return "Sing-box";
+}
+
+function available_fixes() {
+    // Эти исправления меняют внутренние файлы Forkop и не должны предлагаться
+    // на Tachyon/Podkop, даже если после миграции остался бинарник Forkop.
+    if (backend_id() != "forkop" || fs.stat(FORKOP_BIN) == null)
+        return [];
+
+    return [
+        {
+            id: "xhttp_import",
+            title: "Фикс xHTTP импорта подписок",
+            description: "Исправляет импорт дополнительных полей xHTTP из подписок в parser.uc Forkop.",
+            risk: "Создаётся резервная копия parser.uc; патч проверяется через ucode до замены."
+        },
+        {
+            id: "icmp_tproxy",
+            title: "Фикс ping/ICMP для правил подсетей",
+            description: "Ограничивает метку TProxy в priority_rules протоколами TCP и UDP, чтобы ICMP не уходил в локальный TProxy-сокет.",
+            risk: "Создаётся резервная копия nft/apply.uc; патч проверяется через ucode. Работающий Forkop перезапускается, live-правила проверяются, а при ошибке выполняется откат."
+        }
+    ];
+}
+
+function list_fixes() {
+    write_json({ success: true, fixes: available_fixes() });
+    return 0;
+}
+
+function run_fix(id) {
+    if (backend_id() != "forkop" || fs.stat(FORKOP_BIN) == null) {
+        write_json({ success: false, message: "фиксы доступны только при активном Forkop" });
+        return 1;
+    }
+
+    if (as_string(id) == "xhttp_import")
+        return xhttp_patch();
+    if (as_string(id) == "icmp_tproxy")
+        return icmp_tproxy_patch();
+    write_json({ success: false, message: "неизвестный фикс Forkop" });
+    return 1;
+}
+
+function parse_json(value) {
+    try {
+        return json(as_string(value));
+    }
+    catch (e) {
+        return null;
+    }
+}
+
+function read_json_file(path) {
+    let data = fs.readfile(as_string(path));
+    return data == null ? null : parse_json(data);
+}
+
+function trim_newlines(value) {
+    return replace(as_string(value), /[\r\n]+$/g, "");
+}
+
+function words(value) {
+    value = trim(as_string(value));
+    return value == "" ? [] : split(value, /[ \t\r\n]+/);
+}
+
+// curl отдаёт тайминги как "0.123". Собирать число по частям нельзя: деление двух
+// целых в ucode целочисленное, и дробная часть схлопывается в ноль. Умножение же
+// приводит числовую строку к double, поэтому проверяем формат и умножаем.
+function number_value(value) {
+    value = trim(as_string(value));
+    if (match(value, /^[0-9]+(\.[0-9]+)?$/) == null)
+        return 0;
+    return value * 1;
+}
+
+function temp_path(suffix) {
+    return sprintf("/tmp/.forkop-sc-%d-%d.%s", now_seconds(), int(now_ms() % 1000000), as_string(suffix));
+}
+
+function ensure_state_dir() {
+    run_quiet([ "mkdir", "-p", STATE_DIR ]);
+}
+
+function profiles_file() {
+    let override = getenv("FORKOP_SC_PROFILES");
+    if (as_string(override) != "")
+        return as_string(override);
+    if (fs.stat(PROFILES_OVERRIDE) != null)
+        return PROFILES_OVERRIDE;
+    return PROFILES_DEFAULT;
+}
+

@@ -1,0 +1,381 @@
+// ---------------------------------------------------------------------------
+// Запуск проверки
+// ---------------------------------------------------------------------------
+
+// ВАЖНО: в ucode нет подъёма объявлений - функция, объявленная ниже по файлу,
+// не видна объявленной выше (вызов компилируется как обращение к глобали и падает
+// в рантайме). Поэтому порядок объявлений здесь значим: сначала зависимости.
+
+function netns_teardown() {
+    run_quiet([ "ip", "netns", "del", NETNS_NAME ]);
+    run_quiet([ "ip", "link", "del", NETNS_VETH_HOST ]);
+    run_quiet([ "rm", "-rf", "/etc/netns/" + NETNS_NAME ]);
+}
+
+function leased_addresses() {
+    let leases = {};
+    let data = fs.readfile("/tmp/dhcp.leases");
+    if (data == null)
+        return leases;
+
+    for (let line in split(as_string(data), "\n")) {
+        let fields = words(line);
+        if (length(fields) >= 3 && valid_ipv4(fields[2]))
+            leases[fields[2]] = true;
+    }
+
+    return leases;
+}
+
+function address_free(candidate, leases) {
+    if (leases[candidate])
+        return false;
+    // Не используем ICMP: некоторые провайдеры и сетевые фильтры реагируют на
+    // массовые echo-запросы. Проверяем только ARP/маршрут через HTTPS.
+    if (command_exists("curl")) {
+        let result = capture_args([ "curl", "-k", "-sS", "-o", "/dev/null",
+            "--connect-timeout", "1", "--max-time", "2", "https://" + candidate + "/" ], false);
+        // Любой ответ HTTPS означает занятый адрес; ошибки маршрута/таймаута
+        // оставляют возможность использовать кандидат.
+        return result.status == 6 || result.status == 7 || result.status == 28;
+    }
+    return true;
+}
+
+function pick_client_ip(caps, requested) {
+    requested = as_string(requested);
+    if (valid_ipv4(requested))
+        return requested;
+
+    let prefix = int(caps.lan_prefix);
+    if (!valid_ipv4(caps.lan_address) || prefix < 16 || prefix > 30)
+        return "";
+
+    let mask = prefix_mask(prefix);
+    let router_value = ipv4_to_int(caps.lan_address);
+    let network = router_value & mask;
+    let size = 1 << (32 - prefix);
+    let broadcast = network + size - 1;
+    let leases = leased_addresses();
+
+    // Берём адреса с верхнего края подсети - там DHCP-пул OpenWrt заканчивается раньше.
+    for (let offset = 1; offset <= 8; offset++) {
+        let candidate_value = broadcast - offset;
+        if (candidate_value <= network || candidate_value == router_value)
+            continue;
+        let candidate = int_to_ipv4(candidate_value);
+        if (address_free(candidate, leases))
+            return candidate;
+    }
+
+    return "";
+}
+
+function netns_setup(caps, requested_ip) {
+    if (!caps.netns)
+        return { ok: false, error: "режим клиента недоступен: нет поддержки ip netns" };
+
+    netns_teardown();
+
+    let client_ip = pick_client_ip(caps, requested_ip);
+    if (client_ip == "")
+        return { ok: false, error: "не удалось подобрать свободный IP в LAN" };
+
+    let prefix = as_string(int(caps.lan_prefix));
+    let steps = [
+        [ "ip", "netns", "add", NETNS_NAME ],
+        [ "ip", "link", "add", NETNS_VETH_HOST, "type", "veth", "peer", "name", NETNS_VETH_PEER ],
+        [ "ip", "link", "set", NETNS_VETH_PEER, "netns", NETNS_NAME ],
+        [ "ip", "link", "set", NETNS_VETH_HOST, "master", caps.lan_interface ],
+        [ "ip", "link", "set", NETNS_VETH_HOST, "up" ],
+        [ "ip", "netns", "exec", NETNS_NAME, "ip", "link", "set", "lo", "up" ],
+        [ "ip", "netns", "exec", NETNS_NAME, "ip", "addr", "add", client_ip + "/" + prefix, "dev", NETNS_VETH_PEER ],
+        [ "ip", "netns", "exec", NETNS_NAME, "ip", "link", "set", NETNS_VETH_PEER, "up" ],
+        [ "ip", "netns", "exec", NETNS_NAME, "ip", "route", "add", "default", "via", caps.lan_address ]
+    ];
+
+    for (let step in steps) {
+        if (!run_quiet(step)) {
+            netns_teardown();
+            return { ok: false, error: "не удалось выполнить: " + join(" ", step) };
+        }
+    }
+
+    run_quiet([ "mkdir", "-p", "/etc/netns/" + NETNS_NAME ]);
+    if (fs.writefile("/etc/netns/" + NETNS_NAME + "/resolv.conf", "nameserver " + caps.lan_address + "\n") == null) {
+        netns_teardown();
+        return { ok: false, error: "не удалось записать resolv.conf для namespace" };
+    }
+
+    return { ok: true, client_ip, error: "" };
+}
+
+function build_context(mode, client_ip) {
+    let caps = capabilities();
+    let ctx = {
+        tools: {
+            curl: caps.curl,
+            uclient_fetch: caps.uclient_fetch,
+            dig: caps.dig,
+            nslookup: caps.nslookup,
+            nc: caps.nc,
+            nc_mode: caps.nc_mode,
+            timeout_cmd: caps.timeout_cmd
+        },
+        fakeip_ranges: caps.fakeip_ranges,
+        resolver: "127.0.0.1",
+        exec_prefix: [],
+        mode: as_string(mode) == "netns" ? "netns" : "router",
+        lan_interface: caps.lan_interface,
+        lan_address: caps.lan_address,
+        backend: caps.backend,
+        backend_name: caps.backend_name,
+        backend_running: caps.backend_running,
+        forkop_running: caps.forkop_running,
+        client_ip: "",
+        netns_error: ""
+    };
+
+    if (ctx.mode != "netns")
+        return ctx;
+
+    let netns = netns_setup(caps, client_ip);
+    if (!netns.ok) {
+        ctx.mode = "router";
+        ctx.netns_error = netns.error;
+        return ctx;
+    }
+
+    ctx.exec_prefix = [ "ip", "netns", "exec", NETNS_NAME ];
+    ctx.resolver = caps.lan_address != "" ? caps.lan_address : "127.0.0.1";
+    ctx.client_ip = netns.client_ip;
+    ctx.netns_active = true;
+    return ctx;
+}
+
+function probe_target(ctx, target) {
+    target = object_or_empty(target);
+    let host = as_string(target.host);
+    let dns = probe_dns(ctx, host);
+    let connection = { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "", message: "" };
+
+    if (dns.ok)
+        connection = connection_probe(ctx, target);
+    else
+        connection.verdict = "dns_fail";
+
+    let verdict = target_verdict(target, dns, connection);
+
+    return {
+        label: target_label(target),
+        kind: as_string(target.kind || "https"),
+        host,
+        port: int(target.port || (as_string(target.kind) == "http" ? 80 : 443)),
+        url: as_string(target.kind) == "tcp" ? "" : target_url(target),
+        optional: target.optional === true,
+        dns_ok: dns.ok,
+        dns_ip: as_string(dns.ip),
+        dns_fakeip: dns.fakeip === true,
+        dns_ms: int(dns.ms),
+        remote_ip: as_string(connection.remote_ip),
+        http_code: int(connection.code),
+        tcp_ms: int(connection.tcp_ms),
+        tls_ms: int(connection.tls_ms),
+        total_ms: int(connection.total_ms),
+        outbound: "",
+        expected_route: as_string(target.expected_route || "any"),
+        route_status: "unknown",
+        state: verdict.state,
+        verdict: verdict.verdict,
+        message: verdict.message
+    };
+}
+
+function apply_route_expectation(item, backend_running) {
+    let expected = as_string(item.expected_route || "any");
+    let actual = "unknown";
+
+    if (as_string(item.outbound) != "" || item.dns_fakeip)
+        actual = "proxy";
+    else if (backend_running == false)
+        actual = "direct";
+
+    item.route_status = actual;
+    if (expected == "any" || item.state == "error" || item.state == "skipped")
+        return item;
+
+    if (actual == "unknown") {
+        item.state = "warning";
+        item.verdict = "route_unconfirmed";
+        item.message = "доступность подтверждена, но маршрут " + expected + " не удалось подтвердить";
+    }
+    else if (actual != expected) {
+        item.state = "error";
+        item.verdict = "route_mismatch";
+        item.message = "ожидался маршрут " + expected + ", обнаружен " + actual;
+    }
+
+    return item;
+}
+
+function probe_service(ctx, profile) {
+    profile = object_or_empty(profile);
+    let items = [];
+
+    for (let target in array_or_empty(profile.targets))
+        push(items, probe_target(ctx, target));
+
+    // Атрибуция маршрута - best effort: Clash API отдаёт только живые соединения,
+    // а короткие HTTP-запросы к моменту опроса часто уже закрыты. Поэтому один
+    // запрос на сервис, а не на каждую цель, и пустой результат не считается ошибкой.
+    if (ctx.backend_running) {
+        let connections = clash_connections();
+        if (length(connections) > 0) {
+            for (let item in items) {
+                if (!item.state || item.state == "skipped")
+                    continue;
+                item.outbound = outbound_for(connections, item.host, item.remote_ip);
+            }
+        }
+    }
+
+    for (let item in items)
+        apply_route_expectation(item, ctx.backend_running);
+
+    let summary = service_state(items);
+
+    return {
+        id: as_string(profile.id),
+        title: as_string(profile.title),
+        group: as_string(profile.group),
+        description: as_string(profile.description),
+        state: summary.state,
+        description_result: summary.description,
+        items
+    };
+}
+
+function custom_check(host, port, mode, client_ip) {
+    host = lc(trim(as_string(host)));
+    if (length(host) > 0 && substr(host, length(host) - 1, 1) == ".")
+        host = substr(host, 0, length(host) - 1);
+
+    port = int(port || 443);
+    if (!valid_custom_host(host))
+        return { success: false, message: "Введите корректный IPv4-адрес или домен без протокола и пути" };
+    if (port < 1 || port > 65535)
+        return { success: false, message: "TCP-порт должен быть от 1 до 65535" };
+
+    let ctx = build_context(mode, client_ip);
+    let dns = probe_dns(ctx, host);
+    let remote_ip = dns.ok ? as_string(dns.ip) : (valid_ipv4(host) ? host : "");
+    let live_route = detect_live_route(ctx, host, port, remote_ip);
+    let item = probe_target(ctx, {
+        kind: "tcp",
+        host,
+        port,
+        label: host + ":" + as_string(port)
+    });
+
+    let through_sing_box = null;
+    let route_status = "unknown";
+    let route_message = "Маршрут не удалось подтвердить через Clash API.";
+    let evidence = "";
+
+    if (!ctx.backend_running) {
+        through_sing_box = false;
+        route_status = "direct";
+        evidence = "backend_stopped";
+        route_message = ctx.backend_name + " остановлен: соединение не проходит через sing-box.";
+    }
+    else if (live_route.seen) {
+        through_sing_box = true;
+        route_status = "sing-box";
+        evidence = "clash_api";
+        item.outbound = live_route.outbound;
+        route_message = live_route.outbound != ""
+            ? "Соединение найдено в sing-box; outbound: " + live_route.outbound
+            : "Соединение найдено среди активных соединений sing-box.";
+    }
+    else if (item.dns_fakeip) {
+        through_sing_box = true;
+        route_status = "sing-box";
+        evidence = "fakeip";
+        route_message = "Домен получил FakeIP, который обслуживается sing-box.";
+    }
+    else if (live_route.attempted && item.state != "error" && item.state != "skipped") {
+        through_sing_box = false;
+        route_status = "direct";
+        evidence = "clash_api_absent";
+        route_message = "Соединение доступно, но за время теста не появилось в Clash API: маршрут идёт мимо sing-box.";
+    }
+    else if (item.state == "error") {
+        route_message = "Соединение не установлено, поэтому определить маршрут нельзя.";
+    }
+
+    if (ctx.netns_active)
+        netns_teardown();
+
+    return {
+        success: true,
+        target: host,
+        port,
+        mode: ctx.mode,
+        requested_mode: as_string(mode) == "netns" ? "netns" : "router",
+        client_ip: as_string(ctx.client_ip),
+        netns_error: as_string(ctx.netns_error),
+        backend: ctx.backend,
+        backend_name: ctx.backend_name,
+        backend_running: ctx.backend_running,
+        forkop_running: ctx.forkop_running,
+        route: {
+            status: route_status,
+            through_sing_box,
+            outbound: as_string(item.outbound),
+            evidence,
+            message: route_message
+        },
+        item
+    };
+}
+
+function selected_profiles(ids) {
+    ids = trim(as_string(ids));
+    let all = load_profiles();
+
+    if (ids == "" || ids == "all")
+        return all;
+
+    let wanted = {};
+    for (let id in split(ids, ","))
+        wanted[trim(as_string(id))] = true;
+
+    let result = [];
+    for (let profile in all)
+        if (wanted[as_string(object_or_empty(profile).id)])
+            push(result, profile);
+
+    return result;
+}
+
+// Состояние фоновых заданий. Объявлено до run_check, потому что тот пишет в него
+// прогресс по ходу проверки, а forward-ссылок ucode не прощает.
+
+function job_id_valid(value) {
+    value = as_string(value);
+    return value != "" && match(value, /^[A-Za-z0-9_-]+$/) != null;
+}
+
+function job_path(job_id) {
+    return job_id_valid(job_id) ? STATE_DIR + "/" + as_string(job_id) + ".json" : "";
+}
+
+function job_pid_path(job_id) {
+    return job_id_valid(job_id) ? STATE_DIR + "/" + as_string(job_id) + ".pid" : "";
+}
+
+function write_state(path, value) {
+    ensure_state_dir();
+    return fs.writefile(as_string(path), sprintf("%J", value) + "\n") != null;
+}
+

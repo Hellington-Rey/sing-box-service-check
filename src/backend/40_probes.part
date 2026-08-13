@@ -1,0 +1,472 @@
+// ---------------------------------------------------------------------------
+// Пробы
+// ---------------------------------------------------------------------------
+
+function prefixed_args(ctx, args) {
+    let full = [];
+    for (let arg in array_or_empty(ctx.exec_prefix))
+        push(full, arg);
+    for (let arg in args)
+        push(full, arg);
+    return full;
+}
+
+function probe_dns(ctx, host) {
+    if (valid_ipv4(host))
+        return { ok: true, ip: host, fakeip: false, ms: 0, error: "", skipped: true };
+
+    let started = now_ms();
+    let addresses = [];
+
+    if (ctx.tools.dig) {
+        let result = capture_args(prefixed_args(ctx, [
+            "dig", "@" + ctx.resolver, as_string(host), "A", "+short",
+            "+timeout=" + as_string(DNS_TIMEOUT), "+tries=1"
+        ]), false);
+        for (let line in split(result.output, "\n")) {
+            line = trim(as_string(line));
+            if (valid_ipv4(line))
+                push(addresses, line);
+        }
+    }
+    else if (ctx.tools.nslookup) {
+        let result = capture_args(prefixed_args(ctx, [ "nslookup", as_string(host), ctx.resolver ]), true);
+        // busybox печатает "Address 1: 1.2.3.4 host.example", хвост после адреса игнорируем.
+        for (let line in split(result.output, "\n")) {
+            let matched = match(trim(as_string(line)), /^Address[ \t0-9]*:[ \t]+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)/);
+            if (matched != null && valid_ipv4(matched[1]) && matched[1] != ctx.resolver)
+                push(addresses, matched[1]);
+        }
+    }
+
+    let elapsed = now_ms() - started;
+
+    if (length(addresses) == 0)
+        return { ok: false, ip: "", fakeip: false, ms: elapsed, error: "нет A-записи" };
+
+    return {
+        ok: true,
+        ip: addresses[0],
+        all: addresses,
+        fakeip: ipv4_in_any_cidr(addresses[0], ctx.fakeip_ranges),
+        ms: elapsed,
+        error: ""
+    };
+}
+
+function curl_failure_verdict(status, output) {
+    output = lc(as_string(output));
+
+    if (status == 6)
+        return { verdict: "dns_fail", message: "имя не резолвится" };
+    if (status == 7)
+        return { verdict: "tcp_refused", message: "не удалось установить TCP-соединение" };
+    if (status == 28)
+        return { verdict: "timeout", message: "таймаут соединения" };
+    // Три "ошибки TLS" у curl имеют совершенно разные причины, и валить их в одну
+    // строку - значит прятать диагноз. 35 - хендшейк оборвали (типовая подпись DPI),
+    // 51 - сертификат отклонён, 60 - сертификат не удалось проверить, а это почти
+    // всегда сбитые часы роутера (нет RTC) или отсутствующий ca-bundle.
+    if (status == 35)
+        return { verdict: "tls_handshake", message: "TLS-хендшейк оборван — похоже на DPI или несовместимый TLS" };
+    if (status == 51)
+        return { verdict: "tls_cert_rejected", message: "сертификат сервера отклонён" };
+    if (status == 60)
+        return { verdict: "tls_cert_untrusted", message: "сертификат не проверен — проверьте часы роутера и наличие ca-bundle" };
+    if (status == 52)
+        return { verdict: "tls_reset", message: "сервер закрыл соединение без ответа" };
+    if (status == 56)
+        return { verdict: "tls_reset", message: "соединение сброшено при передаче данных" };
+    if (status == 47)
+        return { verdict: "redirect_loop", message: "сервис отвечает, но перенаправляет по кругу" };
+    if (index(output, "connection reset") >= 0)
+        return { verdict: "tls_reset", message: "соединение сброшено" };
+
+    return { verdict: "failed", message: trim(as_string(output)) != "" ? trim(as_string(output)) : sprintf("curl завершился с кодом %d", status) };
+}
+
+function http_probe_curl(ctx, target) {
+    let url = target_url(target);
+    let format = "%{http_code}|%{time_namelookup}|%{time_connect}|%{time_appconnect}|%{time_starttransfer}|%{time_total}|%{remote_ip}";
+    let args = prefixed_args(ctx, [
+        "curl", "-sS", "-o", "/dev/null", "-L", "--max-redirs", "5",
+        "--connect-timeout", as_string(CONNECT_TIMEOUT),
+        "--max-time", as_string(TOTAL_TIMEOUT),
+        "-A", USER_AGENT,
+        "-w", format,
+        url
+    ]);
+    let error_file = temp_path("curl-err");
+    let result = capture(command_from_args(args) + " 2>" + shell_quote(error_file));
+    let stderr = as_string(fs.readfile(error_file) || "");
+    fs.unlink(error_file);
+
+    if (result.status != 0) {
+        let failure = curl_failure_verdict(result.status, stderr);
+        return {
+            reached: false,
+            code: 0,
+            remote_ip: "",
+            tcp_ms: 0,
+            tls_ms: 0,
+            total_ms: 0,
+            verdict: failure.verdict,
+            message: failure.message
+        };
+    }
+
+    let fields = split(trim(as_string(result.output)), "|");
+    if (length(fields) < 7)
+        return { reached: false, code: 0, remote_ip: "", tcp_ms: 0, tls_ms: 0, total_ms: 0, verdict: "failed", message: "не удалось разобрать ответ curl" };
+
+    let namelookup = number_value(fields[1]) * 1000;
+    let connect = number_value(fields[2]) * 1000;
+    let appconnect = number_value(fields[3]) * 1000;
+    let total = number_value(fields[5]) * 1000;
+
+    return {
+        reached: true,
+        code: int(fields[0]),
+        remote_ip: as_string(fields[6]),
+        dns_ms: int(namelookup),
+        tcp_ms: int(connect > namelookup ? connect - namelookup : connect),
+        tls_ms: int(appconnect > connect ? appconnect - connect : 0),
+        total_ms: int(total),
+        verdict: "",
+        message: ""
+    };
+}
+
+function uclient_failure_verdict(output) {
+    output = lc(as_string(output));
+
+    if (index(output, "download completed") >= 0)
+        return null;
+    if (index(output, "failed to resolve") >= 0 || index(output, "name or service not known") >= 0)
+        return { verdict: "dns_fail", message: "имя не резолвится" };
+    if (index(output, "connection refused") >= 0)
+        return { verdict: "tcp_refused", message: "соединение отклонено" };
+    if (index(output, "timed out") >= 0 || index(output, "timeout") >= 0)
+        return { verdict: "timeout", message: "таймаут соединения" };
+    if (index(output, "connection reset") >= 0)
+        return { verdict: "tls_reset", message: "соединение сброшено" };
+    if (index(output, "ssl") >= 0 || index(output, "tls") >= 0)
+        return { verdict: "tls_error", message: "ошибка TLS" };
+    if (index(output, "failed to establish connection") >= 0)
+        return { verdict: "timeout", message: "не удалось установить соединение" };
+
+    return { verdict: "failed", message: trim(as_string(output)) };
+}
+
+function http_probe_uclient(ctx, target) {
+    let url = target_url(target);
+    let binary = command_exists("uclient-fetch") ? "uclient-fetch" : "wget";
+    let started = now_ms();
+    // Без -q: именно в stderr uclient-fetch и busybox wget пишут причину отказа,
+    // а -T понимают обе реализации, в отличие от --timeout=.
+    let result = capture_args(prefixed_args(ctx, [
+        binary, "-T", as_string(CONNECT_TIMEOUT), "-O", "/dev/null", url
+    ]), true);
+    let elapsed = now_ms() - started;
+    let output = as_string(result.output);
+
+    let code_match = match(output, /HTTP error ([0-9]{3})/);
+    if (code_match != null)
+        return {
+            reached: true,
+            code: int(code_match[1]),
+            remote_ip: "",
+            tcp_ms: 0,
+            tls_ms: 0,
+            total_ms: elapsed,
+            verdict: "",
+            message: ""
+        };
+
+    if (result.status == 0)
+        return {
+            reached: true,
+            code: 200,
+            remote_ip: "",
+            tcp_ms: 0,
+            tls_ms: 0,
+            total_ms: elapsed,
+            verdict: "",
+            message: "код ответа определён приблизительно (нет curl)"
+        };
+
+    let failure = uclient_failure_verdict(output);
+    if (failure == null)
+        return { reached: true, code: 200, remote_ip: "", tcp_ms: 0, tls_ms: 0, total_ms: elapsed, verdict: "", message: "" };
+
+    return {
+        reached: false,
+        code: 0,
+        remote_ip: "",
+        tcp_ms: 0,
+        tls_ms: 0,
+        total_ms: elapsed,
+        verdict: failure.verdict,
+        message: failure.message
+    };
+}
+
+// Проверка чистого TCP через curl. Протокол на порту нам безразличен: важно лишь,
+// дошло ли дело до установленного соединения. curl это и говорит кодом выхода -
+// 7 и 28 означают, что соединиться не удалось, а ошибки TLS уровнем выше (35, 52,
+// 56) означают, что TCP как раз поднялся. Так обходимся без nc, флаги которого
+// в busybox-сборках непредсказуемы.
+function tcp_probe_curl(ctx, target) {
+    let host = as_string(target.host);
+    let port = int(target.port || 443);
+    let url = "https://" + host + ":" + as_string(port) + "/";
+    let args = prefixed_args(ctx, [
+        "curl", "-sS", "-o", "/dev/null",
+        "--connect-timeout", as_string(CONNECT_TIMEOUT),
+        "--max-time", as_string(CONNECT_TIMEOUT + 2),
+        "-w", "%{time_connect}|%{remote_ip}",
+        url
+    ]);
+    let started = now_ms();
+    let result = capture(command_from_args(args) + " 2>/dev/null");
+    let elapsed = now_ms() - started;
+    let status = result.status;
+
+    let fields = split(trim(as_string(result.output)), "|");
+    let connect_ms = length(fields) > 0 ? int(number_value(fields[0]) * 1000) : 0;
+    let remote_ip = length(fields) > 1 ? as_string(fields[1]) : "";
+
+    if (status == 6)
+        return { reached: false, code: 0, remote_ip: "", tcp_ms: 0, tls_ms: 0, total_ms: elapsed, verdict: "dns_fail", message: "имя не резолвится" };
+
+    if (status == 7)
+        return { reached: false, code: 0, remote_ip: "", tcp_ms: 0, tls_ms: 0, total_ms: elapsed, verdict: "tcp_refused", message: "не удалось установить TCP-соединение" };
+
+    // curl can time out after the TCP handshake while it waits for an HTTPS
+    // response. Raw TCP services can accept connections on port 443 without
+    // speaking TLS/HTTP. In that case time_connect/remote_ip
+    // prove that the TCP target is reachable, which is all this probe tests.
+    if (status == 28 && connect_ms <= 0 && remote_ip == "")
+        return { reached: false, code: 0, remote_ip: "", tcp_ms: 0, tls_ms: 0, total_ms: elapsed, verdict: "timeout", message: "таймаут TCP-соединения" };
+
+    let measured = connect_ms > 0 ? connect_ms : elapsed;
+    return { reached: true, code: 0, remote_ip, tcp_ms: measured, tls_ms: 0, total_ms: measured, verdict: "", message: "" };
+}
+
+function tcp_probe_nc(ctx, target) {
+    let host = as_string(target.host);
+    let port = as_string(int(target.port || 443));
+    let mode = as_string(ctx.tools.nc_mode);
+    let args = [];
+
+    if (mode == "zero")
+        args = [ "nc", "-z", "-w", as_string(CONNECT_TIMEOUT), host, port ];
+    else if (mode == "wait")
+        args = [ "nc", "-w", as_string(CONNECT_TIMEOUT), host, port ];
+    else if (ctx.tools.timeout_cmd)
+        args = [ "timeout", as_string(CONNECT_TIMEOUT), "nc", host, port ];
+    else
+        return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "nc без поддержки таймаута, а curl не установлен" };
+
+    let started = now_ms();
+    let status = normalize_status(system(command_from_args(prefixed_args(ctx, args)) + " </dev/null >/dev/null 2>&1"));
+    let elapsed = now_ms() - started;
+
+    if (status == 0)
+        return { reached: true, code: 0, remote_ip: "", tcp_ms: elapsed, tls_ms: 0, total_ms: elapsed, verdict: "", message: "" };
+
+    let timed_out = elapsed >= CONNECT_TIMEOUT * 1000 - 500;
+    return {
+        reached: false,
+        code: 0,
+        remote_ip: "",
+        tcp_ms: 0,
+        tls_ms: 0,
+        total_ms: elapsed,
+        verdict: timed_out ? "timeout" : "tcp_refused",
+        message: timed_out ? "таймаут TCP-соединения" : "TCP-соединение отклонено"
+    };
+}
+
+function tcp_probe(ctx, target) {
+    if (ctx.tools.curl)
+        return tcp_probe_curl(ctx, target);
+    return tcp_probe_nc(ctx, target);
+}
+
+// Google возвращает отдельный FAILED_PRECONDITION для регионов, в которых
+// Gemini API недоступен. Обычная HTTPS-проверка этого не отличает от рабочего
+// API с ошибкой авторизации, поэтому для профиля Gemini разбираем JSON-ответ.
+function read_gemini_api_key() {
+    return trim(as_string(fs.readfile(GEMINI_API_KEY_FILE) || ""));
+}
+
+function probe_gemini_geo(ctx, target) {
+    let api_key = read_gemini_api_key();
+    if (api_key == "")
+        return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "укажите API-ключ Gemini в настройках карточки" };
+
+    let url = "https://" + as_string(target.host) + as_string(target.path);
+    let body_file = temp_path("gemini-body");
+    let error_file = temp_path("gemini-err");
+    let config_file = temp_path("gemini-curl");
+
+    // Ключ не передаётся в argv curl и не виден в списке процессов. Временный
+    // config доступен только root и удаляется сразу после завершения запроса.
+    if (fs.writefile(config_file, "header = \"x-goog-api-key: " + api_key + "\"\n") == null)
+        return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "gemini_geo_error", message: "не удалось подготовить запрос Gemini API" };
+    run_quiet([ "chmod", "600", config_file ]);
+
+    let started = now_ms();
+    let format = "%{http_code}|%{remote_ip}|%{time_total}";
+    let args = prefixed_args(ctx, [
+        "curl", "--config", config_file, "-sS",
+        "-o", body_file,
+        "--connect-timeout", as_string(CONNECT_TIMEOUT),
+        "--max-time", as_string(TOTAL_TIMEOUT),
+        "-A", USER_AGENT,
+        "-w", format,
+        url
+    ]);
+    let result = capture(command_from_args(args) + " 2>" + shell_quote(error_file));
+    let stderr = as_string(fs.readfile(error_file) || "");
+    let body_raw = as_string(fs.readfile(body_file) || "");
+    fs.unlink(config_file);
+    fs.unlink(error_file);
+    fs.unlink(body_file);
+
+    let elapsed = now_ms() - started;
+    if (result.status != 0) {
+        let failure = curl_failure_verdict(result.status, stderr);
+        return {
+            reached: false,
+            code: 0,
+            remote_ip: "",
+            tcp_ms: 0,
+            tls_ms: 0,
+            total_ms: int(elapsed),
+            verdict: failure.verdict,
+            message: failure.message
+        };
+    }
+
+    let fields = split(trim(as_string(result.output)), "|");
+    let http_code = int(fields[0]);
+    let remote_ip = as_string(fields[1]);
+    let total_ms = int(number_value(fields[2]) * 1000);
+    let body = parse_json(body_raw);
+    body = type(body) == "object" ? body : {};
+    let error_obj = object_or_empty(body.error);
+    let error_status = as_string(error_obj.status);
+    let error_message = as_string(error_obj.message);
+    let error_lc = lc(error_message);
+    let verdict = "gemini_geo_error";
+    let message = "";
+
+    if (http_code == 200) {
+        verdict = "gemini_geo_ok";
+        message = "Gemini API доступен в этом регионе";
+    }
+    else if (error_status == "FAILED_PRECONDITION" || index(error_lc, "user location is not supported") >= 0) {
+        verdict = "gemini_geo_blocked";
+        message = "регион VPN-сервера недоступен для Gemini — смените сервер на другой регион";
+    }
+    else if (error_status == "INVALID_ARGUMENT" || index(error_lc, "api key not valid") >= 0) {
+        verdict = "gemini_api_key_invalid";
+        message = "API-ключ Gemini невалиден — обновите его в настройках карточки";
+    }
+    else if (http_code == 401 || http_code == 403) {
+        if (index(error_lc, "location") >= 0 || index(error_lc, "supported") >= 0) {
+            verdict = "gemini_geo_blocked";
+            message = "регион недоступен для Gemini API — смените VPN-сервер";
+        }
+        else {
+            verdict = "gemini_api_key_invalid";
+            message = error_message != "" ? error_message : "Google отклонил API-ключ Gemini";
+        }
+    }
+    else {
+        message = error_message != ""
+            ? sprintf("неожиданный ответ Gemini API: HTTP %d — %s", http_code, error_message)
+            : sprintf("неожиданный ответ Gemini API: HTTP %d", http_code);
+    }
+
+    return {
+        reached: true,
+        code: http_code,
+        remote_ip,
+        tcp_ms: 0,
+        tls_ms: 0,
+        total_ms: total_ms > 0 ? total_ms : int(elapsed),
+        verdict,
+        message
+    };
+}
+
+function udp_probe(ctx, target) {
+    if (!ctx.tools.nc)
+        return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "нет nc для UDP-проверки" };
+
+    let started = now_ms();
+    let args = [ "nc", "-u" ];
+    if (ctx.tools.nc_mode == "zero")
+        push(args, "-z");
+    if (ctx.tools.nc_mode != "plain")
+        push(args, "-w", "2");
+    push(args, as_string(target.host), as_string(int(target.port || 0)));
+    let status = normalize_status(system(command_from_args(prefixed_args(ctx, args)) + " </dev/null >/dev/null 2>&1"));
+    let elapsed = now_ms() - started;
+
+    // UDP не подтверждает доставку без ответа приложения. Это best-effort:
+    // успешная отправка означает, что маршрут и локальный сокет доступны.
+    if (status == 0)
+        return { reached: true, code: 0, remote_ip: "", tcp_ms: elapsed, tls_ms: 0, total_ms: elapsed, verdict: "udp_unconfirmed", message: "UDP-пакет отправлен, но протокол не подтвердил доставку" };
+    return { reached: true, code: 0, remote_ip: "", tcp_ms: elapsed, tls_ms: 0, total_ms: elapsed, verdict: "udp_unconfirmed", message: "UDP-ответ не получен; это не доказывает блокировку трафика" };
+}
+
+function udp_dns_probe(ctx, target) {
+    if (!ctx.tools.nslookup)
+        return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "нет nslookup для двусторонней UDP-проверки" };
+
+    let query = as_string(target.query || "example.com");
+    let started = now_ms();
+    let result = capture_args(prefixed_args(ctx, [ "nslookup", query, as_string(target.host) ]), true);
+    let elapsed = now_ms() - started;
+    let output = lc(as_string(result.output));
+    let ok = result.status == 0 && index(output, "address") >= 0;
+    return {
+        reached: ok,
+        code: 0,
+        remote_ip: as_string(target.host),
+        tcp_ms: elapsed,
+        tls_ms: 0,
+        total_ms: elapsed,
+        verdict: ok ? "" : "timeout",
+        message: ok ? "получен ответ DNS по UDP" : "нет ответа DNS по UDP"
+    };
+}
+
+function connection_probe(ctx, target) {
+    if (as_string(target.kind) == "gemini_geo") {
+        if (!ctx.tools.curl)
+            return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "для геопроверки Gemini нужен curl" };
+        return probe_gemini_geo(ctx, target);
+    }
+    if (as_string(target.kind) == "udp_dns")
+        return udp_dns_probe(ctx, target);
+    if (as_string(target.kind) == "udp")
+        return udp_probe(ctx, target);
+    if (as_string(target.kind) == "tcp") {
+        if (!ctx.tools.curl && !ctx.tools.nc)
+            return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "нет ни curl, ни nc" };
+        return tcp_probe(ctx, target);
+    }
+
+    if (ctx.tools.curl)
+        return http_probe_curl(ctx, target);
+    if (ctx.tools.uclient_fetch)
+        return http_probe_uclient(ctx, target);
+
+    return { reached: false, code: 0, tcp_ms: 0, tls_ms: 0, total_ms: 0, remote_ip: "", verdict: "skipped", message: "нет ни curl, ни uclient-fetch" };
+}
+

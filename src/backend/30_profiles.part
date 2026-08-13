@@ -1,0 +1,149 @@
+// ---------------------------------------------------------------------------
+// Профили
+// ---------------------------------------------------------------------------
+
+function load_profiles() {
+    let data = object_or_empty(read_json_file(profiles_file()));
+    return array_or_empty(data.profiles);
+}
+
+function validate_profiles_config(config) {
+    if (type(config) != "object" || type(config.profiles) != "array")
+        return "корневой объект должен содержать массив profiles";
+
+    let profiles = array_or_empty(config.profiles);
+    if (length(profiles) == 0)
+        return "список profiles не может быть пустым";
+    if (length(profiles) > 100)
+        return "допускается не более 100 профилей";
+
+    let seen = {};
+    let allowed_kinds = { https: true, http: true, tcp: true, udp: true, udp_dns: true, gemini_geo: true };
+    let allowed_routes = { any: true, proxy: true, direct: true };
+
+    for (let profile in profiles) {
+        profile = object_or_empty(profile);
+        let id = as_string(profile.id);
+        let title = trim(as_string(profile.title));
+        let targets = array_or_empty(profile.targets);
+
+        if (match(id, /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/) == null)
+            return "некорректный id профиля: " + id;
+        if (seen[id])
+            return "id профиля повторяется: " + id;
+        seen[id] = true;
+        if (title == "")
+            return "у профиля " + id + " не задан title";
+        if (length(targets) == 0 || length(targets) > 50)
+            return "у профиля " + id + " должно быть от 1 до 50 целей";
+
+        for (let target in targets) {
+            target = object_or_empty(target);
+            let kind = as_string(target.kind || "https");
+            let host = trim(as_string(target.host));
+            let port = int(target.port || (kind == "http" ? 80 : 443));
+            let expected_route = as_string(target.expected_route || "any");
+
+            if (!allowed_kinds[kind])
+                return "неподдерживаемый kind в профиле " + id + ": " + kind;
+            if (host == "" || match(host, /[ \t\r\n\/]/) != null)
+                return "некорректный host в профиле " + id;
+            if (port < 1 || port > 65535)
+                return "некорректный port в профиле " + id;
+            if (!allowed_routes[expected_route])
+                return "некорректный expected_route в профиле " + id + ": " + expected_route;
+        }
+    }
+
+    return "";
+}
+
+function profiles_get() {
+    let path = profiles_file();
+    let config = read_json_file(path);
+    if (type(config) != "object") {
+        write_json({ success: false, message: "не удалось прочитать список проверок" });
+        return 1;
+    }
+    write_json({ success: true, source: path == PROFILES_OVERRIDE ? "custom" : "built-in", config });
+    return 0;
+}
+
+function profiles_save(payload) {
+    payload = as_string(payload);
+    if (length(payload) == 0 || length(payload) > 131072) {
+        write_json({ success: false, message: "размер списка должен быть от 1 байта до 128 КиБ" });
+        return 1;
+    }
+
+    let config = parse_json(payload);
+    let error = validate_profiles_config(config);
+    if (error != "") {
+        write_json({ success: false, message: error });
+        return 1;
+    }
+
+    if (!run_quiet([ "mkdir", "-p", "/etc/forkop-servicecheck" ])) {
+        write_json({ success: false, message: "не удалось создать /etc/forkop-servicecheck" });
+        return 1;
+    }
+
+    let temporary = PROFILES_OVERRIDE + ".tmp";
+    if (fs.writefile(temporary, sprintf("%J", config) + "\n") == null ||
+        !run_quiet([ "chmod", "0644", temporary ]) ||
+        !run_quiet([ "mv", "-f", temporary, PROFILES_OVERRIDE ])) {
+        fs.unlink(temporary);
+        write_json({ success: false, message: "не удалось сохранить пользовательский список" });
+        return 1;
+    }
+
+    write_json({ success: true, message: "пользовательский список сохранён", profiles: length(config.profiles) });
+    return 0;
+}
+
+function profiles_validate(payload) {
+    payload = as_string(payload);
+    if (length(payload) == 0 || length(payload) > 131072) {
+        write_json({ success: false, message: "размер списка должен быть от 1 байта до 128 КиБ" });
+        return 1;
+    }
+    let config = parse_json(payload);
+    let error = validate_profiles_config(config);
+    if (error != "") {
+        write_json({ success: false, message: error });
+        return 1;
+    }
+    write_json({ success: true, message: "список корректен", profiles: length(array_or_empty(config.profiles)) });
+    return 0;
+}
+
+function profiles_reset() {
+    if (fs.stat(PROFILES_OVERRIDE) != null && fs.unlink(PROFILES_OVERRIDE) == null) {
+        write_json({ success: false, message: "не удалось удалить пользовательский список" });
+        return 1;
+    }
+    write_json({ success: true, message: "восстановлен встроенный список" });
+    return 0;
+}
+
+function target_label(target) {
+    target = object_or_empty(target);
+    if (as_string(target.label) != "")
+        return as_string(target.label);
+    if (as_string(target.kind) == "tcp" || as_string(target.kind) == "udp" || as_string(target.kind) == "udp_dns")
+        return sprintf("%s:%d", as_string(target.host), int(target.port || 443));
+    return as_string(target.host) + as_string(target.path || "/");
+}
+
+function target_url(target) {
+    target = object_or_empty(target);
+    let scheme = as_string(target.kind) == "http" ? "http" : "https";
+    let port = int(target.port || 0);
+    let host = as_string(target.host);
+    let authority = port > 0 && port != 443 && port != 80 ? host + ":" + as_string(port) : host;
+    let path = as_string(target.path || "/");
+    if (substr(path, 0, 1) != "/")
+        path = "/" + path;
+    return scheme + "://" + authority + path;
+}
+

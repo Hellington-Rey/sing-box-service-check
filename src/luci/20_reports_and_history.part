@@ -1,0 +1,218 @@
+function sanitizedReport(state, moduleVersion) {
+  var services = (state.services || []).map(function (service) {
+    return {
+      id: service.id || "",
+      title: service.title || service.id || "",
+      state: service.state || "",
+      verdict: service.verdict || "",
+      message: service.message || "",
+      items: (service.items || []).map(function (item) {
+        return {
+          label: item.label || item.host || "",
+          kind: item.kind || "",
+          state: item.state || "",
+          verdict: item.verdict || "",
+          message: item.message || "",
+          dns_ok: !!item.dns_ok,
+          dns_fakeip: !!item.dns_fakeip,
+          http_code: item.http_code || 0,
+          tcp_ms: item.tcp_ms || 0,
+          tls_ms: item.tls_ms || 0,
+          total_ms: item.total_ms || 0,
+          outbound: item.outbound || "",
+          optional: !!item.optional,
+        };
+      }),
+    };
+  });
+
+  return {
+    report_format: 1,
+    sanitized: true,
+    module_version: moduleVersion || "unknown",
+    generated_at: state.generated_at || state.finished_at || 0,
+    mode: state.mode || "router",
+    requested_mode: state.requested_mode || state.mode || "router",
+    netns_fallback: !!state.netns_error,
+    backend: state.backend || "unknown",
+    backend_name: state.backend_name || state.backend || "unknown",
+    backend_running: state.backend_running !== false,
+    cancelled: !!state.cancelled,
+    tools: {
+      curl: !!(state.tools && state.tools.curl),
+      dig: !!(state.tools && state.tools.dig),
+      nc: !!(state.tools && state.tools.nc),
+    },
+    services: services,
+  };
+}
+
+function reportAsText(report) {
+  var counts = { success: 0, warning: 0, error: 0, skipped: 0 };
+  report.services.forEach(function (service) {
+    counts[service.state] = (counts[service.state] || 0) + 1;
+  });
+
+  var lines = [
+    "Sing-box Service Check " + report.module_version,
+    "Backend: " + report.backend_name + (report.backend_running ? " (running)" : " (stopped)"),
+    "Mode: " + report.mode + (report.netns_fallback ? " (netns fallback)" : ""),
+    "Summary: " + counts.success + " OK, " + counts.warning + " warning, " + counts.error + " error",
+  ];
+
+  if (report.cancelled) {
+    lines.push("Status: cancelled");
+  }
+  lines.push("");
+
+  report.services.forEach(function (service) {
+    lines.push("[" + (service.state || "unknown").toUpperCase() + "] " + service.title);
+    service.items.forEach(function (item) {
+      var details = [];
+      if (item.http_code) { details.push("HTTP " + item.http_code); }
+      if (item.total_ms) { details.push(item.total_ms + " ms"); }
+      else if (item.tcp_ms) { details.push("TCP " + item.tcp_ms + " ms"); }
+      if (item.outbound) { details.push("outbound " + item.outbound); }
+      lines.push("  - " + item.label + ": " + (item.verdict || item.state || "unknown") +
+        (details.length ? " · " + details.join(" · ") : ""));
+    });
+  });
+
+  lines.push("", "Report is sanitized: secrets, client IP and resolved addresses are omitted.");
+  return lines.join("\n");
+}
+
+function copyReportText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise(function (resolve, reject) {
+    var field = E("textarea", { style: "position:fixed;left:-9999px;top:-9999px" }, text);
+    document.body.appendChild(field);
+    field.select();
+    var copied = false;
+    try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+    field.remove();
+    if (copied) { resolve(); } else { reject(new Error("буфер обмена недоступен")); }
+  });
+}
+
+function historyEntryFromState(state) {
+  return {
+    finished_at: state.finished_at || state.generated_at || 0,
+    mode: state.mode || "router",
+    backend: state.backend || "unknown",
+    backend_name: state.backend_name || state.backend || "unknown",
+    cancelled: !!state.cancelled,
+    services: (state.services || []).map(function (service) {
+      return {
+        id: service.id || "",
+        title: service.title || service.id || "",
+        state: service.state || "",
+        items: (service.items || []).map(function (item) {
+          return {
+            label: item.label || item.host || "",
+            state: item.state || "",
+            verdict: item.verdict || "",
+            outbound: item.outbound || "",
+            route_status: item.route_status || "unknown",
+            expected_route: item.expected_route || "any",
+            total_ms: item.total_ms || 0,
+            tcp_ms: item.tcp_ms || 0,
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function renderHistoryComparison(currentState, previous) {
+  if (!previous || !(previous.services || []).length) {
+    return E("p", { class: "fkpsc-dim" }, "Это первая проверка в текущей истории — сравнение появится после следующего запуска.");
+  }
+
+  var previousServices = {};
+  (previous.services || []).forEach(function (service) { previousServices[service.id] = service; });
+  var changes = [];
+
+  (currentState.services || []).forEach(function (service) {
+    var oldService = previousServices[service.id];
+    if (!oldService) {
+      changes.push({ state: "info", text: service.title + ": новая категория в проверке" });
+      return;
+    }
+    if (oldService.state !== service.state) {
+      changes.push({
+        state: service.state === "error" ? "error" : (service.state === "warning" ? "warning" : "success"),
+        text: service.title + ": " + (STATE_LABEL[oldService.state] || oldService.state) + " → " +
+          (STATE_LABEL[service.state] || service.state),
+      });
+    }
+
+    var previousItems = {};
+    (oldService.items || []).forEach(function (item) { previousItems[item.label] = item; });
+    (service.items || []).forEach(function (item) {
+      var oldItem = previousItems[item.label || item.host || ""];
+      if (!oldItem) { return; }
+      var currentRoute = item.route_status || (item.outbound || item.dns_fakeip ? "proxy" : "unknown");
+      var oldRoute = oldItem.route_status || (oldItem.outbound ? "proxy" : "unknown");
+      if (currentRoute !== oldRoute && currentRoute !== "unknown" && oldRoute !== "unknown") {
+        changes.push({ state: "warning", text: service.title + " / " + oldItem.label + ": маршрут " + oldRoute + " → " + currentRoute });
+      }
+
+      var currentMs = item.total_ms || item.tcp_ms || 0;
+      var previousMs = oldItem.total_ms || oldItem.tcp_ms || 0;
+      if (currentMs > 0 && previousMs > 0 && currentMs - previousMs >= 100 && currentMs >= previousMs * 1.5) {
+        changes.push({ state: "warning", text: service.title + " / " + oldItem.label + ": медленнее " + previousMs + " → " + currentMs + " мс" });
+      }
+      else if (currentMs > 0 && previousMs > 0 && previousMs - currentMs >= 100 && currentMs <= previousMs * 0.67) {
+        changes.push({ state: "success", text: service.title + " / " + oldItem.label + ": быстрее " + previousMs + " → " + currentMs + " мс" });
+      }
+    });
+  });
+
+  if (!changes.length) {
+    return E("p", { class: "fkpsc-dim" }, "Заметных изменений относительно предыдущей проверки нет.");
+  }
+  return E("div", {}, changes.slice(0, 20).map(function (change) {
+    return E("div", { class: "fkpsc-custom-result state-" + change.state, style: "margin:.35em 0" }, change.text);
+  }));
+}
+
+function renderCustomResult(result) {
+  var item = result.item || {};
+  var route = result.route || {};
+  var reachable = item.state === "success" || item.state === "warning";
+  var through = route.through_sing_box;
+  var routeText = through === true ? "через sing-box" :
+    (through === false ? "мимо sing-box" : "маршрут не определён");
+  var routeClass = through === true ? "ok" : (through === false ? "err" : "warn");
+  var stateClass = through === null || through === undefined ? "warning" :
+    (reachable ? "success" : "error");
+  var nodes = [
+    E("div", { class: "fkpsc-custom-head" }, [
+      E("span", { class: "fkpsc-custom-title" }, result.target + ":" + result.port),
+      E("span", { class: "fkpsc-custom-pill " + (reachable ? "ok" : "err") },
+        reachable ? "доступен" : "не доступен"),
+      E("span", { class: "fkpsc-custom-pill " + routeClass }, routeText),
+    ]),
+    E("div", {}, route.message || ""),
+  ];
+
+  if (item.message) {
+    nodes.push(E("div", { class: "fkpsc-row-msg" }, item.message));
+  }
+
+  nodes.push(renderStages(item));
+  var facts = renderFacts(item);
+  if (facts) {
+    nodes.push(facts);
+  }
+  if (result.netns_error) {
+    nodes.push(E("div", { class: "fkpsc-dim", style: "margin-top:.4em" },
+      "Режим клиента не запустился: " + result.netns_error + ". Проверено с роутера."));
+  }
+
+  return E("div", { class: "fkpsc-custom-result state-" + stateClass }, nodes);
+}
+

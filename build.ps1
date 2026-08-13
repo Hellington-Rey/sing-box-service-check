@@ -16,6 +16,9 @@ $version = [System.IO.File]::ReadAllText((Join-Path $root 'VERSION')).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Некорректная версия в VERSION: $version" }
 $builtAt = (Get-Date).ToString('yyyy-MM-dd')
 
+& python (Join-Path $root 'tools\assemble_sources.py')
+if ($LASTEXITCODE -ne 0) { throw "Не удалось собрать исходники из модулей" }
+
 if (Test-Path $archive) { Remove-Item $archive -Force }
 New-Item -ItemType Directory -Path $staging | Out-Null
 

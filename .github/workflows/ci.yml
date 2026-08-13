@@ -24,6 +24,9 @@ jobs:
       - name: Validate project version and release tag
         run: python tools/project_version.py
 
+      - name: Validate assembled sources
+        run: python tools/assemble_sources.py --check
+
       - name: Build installers and packages
         shell: pwsh
         run: ./build.ps1

@@ -1,0 +1,305 @@
+    var profilesCardsNode = E("div", {});
+    var saveProfilesButton = E("button", { class: "cbi-button cbi-button-action important", type: "button" }, "Сохранить список");
+    var resetProfilesButton = E("button", { class: "cbi-button cbi-button-negative", type: "button" }, "Вернуть встроенный");
+    var exportProfilesButton = E("button", { class: "cbi-button", type: "button" }, "Экспорт JSON");
+    var importProfilesButton = E("button", { class: "cbi-button", type: "button" }, "Импорт JSON");
+    var importProfilesInput = E("input", { type: "file", accept: "application/json,.json", style: "display:none" });
+    var addProfileButton = E("button", { class: "fkpsc-add-profile", type: "button" }, "+ Добавить категорию");
+    saveProfilesButton.disabled = !profilesData;
+    resetProfilesButton.disabled = !profilesData;
+
+    exportProfilesButton.addEventListener("click", function () {
+      var blob = new Blob([JSON.stringify(profilesDraft, null, 2) + "\n"], { type: "application/json;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var link = E("a", { href: url, download: "sing-box-service-check-profiles.json" });
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
+
+    importProfilesButton.addEventListener("click", function () { importProfilesInput.click(); });
+    importProfilesInput.addEventListener("change", function () {
+      var file = importProfilesInput.files && importProfilesInput.files[0];
+      if (!file) { return; }
+      if (file.size > 131072) {
+        ui.addNotification(null, E("p", {}, "Файл больше допустимых 128 КиБ."), "warning");
+        importProfilesInput.value = "";
+        return;
+      }
+      importProfilesButton.disabled = true;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var raw = String(reader.result || "");
+        var parsed;
+        try { parsed = JSON.parse(raw); }
+        catch (error) {
+          ui.addNotification(null, E("p", {}, "Не удалось разобрать JSON: " + error.message), "error");
+          importProfilesButton.disabled = false;
+          importProfilesInput.value = "";
+          return;
+        }
+        callBin(["profiles-validate", raw]).then(function (result) {
+          if (!result.success) { throw new Error(result.message || "список не прошёл проверку"); }
+          profilesDraft = parsed;
+          if (!Array.isArray(profilesDraft.profiles)) { profilesDraft.profiles = []; }
+          renderProfilesCards();
+          ui.addNotification(null, E("p", {}, "Импортировано категорий: " + profilesDraft.profiles.length + ". Нажмите «Сохранить список», чтобы применить изменения."), "info");
+        }).catch(function (error) {
+          ui.addNotification(null, E("p", {}, "Импорт отклонён: " + error.message), "error");
+        }).then(function () {
+          importProfilesButton.disabled = false;
+          importProfilesInput.value = "";
+        });
+      };
+      reader.onerror = function () {
+        importProfilesButton.disabled = false;
+        importProfilesInput.value = "";
+        ui.addNotification(null, E("p", {}, "Не удалось прочитать выбранный файл."), "error");
+      };
+      reader.readAsText(file, "utf-8");
+    });
+
+    function editorField(label, value, onInput, options) {
+      options = options || {};
+      var control;
+      if (options.textarea) {
+        control = E("textarea", { placeholder: options.placeholder || "" }, value == null ? "" : String(value));
+      } else {
+        var attrs = {
+          type: options.type || "text",
+          class: "cbi-input-text",
+          value: value == null ? "" : String(value),
+          placeholder: options.placeholder || "",
+        };
+        if (options.min != null) {
+          attrs.min = String(options.min);
+        }
+        if (options.max != null) {
+          attrs.max = String(options.max);
+        }
+        control = E("input", attrs);
+      }
+      control.addEventListener("input", function () { onInput(control.value); });
+      return E("label", { class: "fkpsc-editor-field" + (options.wide ? " wide" : "") }, [
+        E("span", {}, label),
+        control,
+      ]);
+    }
+
+    function moveEditorItem(items, index, direction) {
+      var destination = index + direction;
+      if (destination < 0 || destination >= items.length) {
+        return;
+      }
+      var item = items.splice(index, 1)[0];
+      items.splice(destination, 0, item);
+      renderProfilesCards();
+    }
+
+    function editorIconButton(text, title, onClick, extraClass) {
+      var button = E("button", {
+        class: "cbi-button fkpsc-icon-button" + (extraClass ? " " + extraClass : ""),
+        type: "button",
+        title: title,
+      }, text);
+      button.addEventListener("click", onClick);
+      return button;
+    }
+
+    function renderTargetEditor(profile, profileIndex, target, targetIndex) {
+      var kinds = [
+        ["https", "HTTPS"],
+        ["http", "HTTP"],
+        ["tcp", "TCP"],
+        ["udp", "UDP"],
+        ["udp_dns", "UDP с DNS-ответом"],
+      ];
+      var kind = target.kind || "https";
+      var kindSelect = E("select", { class: "cbi-input-select" }, kinds.map(function (entry) {
+        return E("option", { value: entry[0], selected: kind === entry[0] ? "" : null }, entry[1]);
+      }));
+      kindSelect.addEventListener("change", function () {
+        target.kind = kindSelect.value;
+        renderProfilesCards();
+      });
+
+      var optionalInput = E("input", { type: "checkbox", checked: target.optional ? "" : null });
+      optionalInput.addEventListener("change", function () { target.optional = optionalInput.checked; });
+
+      var expectedRoute = target.expected_route || "any";
+      var routeSelect = E("select", { class: "cbi-input-select" }, [
+        ["any", "Любой маршрут"],
+        ["proxy", "Только через sing-box"],
+        ["direct", "Только напрямую"],
+      ].map(function (entry) {
+        return E("option", { value: entry[0], selected: expectedRoute === entry[0] ? "" : null }, entry[1]);
+      }));
+      routeSelect.addEventListener("change", function () { target.expected_route = routeSelect.value; });
+
+      var fields = [
+        E("label", { class: "fkpsc-editor-field" }, [E("span", {}, "Тип проверки"), kindSelect]),
+        editorField("Домен или IP", target.host || "", function (value) { target.host = value.trim(); }, { placeholder: "example.com или 1.1.1.1" }),
+        editorField("Порт", target.port || (kind === "http" ? 80 : 443), function (value) {
+          if (value === "") {
+            delete target.port;
+          } else {
+            target.port = parseInt(value, 10) || 0;
+          }
+        }, { type: "number", min: 1, max: 65535 }),
+        editorField("Подпись", target.label || "", function (value) { target.label = value; }, { placeholder: "Необязательно" }),
+        E("label", { class: "fkpsc-editor-field" }, [E("span", {}, "Ожидаемый маршрут"), routeSelect]),
+      ];
+
+      if (kind === "https" || kind === "http") {
+        fields.push(editorField("Путь", target.path || "/", function (value) { target.path = value || "/"; }, { placeholder: "/" }));
+        fields.push(editorField("Допустимые коды", (Array.isArray(target.expect) ? target.expect : []).join(", "), function (value) {
+          target.expect = value.split(/[ ,;]+/).map(function (part) { return parseInt(part, 10); })
+            .filter(function (code) { return code >= 100 && code <= 999; });
+        }, { placeholder: "200, 301, 302" }));
+      }
+      if (kind === "udp_dns") {
+        fields.push(editorField("DNS-запрос", target.query || "example.com", function (value) { target.query = value.trim(); }, { placeholder: "example.com" }));
+      }
+      fields.push(E("label", { class: "fkpsc-editor-field" }, [
+        E("span", {}, "Необязательная цель"),
+        E("span", {}, [optionalInput, " Не считать ошибкой всей категории"]),
+      ]));
+
+      return E("div", { class: "fkpsc-target-edit" }, [
+        E("div", { class: "fkpsc-target-head" }, [
+          E("b", {}, "Цель " + (targetIndex + 1) + (target.label ? " · " + target.label : "")),
+          editorIconButton("↑", "Поднять цель", function () { moveEditorItem(profile.targets, targetIndex, -1); }),
+          editorIconButton("↓", "Опустить цель", function () { moveEditorItem(profile.targets, targetIndex, 1); }),
+          editorIconButton("×", "Удалить цель", function () {
+            if (profile.targets.length <= 1) {
+              ui.addNotification(null, E("p", {}, "В категории должна остаться хотя бы одна цель."), "warning");
+              return;
+            }
+            profile.targets.splice(targetIndex, 1);
+            renderProfilesCards();
+          }, "cbi-button-negative"),
+        ]),
+        E("div", { class: "fkpsc-editor-grid" }, fields),
+      ]);
+    }
+
+    function renderProfileEditor(profile, profileIndex) {
+      profile.targets = Array.isArray(profile.targets) ? profile.targets : [];
+      var profileName = E("div", { class: "fkpsc-profile-name" }, profile.title || "Без названия");
+      var targetsNode = E("div", {}, profile.targets.map(function (target, targetIndex) {
+        return renderTargetEditor(profile, profileIndex, target, targetIndex);
+      }));
+      var addTargetButton = E("button", { class: "cbi-button cbi-button-add", type: "button" }, "+ Добавить цель");
+      addTargetButton.addEventListener("click", function () {
+        profile.targets.push({ kind: "https", host: "example.com", path: "/", expect: [200, 301, 302] });
+        renderProfilesCards();
+      });
+
+      return E("div", { class: "fkpsc-profile-edit" }, [
+        E("div", { class: "fkpsc-profile-head" }, [
+          E("span", { class: "fkpsc-profile-number" }, String(profileIndex + 1)),
+          profileName,
+          editorIconButton("↑", "Поднять категорию", function () { moveEditorItem(profilesDraft.profiles, profileIndex, -1); }),
+          editorIconButton("↓", "Опустить категорию", function () { moveEditorItem(profilesDraft.profiles, profileIndex, 1); }),
+          editorIconButton("×", "Удалить категорию", function () {
+            if (!window.confirm("Удалить категорию «" + (profile.title || profile.id) + "»?")) {
+              return;
+            }
+            profilesDraft.profiles.splice(profileIndex, 1);
+            renderProfilesCards();
+          }, "cbi-button-negative"),
+        ]),
+        E("div", { class: "fkpsc-editor-grid" }, [
+          editorField("Название категории", profile.title || "", function (value) {
+            profile.title = value;
+            profileName.textContent = value || "Без названия";
+          }, { placeholder: "Например, Telegram" }),
+          editorField("ID", profile.id || "", function (value) { profile.id = value.trim(); }, { placeholder: "telegram" }),
+          editorField("Группа", profile.group || "", function (value) { profile.group = value.trim(); }, { placeholder: "messenger, video, network…" }),
+          editorField("Описание", profile.description || "", function (value) { profile.description = value; }, { textarea: true, wide: true }),
+        ]),
+        E("div", { class: "fkpsc-targets-title" }, [
+          E("span", {}, "Цели проверки · " + profile.targets.length),
+          addTargetButton,
+        ]),
+        targetsNode,
+      ]);
+    }
+
+    function renderProfilesCards() {
+      if (!profilesDraft.profiles.length) {
+        profilesCardsNode.replaceChildren(E("div", { class: "fkpsc-empty" }, "Категорий пока нет. Добавьте первую."));
+        return;
+      }
+      profilesCardsNode.replaceChildren.apply(profilesCardsNode, profilesDraft.profiles.map(renderProfileEditor));
+    }
+
+    addProfileButton.addEventListener("click", function () {
+      var index = 1;
+      var used = {};
+      profilesDraft.profiles.forEach(function (profile) { used[profile.id] = true; });
+      while (used["custom_" + index]) {
+        index++;
+      }
+      profilesDraft.profiles.push({
+        id: "custom_" + index,
+        title: "Новая категория",
+        group: "custom",
+        description: "",
+        targets: [{ kind: "https", host: "example.com", path: "/", expect: [200, 301, 302] }],
+      });
+      renderProfilesCards();
+    });
+
+    saveProfilesButton.addEventListener("click", function () {
+      saveProfilesButton.disabled = true;
+      saveProfilesButton.textContent = "Сохраняю…";
+      callBin(["profiles-save", JSON.stringify(profilesDraft)]).then(function (result) {
+        if (!result.success) {
+          throw new Error(result.message || "не удалось сохранить список");
+        }
+        ui.addNotification(null, E("p", {}, result.message + ". Страница будет обновлена."), "info");
+        window.setTimeout(function () { window.location.reload(); }, 700);
+      }).catch(function (error) {
+        ui.addNotification(null, E("p", {}, error.message || "Не удалось сохранить список"), "error");
+        saveProfilesButton.disabled = false;
+        saveProfilesButton.textContent = "Сохранить список";
+      });
+    });
+
+    resetProfilesButton.addEventListener("click", function () {
+      if (!window.confirm("Удалить пользовательский список и вернуть встроенный?")) {
+        return;
+      }
+      resetProfilesButton.disabled = true;
+      callBin(["profiles-reset"]).then(function (result) {
+        if (!result.success) {
+          throw new Error(result.message || "не удалось восстановить список");
+        }
+        window.location.reload();
+      }).catch(function (error) {
+        ui.addNotification(null, E("p", {}, error.message || "Не удалось восстановить список"), "error");
+        resetProfilesButton.disabled = false;
+      });
+    });
+
+    renderProfilesCards();
+
+    var listsPage = E("div", { class: "fkpsc-page" }, [
+      E("div", { class: "fkpsc-card" }, [
+        E("h3", {}, "Списки проверок"),
+        E("p", { class: "fkpsc-dim" }, "Редактируйте список обычными полями — код и JSON трогать не нужно. Пользовательская копия хранится в /etc/forkop-servicecheck/profiles.json и сохраняется при обновлении модуля."),
+        E("div", { class: "fkpsc-list-toolbar" }, [
+          E("span", { class: "fkpsc-source" }, "Сейчас: " + (profilesData && profilesData.source === "custom" ? "пользовательский список" : "встроенный список")),
+          importProfilesInput,
+          importProfilesButton,
+          exportProfilesButton,
+          saveProfilesButton,
+          resetProfilesButton,
+        ]),
+        profilesData ? profilesCardsNode : E("div", { class: "alert-message error" }, "Backend не отдал список проверок."),
+        profilesData ? addProfileButton : "",
+      ]),
+    ]);
+

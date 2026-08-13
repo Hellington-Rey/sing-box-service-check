@@ -1,0 +1,54 @@
+    var checkTab = E("button", { class: "fkpsc-tab active", type: "button", role: "tab", "aria-selected": "true" }, "Проверка сервисов");
+    var fixTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Фикс Forkop");
+    var listsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Списки");
+    var checkPage = E("div", { class: "fkpsc-page active" }, [
+      notes.length ? E("div", { class: "fkpsc-note" }, notes.map(function (note) {
+        return E("div", {}, note);
+      })) : "",
+      updateCard,
+      backendDiagnosticsCard,
+      E("div", { class: "fkpsc-card" }, [
+        E("h3", {}, "Параметры проверки"),
+        E("div", { class: "fkpsc-mode" }, [
+          E("label", {}, [modeRouter, E("span", {}, " С роутера (быстро)")]),
+          E("label", {}, [
+            modeNetns,
+            E("span", {}, " От имени клиента в LAN"),
+            clientIpInput,
+          ]),
+        ]),
+        E("h3", { style: "margin-top:1em" }, "Проверить свой IP или домен"),
+        E("p", { class: "fkpsc-dim" },
+          "Введите любую цель и TCP-порт. Проверка покажет доступность и подтвердит, попало ли соединение в sing-box. Используется выбранный выше режим."),
+        E("div", { class: "fkpsc-custom-form" }, [
+          customTargetInput,
+          E("label", { class: "fkpsc-custom-port-label" }, ["Порт", customPortInput]),
+          customCheckButton,
+        ]),
+        customResultNode,
+        E("h3", {}, "Сервисы"),
+        E("div", { class: "fkpsc-service-tools" }, [serviceSearch, quickPreset, udpPreset]),
+        picker,
+        E("div", { class: "fkpsc-actions" }, [
+          runButton,
+          retryButton,
+          stopButton,
+          E("button", {
+            class: "cbi-button",
+            click: function () { setAll(true); },
+          }, "Выбрать все"),
+          E("button", {
+            class: "cbi-button",
+            click: function () { setAll(false); },
+          }, "Снять все"),
+          progressWrap,
+          progressText,
+        ]),
+      ]),
+      summaryNode,
+      metaNode,
+      tilesNode,
+      historyPanel,
+      reportPanel,
+    ]);
+    var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);

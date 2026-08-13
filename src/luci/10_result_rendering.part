@@ -1,0 +1,380 @@
+function formatMs(value) {
+  value = parseInt(value, 10) || 0;
+  return value > 0 ? value + " мс" : "—";
+}
+
+/*
+ * Этапы соединения. Главная ценность раскрытой плитки: видно не только
+ * "не работает", но и на каком именно шаге всё встало.
+ */
+function stagesFor(item) {
+  var verdict = item.verdict || "";
+  var dnsOk = !!item.dns_ok;
+  var tcpFailed = verdict === "timeout" || verdict === "tcp_refused";
+  var tlsFailed = verdict === "tls_error" || verdict === "tls_reset" ||
+    verdict === "tls_handshake" || verdict === "tls_cert_rejected" || verdict === "tls_cert_untrusted";
+  var stages = [];
+
+  stages.push({ name: "DNS", state: dnsOk ? "ok" : (verdict === "dns_fail" ? "fail" : "skip") });
+
+  if (item.kind === "tcp" || item.kind === "udp" || item.kind === "udp_dns") {
+    stages.push({
+      name: item.kind === "udp" || item.kind === "udp_dns" ? "UDP" : "TCP",
+      state: !dnsOk ? "skip" : (tcpFailed ? "fail" : (item.state === "skipped" || verdict === "udp_unconfirmed" ? "skip" : "ok")),
+    });
+    return stages;
+  }
+
+  stages.push({ name: "TCP", state: !dnsOk ? "skip" : (tcpFailed ? "fail" : "ok") });
+  stages.push({ name: "TLS", state: (!dnsOk || tcpFailed) ? "skip" : (tlsFailed ? "fail" : "ok") });
+  stages.push({ name: "HTTP", state: item.http_code > 0 ? "ok" : "skip" });
+
+  return stages;
+}
+
+function renderStages(item) {
+  var nodes = [];
+
+  stagesFor(item).forEach(function (stage, index) {
+    if (index > 0) {
+      nodes.push(E("span", { class: "fkpsc-arrow" }, "→"));
+    }
+
+    var mark = stage.state === "ok" ? "✓" : (stage.state === "fail" ? "✕" : "·");
+    nodes.push(E("span", { class: "fkpsc-stage " + stage.state }, [
+      E("span", {}, mark),
+      E("span", {}, stage.name),
+    ]));
+  });
+
+  return E("div", { class: "fkpsc-stages" }, nodes);
+}
+
+function renderFacts(item) {
+  var facts = [];
+
+  if (item.dns_ip) {
+    facts.push({ text: item.dns_ip + (item.dns_fakeip ? " · fakeip" : ""), hl: !!item.dns_fakeip });
+  }
+
+  if (item.http_code > 0) {
+    facts.push({ text: "HTTP " + item.http_code });
+  }
+
+  if (item.tcp_ms > 0) {
+    facts.push({ text: "TCP " + formatMs(item.tcp_ms) });
+  }
+
+  if (item.tls_ms > 0) {
+    facts.push({ text: "TLS " + formatMs(item.tls_ms) });
+  }
+
+  if (item.total_ms > 0) {
+    facts.push({ text: "всего " + formatMs(item.total_ms) });
+  }
+
+  if (item.remote_ip && item.remote_ip !== item.dns_ip) {
+    facts.push({ text: "→ " + item.remote_ip });
+  }
+
+  if (item.outbound) {
+    facts.push({ text: "через " + item.outbound, hl: true });
+  }
+
+  if (item.expected_route && item.expected_route !== "any") {
+    facts.push({ text: "ожидался " + item.expected_route });
+  }
+
+  if (!facts.length) {
+    return "";
+  }
+
+  return E("div", { class: "fkpsc-facts" }, facts.map(function (fact) {
+    return E("span", { class: "fkpsc-fact" + (fact.hl ? " hl" : "") }, fact.text);
+  }));
+}
+
+function renderProblemRow(item) {
+  var head = [
+    E("span", { class: "fkpsc-row-name" }, item.label),
+  ];
+
+  if (item.url) {
+    head.push(E("span", { class: "fkpsc-row-url" }, item.url));
+  }
+
+  head.push(E("span", { class: "fkpsc-verdict" }, VERDICT_LABEL[item.verdict] || item.verdict || STATE_LABEL[item.state]));
+
+  var body = [E("div", { class: "fkpsc-row-head" }, head)];
+
+  if (item.message) {
+    body.push(E("div", { class: "fkpsc-row-msg" }, item.message));
+  }
+
+  if (item.optional) {
+    body.push(E("div", { class: "fkpsc-dim", style: "font-size:.85em;margin-top:.2em" },
+      "необязательная цель — на общий вердикт не влияет"));
+  }
+
+  body.push(renderStages(item));
+
+  var facts = renderFacts(item);
+  if (facts) {
+    body.push(facts);
+  }
+
+  return E("div", { class: "fkpsc-row state-" + item.state }, body);
+}
+
+function renderOkLine(item) {
+  var timing = item.total_ms > 0 ? formatMs(item.total_ms) : (item.tcp_ms > 0 ? formatMs(item.tcp_ms) : "");
+
+  return E("div", { class: "fkpsc-okline" }, [
+    E("span", { class: "nm" }, item.label),
+    item.dns_fakeip ? E("span", { class: "fkpsc-fact hl" }, "через прокси") : "",
+    item.http_code > 0 ? E("span", { class: "tm" }, "HTTP " + item.http_code) : "",
+    E("span", { class: "tm" }, timing),
+  ]);
+}
+
+function renderDetail(service) {
+  var items = service.items || [];
+  var problems = items.filter(function (item) {
+    return item.state === "error" || item.state === "warning";
+  });
+  var fine = items.filter(function (item) {
+    return item.state !== "error" && item.state !== "warning";
+  });
+
+  var nodes = [];
+
+  if (service.description) {
+    nodes.push(E("div", { class: "fkpsc-detail-note" }, service.description));
+  }
+
+  if (problems.length) {
+    nodes.push(E("div", { class: "fkpsc-sect" }, "Что не работает"));
+    problems.forEach(function (item) {
+      nodes.push(renderProblemRow(item));
+    });
+  }
+
+  if (fine.length) {
+    nodes.push(E("div", { class: "fkpsc-sect" },
+      problems.length ? "Остальное в порядке" : "Все цели в порядке"));
+    fine.forEach(function (item) {
+      nodes.push(renderOkLine(item));
+    });
+  }
+
+  if (service.id === "gemini") {
+    var settingsWrap = E("div", { class: "fkpsc-settings" });
+    var statusSpan = E("span", { class: "fkpsc-settings-status" }, "загрузка…");
+    var msgDiv = E("div", { class: "fkpsc-settings-msg" });
+    var keyInput = E("input", {
+      type: "password",
+      placeholder: "Вставьте API-ключ Gemini",
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+
+    function showSettingsMessage(text, ok) {
+      msgDiv.textContent = text;
+      msgDiv.className = "fkpsc-settings-msg " + (ok ? "ok" : "err");
+      setTimeout(function () {
+        msgDiv.className = "fkpsc-settings-msg";
+      }, 4000);
+    }
+
+    function loadKeyStatus() {
+      callBin(["gemini_key_status"]).then(function (result) {
+        statusSpan.textContent = result.configured
+          ? "используется сохранённый ключ"
+          : "ключ не задан — геопроверка будет пропущена";
+      }).catch(function () {
+        statusSpan.textContent = "не удалось узнать статус ключа";
+      });
+    }
+
+    var saveButton = E("button", {
+      class: "cbi-button cbi-button-action",
+      click: function () {
+        var value = (keyInput.value || "").trim();
+        if (!value) {
+          showSettingsMessage("Введите ключ", false);
+          return;
+        }
+        callBin(["gemini_key_set", value]).then(function (result) {
+          showSettingsMessage(result.message || "ключ сохранён", result.success === true);
+          if (result.success) {
+            keyInput.value = "";
+            loadKeyStatus();
+          }
+        }).catch(function (error) {
+          showSettingsMessage(error.message || "не удалось сохранить ключ", false);
+        });
+      },
+    }, "Сохранить");
+
+    var resetButton = E("button", {
+      class: "cbi-button",
+      click: function () {
+        callBin(["gemini_key_reset"]).then(function (result) {
+          showSettingsMessage(result.message || "ключ удалён", result.success === true);
+          keyInput.value = "";
+          loadKeyStatus();
+        }).catch(function (error) {
+          showSettingsMessage(error.message || "не удалось удалить ключ", false);
+        });
+      },
+    }, "Удалить ключ");
+
+    var settingsBody = E("div", { class: "fkpsc-settings-body" }, [
+      E("div", { class: "fkpsc-settings-row" }, [keyInput, saveButton, resetButton]),
+      statusSpan,
+      msgDiv,
+    ]);
+    var settingsHeader = E("div", {
+      class: "fkpsc-settings-toggle",
+      tabindex: "0",
+      role: "button",
+      "aria-expanded": "false",
+    }, [
+      E("span", { class: "arr" }, "▶"),
+      E("span", {}, "Настройки API-ключа Gemini"),
+    ]);
+
+    function toggleSettings() {
+      var isOpen = settingsWrap.classList.toggle("open");
+      settingsHeader.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    }
+
+    settingsHeader.addEventListener("click", toggleSettings);
+    settingsHeader.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleSettings();
+      }
+    });
+    settingsWrap.appendChild(settingsHeader);
+    settingsWrap.appendChild(settingsBody);
+    nodes.push(settingsWrap);
+    loadKeyStatus();
+  }
+
+  return E("div", { class: "fkpsc-detail" }, nodes);
+}
+
+function renderTile(service) {
+  var items = service.items || [];
+  var okCount = items.filter(function (item) {
+    return item.state === "success";
+  }).length;
+
+  var tileHeader = E("div", {
+    class: "fkpsc-tile-header",
+    tabindex: "0",
+    role: "button",
+    "aria-expanded": openTiles[service.id] ? "true" : "false",
+  }, [
+    E("div", { class: "fkpsc-tile-head" }, [
+      E("span", { class: "fkpsc-dot" }),
+      E("span", { class: "fkpsc-tile-title" }, service.title),
+      E("span", { class: "fkpsc-chev" }, "▼"),
+    ]),
+    E("div", { class: "fkpsc-tile-status" }, service.description_result || STATE_LABEL[service.state] || ""),
+    E("div", { class: "fkpsc-tile-foot" }, [
+      E("div", { class: "fkpsc-bar" }, items.map(function (item) {
+        return E("i", { class: item.state, title: item.label + ": " + (item.message || STATE_LABEL[item.state] || "") });
+      })),
+      E("span", { class: "fkpsc-count" }, okCount + "/" + items.length),
+    ]),
+  ]);
+
+  var tile = E("div", {
+    class: "fkpsc-tile state-" + service.state + (openTiles[service.id] ? " open" : ""),
+  }, [
+    tileHeader,
+    renderDetail(service),
+  ]);
+
+  function toggle() {
+    var isOpen = tile.classList.toggle("open");
+    openTiles[service.id] = isOpen;
+    tileHeader.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  }
+
+  tileHeader.addEventListener("click", toggle);
+  tileHeader.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
+    }
+  });
+
+  return tile;
+}
+
+function renderSummary(services) {
+  if (!services.length) {
+    return "";
+  }
+
+  var counts = { success: 0, warning: 0, error: 0 };
+
+  services.forEach(function (service) {
+    if (counts[service.state] !== undefined) {
+      counts[service.state]++;
+    }
+  });
+
+  var cells = [
+    E("span", { class: "fkpsc-sum ok" }, [E("b", {}, String(counts.success)), E("span", {}, "работают")]),
+  ];
+
+  if (counts.warning) {
+    cells.push(E("span", { class: "fkpsc-sum warn" }, [E("b", {}, String(counts.warning)), E("span", {}, "с замечаниями")]));
+  }
+
+  if (counts.error) {
+    cells.push(E("span", { class: "fkpsc-sum err" }, [E("b", {}, String(counts.error)), E("span", {}, "не работают")]));
+  }
+
+  return E("div", { class: "fkpsc-summary" }, cells);
+}
+
+function renderRunMeta(state) {
+  var lines = [];
+  var backendName = state.backend_name || (state.backend === "tachyon" ? "Tachyon" : (state.backend === "podkop" ? "Podkop" : "Forkop"));
+  var backendRunning = state.backend_running;
+  if (backendRunning === undefined) {
+    backendRunning = state.forkop_running;
+  }
+
+  if (state.mode === "netns") {
+    lines.push("Режим: от имени клиента в LAN" + (state.client_ip ? " (" + state.client_ip + ")" : ""));
+  } else {
+    lines.push("Режим: с роутера через tproxy — тот же путь, что у трафика клиента");
+  }
+
+  if (state.netns_error) {
+    lines.push("Режим клиента не запустился (" + state.netns_error + "), проверка выполнена с роутера.");
+  }
+
+  if (backendRunning === false) {
+    lines.push("Внимание: " + backendName + " не запущен, соединения шли напрямую.");
+  }
+
+  if (state.resolver) {
+    lines.push("DNS-резолвер проверки: " + state.resolver);
+  }
+
+  if (state.tools && !state.tools.curl) {
+    lines.push("curl не установлен — тайминги и коды ответов определяются приблизительно через uclient-fetch.");
+  }
+
+  return E("div", { class: "fkpsc-meta" }, lines.map(function (line) {
+    return E("div", {}, line);
+  }));
+}
+

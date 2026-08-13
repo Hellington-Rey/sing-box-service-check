@@ -1,0 +1,188 @@
+    function showPage(name) {
+      var showFix = name === "fix";
+      var showLists = name === "lists";
+      var showCheck = !showFix && !showLists;
+      checkTab.classList.toggle("active", showCheck);
+      fixTab.classList.toggle("active", showFix);
+      listsTab.classList.toggle("active", showLists);
+      checkTab.setAttribute("aria-selected", showCheck ? "true" : "false");
+      fixTab.setAttribute("aria-selected", showFix ? "true" : "false");
+      listsTab.setAttribute("aria-selected", showLists ? "true" : "false");
+      checkPage.classList.toggle("active", showCheck);
+      fixPage.classList.toggle("active", showFix);
+      listsPage.classList.toggle("active", showLists);
+    }
+
+    checkTab.addEventListener("click", function () { showPage("check"); });
+    if (showForkopFixes) {
+      fixTab.addEventListener("click", function () { showPage("fix"); });
+    }
+    listsTab.addEventListener("click", function () { showPage("lists"); });
+
+    var themeChoice = "auto";
+    try {
+      var storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+      if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "auto") {
+        themeChoice = storedTheme;
+      }
+    } catch (error) {
+      themeChoice = "auto";
+    }
+
+    var pageRoot = null;
+    var themeButtons = {};
+    var inheritedTheme = "light";
+
+    function themeFromPage() {
+      var node = pageRoot ? pageRoot.parentElement : document.body;
+      var backgrounds = [];
+
+      while (node && node.nodeType === 1) {
+        var marker = [
+          node.getAttribute("data-theme") || "",
+          node.getAttribute("data-color-scheme") || "",
+          node.getAttribute("data-darkmode") === "true" ? "dark" : "",
+          typeof node.className === "string" ? node.className : "",
+        ].join(" ").toLowerCase();
+
+        if (/(^|[\s_-])(dark|night)(mode)?([\s_-]|$)/.test(marker)) {
+          return "dark";
+        }
+        if (/(^|[\s_-])light([\s_-]|$)/.test(marker)) {
+          return "light";
+        }
+
+        var style = window.getComputedStyle(node);
+        if (style.colorScheme === "dark") {
+          return "dark";
+        }
+        if (style.colorScheme === "light") {
+          return "light";
+        }
+        if (style.backgroundColor && style.backgroundColor !== "transparent" &&
+            style.backgroundColor !== "rgba(0, 0, 0, 0)") {
+          backgrounds.push(style.backgroundColor);
+        }
+        node = node.parentElement;
+      }
+
+      for (var i = 0; i < backgrounds.length; i++) {
+        var rgb = backgrounds[i].match(/[\d.]+/g);
+        if (rgb && rgb.length >= 3 && (rgb.length < 4 || parseFloat(rgb[3]) > 0.15)) {
+          var luminance = (0.2126 * parseFloat(rgb[0]) + 0.7152 * parseFloat(rgb[1]) +
+            0.0722 * parseFloat(rgb[2])) / 255;
+          return luminance < 0.5 ? "dark" : "light";
+        }
+      }
+
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+
+    function syncInheritedTheme() {
+      inheritedTheme = themeFromPage();
+      if (pageRoot && themeChoice === "auto") {
+        pageRoot.classList.remove("theme-inherited-light", "theme-inherited-dark");
+        pageRoot.classList.add("theme-inherited-" + inheritedTheme);
+      }
+      if (themeButtons.auto) {
+        var inheritedLabel = inheritedTheme === "dark" ? "тёмная" : "светлая";
+        themeButtons.auto.textContent = "LuCI · " + inheritedLabel;
+        themeButtons.auto.title = "Наследовать тему LuCI (сейчас " + inheritedLabel + ")";
+      }
+    }
+
+    function applyTheme(choice, persist) {
+      if (choice !== "light" && choice !== "dark") {
+        choice = "auto";
+      }
+      themeChoice = choice;
+      if (pageRoot) {
+        pageRoot.classList.remove("theme-auto", "theme-light", "theme-dark", "theme-inherited-light", "theme-inherited-dark");
+        pageRoot.classList.add("theme-" + choice);
+        if (choice === "auto") {
+          syncInheritedTheme();
+        }
+      }
+      Object.keys(themeButtons).forEach(function (name) {
+        themeButtons[name].classList.toggle("active", name === choice);
+        themeButtons[name].setAttribute("aria-pressed", name === choice ? "true" : "false");
+      });
+      if (persist) {
+        try {
+          window.localStorage.setItem(THEME_STORAGE_KEY, choice);
+        } catch (error) {
+          /* Private browsing or a locked-down browser may disable storage. */
+        }
+      }
+    }
+
+    var themeSwitch = E("div", { class: "fkpsc-theme-switch", role: "group", "aria-label": "Тема интерфейса" });
+    [
+      ["auto", "LuCI"],
+      ["light", "Светлая"],
+      ["dark", "Тёмная"],
+    ].forEach(function (entry) {
+      var name = entry[0];
+      var button = E("button", {
+        class: "fkpsc-theme-button",
+        type: "button",
+        "aria-pressed": "false",
+      }, entry[1]);
+      button.addEventListener("click", function () { applyTheme(name, true); });
+      themeButtons[name] = button;
+      themeSwitch.appendChild(button);
+    });
+
+    pageRoot = E("div", { class: "cbi-map fkpsc theme-" + themeChoice }, [
+      E("div", { class: "fkpsc-hero" }, [
+        E("div", { class: "fkpsc-theme-line" }, [
+          E("h2", {}, "Sing-box Service Check"),
+          themeSwitch,
+        ]),
+        E("p", {}, "Проверка идёт тем же путём, что и трафик клиента: имя резолвится через dnsmasq и sing-box, " +
+          "а соединение попадает в цепочку mangle_output и уходит в tproxy. Нажмите на плитку сервиса, " +
+          "чтобы увидеть, на каком этапе всё сломалось — DNS, TCP, TLS или HTTP."),
+        E("div", { class: "fkpsc-badges" }, [
+          E("span", { class: "fkpsc-badge" }, "интерфейс v" + (capabilities.module_version || "unknown")),
+          E("span", { class: "fkpsc-badge" }, (backendRunning ? "● " : "○ ") + backendName + (backendRunning ? " запущен" : " остановлен")),
+          E("span", { class: "fkpsc-badge" }, capabilities.curl ? "HTTPS: точный" : "HTTPS: упрощённый"),
+          E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
+        ]),
+      ]),
+      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, fixTab, listsTab] : [checkTab, listsTab]),
+      checkPage,
+      showForkopFixes ? fixPage : "",
+      listsPage,
+    ]);
+    applyTheme(themeChoice, false);
+
+    var themeObserver = new MutationObserver(function () {
+      if (themeChoice === "auto") {
+        window.requestAnimationFrame(syncInheritedTheme);
+      }
+    });
+
+    function observeThemeAncestors() {
+      var node = pageRoot.parentElement;
+      while (node) {
+        themeObserver.observe(node, {
+          attributes: true,
+          attributeFilter: ["class", "style", "data-theme", "data-color-scheme", "data-darkmode"],
+        });
+        node = node.parentElement;
+      }
+      syncInheritedTheme();
+    }
+
+    window.requestAnimationFrame(observeThemeAncestors);
+    if (window.matchMedia) {
+      var systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+      if (systemTheme.addEventListener) {
+        systemTheme.addEventListener("change", syncInheritedTheme);
+      } else if (systemTheme.addListener) {
+        systemTheme.addListener(syncInheritedTheme);
+      }
+    }
+    return pageRoot;
+  },
+});

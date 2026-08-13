@@ -1,0 +1,122 @@
+// ---------------------------------------------------------------------------
+// Определение маршрута через Clash API
+// ---------------------------------------------------------------------------
+
+function clash_connections() {
+    let backend = backend_id();
+    let result;
+
+    if (backend == "tachyon") {
+        result = capture_args([ TACHYON_BIN, "clash_api", "get_connections" ], false);
+    }
+    else if (backend == "forkop") {
+        result = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
+    }
+    else if (backend == "podkop") {
+        let config = object_or_empty(read_json_file(sing_box_config_path()));
+        let clash = object_or_empty(object_or_empty(config.experimental).clash_api);
+        let controller = trim(as_string(clash.external_controller));
+        let secret = as_string(clash.secret);
+
+        if (controller == "")
+            controller = "127.0.0.1:9090";
+        if (match(controller, /^0\.0\.0\.0:/) != null)
+            controller = replace(controller, /^0\.0\.0\.0:/, "127.0.0.1:");
+        if (index(controller, "http://") != 0 && index(controller, "https://") != 0)
+            controller = "http://" + controller;
+
+        let args = [ "curl", "-sS", "--connect-timeout", "2", "--max-time", "4" ];
+        if (secret == "")
+            secret = uci_get("podkop.settings.yacd_secret_key");
+        if (secret != "") {
+            push(args, "-H");
+            push(args, "Authorization: Bearer " + secret);
+        }
+        push(args, controller + "/connections");
+        result = capture_args(args, false);
+    }
+    else {
+        return [];
+    }
+
+    if (result.status != 0)
+        return [];
+
+    let parsed = parse_json(result.output);
+    if (type(parsed) == "array")
+        return parsed;
+
+    return array_or_empty(object_or_empty(parsed).connections);
+}
+
+function route_for(connections, host, remote_ip, port) {
+    host = lc(as_string(host));
+    remote_ip = as_string(remote_ip);
+    port = int(port || 0);
+
+    for (let connection in connections) {
+        connection = object_or_empty(connection);
+        let metadata = object_or_empty(connection.metadata);
+        let connection_host = lc(as_string(metadata.host));
+        let destination = as_string(metadata.destinationIP);
+        let destination_port = int(metadata.destinationPort || 0);
+
+        if ((connection_host != "" && connection_host == host) ||
+            (remote_ip != "" && destination == remote_ip)) {
+            if (port > 0 && destination_port > 0 && destination_port != port)
+                continue;
+            let chains = array_or_empty(connection.chains);
+            return {
+                seen: true,
+                outbound: length(chains) > 0 ? join(" ← ", chains) : ""
+            };
+        }
+    }
+
+    return { seen: false, outbound: "" };
+}
+
+function outbound_for(connections, host, remote_ip) {
+    return route_for(connections, host, remote_ip, 0).outbound;
+}
+
+// Держим отдельное TCP-соединение открытым несколько секунд и в это время
+// опрашиваем Clash API. Так маршрут определяется заметно надёжнее, чем после
+// короткого HTTP-запроса, который часто успевает закрыться до get_connections.
+function detect_live_route(ctx, host, port, remote_ip) {
+    let unknown = { attempted: false, seen: false, outbound: "" };
+    if (!ctx.backend_running)
+        return unknown;
+
+    let command = "";
+    let nc_mode = as_string(ctx.tools.nc_mode);
+    if (ctx.tools.nc && (nc_mode == "zero" || nc_mode == "wait")) {
+        let args = prefixed_args(ctx, [ "nc", "-w", "6", as_string(host), as_string(port) ]);
+        command = "( sleep 5 ) | " + command_from_args(args);
+    }
+    else if (ctx.tools.curl) {
+        let url = "https://" + as_string(host) + ":" + as_string(port) + "/";
+        let args = prefixed_args(ctx, [
+            "curl", "-k", "-sS", "-L", "--connect-timeout", "4", "--max-time", "6",
+            "--limit-rate", "1", "-o", "/dev/null", url
+        ]);
+        command = command_from_args(args);
+    }
+    else {
+        return unknown;
+    }
+
+    let launched = normalize_status(system("( " + command + " ) >/dev/null 2>&1 &")) == 0;
+    if (!launched)
+        return unknown;
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+        run_quiet([ "sleep", "1" ]);
+        let route = route_for(clash_connections(), host, remote_ip, port);
+        if (route.seen)
+            return { attempted: true, seen: true, outbound: route.outbound };
+    }
+
+    return { attempted: true, seen: false, outbound: "" };
+}
+

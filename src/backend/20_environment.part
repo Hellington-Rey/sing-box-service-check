@@ -1,0 +1,229 @@
+// ---------------------------------------------------------------------------
+// Окружение роутера
+// ---------------------------------------------------------------------------
+
+function uci_get(path) {
+    let result = capture_args([ "uci", "-q", "get", as_string(path) ]);
+    return result.status == 0 ? trim_newlines(result.output) : "";
+}
+
+function sing_box_config_path() {
+    let overridden = trim(as_string(getenv("FORKOP_SC_SING_BOX_CONFIG")));
+    if (overridden != "")
+        return overridden;
+
+    let backend = backend_id();
+    if (backend == "tachyon" || backend == "podkop") {
+        let configured = trim(uci_get(backend + ".settings.config_path"));
+        if (configured != "")
+            return configured;
+    }
+
+    return DEFAULT_SING_BOX_CONFIG;
+}
+
+function lan_interface() {
+    let backend = backend_id();
+    let namespace = backend == "tachyon" ? "tachyon" : (backend == "podkop" ? "podkop" : "forkop");
+    let configured = words(uci_get(namespace + ".settings.source_network_interfaces"));
+    if (length(configured) > 0)
+        return configured[0];
+    return "br-lan";
+}
+
+function interface_ipv4(interface) {
+    let output = capture_args([ "ip", "-4", "-o", "addr", "show", "dev", as_string(interface) ], false).output;
+    for (let line in split(output, "\n")) {
+        let matched = match(trim(as_string(line)), /inet[ \t]+([0-9.]+)\/([0-9]+)/);
+        if (matched != null)
+            return { address: matched[1], prefix: int(matched[2]) };
+    }
+    return null;
+}
+
+function fakeip_ranges() {
+    let ranges = [];
+    let config = read_json_file(sing_box_config_path());
+    let dns = object_or_empty(object_or_empty(config).dns);
+
+    for (let server in array_or_empty(dns.servers)) {
+        server = object_or_empty(server);
+        if (as_string(server.type) == "fakeip") {
+            if (as_string(server.inet4_range) != "")
+                push(ranges, as_string(server.inet4_range));
+        }
+    }
+
+    let legacy = object_or_empty(dns.fakeip);
+    if (as_string(legacy.inet4_range) != "")
+        push(ranges, as_string(legacy.inet4_range));
+
+    if (length(ranges) == 0)
+        push(ranges, "198.18.0.0/15");
+
+    return ranges;
+}
+
+function backend_running() {
+    let backend = backend_id();
+    let result;
+
+    if (backend == "tachyon")
+        result = capture_args([ TACHYON_BIN, "get_status" ], false);
+    else if (backend == "forkop")
+        result = capture_args([ FORKOP_BIN, "get_status" ], false);
+    else if (backend == "podkop")
+        result = capture_args([ PODKOP_BIN, "get_sing_box_status" ], false);
+    else
+        return false;
+
+    if (result.status != 0) {
+        if (backend == "tachyon" || backend == "podkop")
+            return run_quiet([ "pgrep", "-f", "sing-box" ]);
+        return false;
+    }
+    let status = object_or_empty(parse_json(result.output));
+    if (status.running === true || int(status.running) == 1)
+        return true;
+    if ((backend == "tachyon" || backend == "podkop") && status.running == null)
+        return run_quiet([ "pgrep", "-f", "sing-box" ]);
+    return false;
+}
+
+function backend_version(id) {
+    id = as_string(id);
+    let binary = id == "tachyon" ? TACHYON_BIN : (id == "forkop" ? FORKOP_BIN : (id == "podkop" ? PODKOP_BIN : ""));
+    if (binary == "")
+        return "unknown";
+    let result = capture_args([ binary, "show_version" ], false);
+    let value = trim_newlines(result.output);
+    return result.status == 0 && value != "" ? substr(value, 0, 160) : "unknown";
+}
+
+function clash_api_diagnostic() {
+    let backend = backend_id();
+    let result = { configured: backend != "none", reachable: false, controller: "", connections: 0 };
+    let response;
+
+    if (backend == "tachyon")
+        response = capture_args([ TACHYON_BIN, "clash_api", "get_connections" ], false);
+    else if (backend == "forkop")
+        response = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
+    else if (backend == "podkop") {
+        let config = object_or_empty(read_json_file(sing_box_config_path()));
+        let clash = object_or_empty(object_or_empty(config.experimental).clash_api);
+        let controller = trim(as_string(clash.external_controller));
+        let secret = as_string(clash.secret);
+        if (controller == "")
+            controller = "127.0.0.1:9090";
+        if (match(controller, /^0\.0\.0\.0:/) != null)
+            controller = replace(controller, /^0\.0\.0\.0:/, "127.0.0.1:");
+        if (index(controller, "http://") != 0 && index(controller, "https://") != 0)
+            controller = "http://" + controller;
+        result.controller = controller;
+        if (secret == "")
+            secret = uci_get("podkop.settings.yacd_secret_key");
+        let args = [ "curl", "-sS", "--connect-timeout", "2", "--max-time", "4" ];
+        if (secret != "") {
+            push(args, "-H");
+            push(args, "Authorization: Bearer " + secret);
+        }
+        push(args, controller + "/connections");
+        response = capture_args(args, false);
+    }
+    else
+        return result;
+
+    result.reachable = response.status == 0;
+    if (result.reachable) {
+        let parsed = parse_json(response.output);
+        result.connections = type(parsed) == "array"
+            ? length(parsed) : length(array_or_empty(object_or_empty(parsed).connections));
+    }
+    return result;
+}
+
+function dns_diagnostic() {
+    let config_path = sing_box_config_path();
+    let config = read_json_file(config_path);
+    let dns = object_or_empty(object_or_empty(config).dns);
+    let types = [];
+    let fakeip = false;
+    for (let server in array_or_empty(dns.servers)) {
+        let server_type = as_string(object_or_empty(server).type || "legacy");
+        if (index(types, server_type) < 0)
+            push(types, server_type);
+        if (server_type == "fakeip")
+            fakeip = true;
+    }
+    if (length(keys(object_or_empty(dns.fakeip))) > 0)
+        fakeip = true;
+    return {
+        config_path,
+        config_readable: type(config) == "object",
+        server_count: length(array_or_empty(dns.servers)),
+        server_types: types,
+        fakeip_enabled: fakeip,
+        fakeip_ranges: fakeip_ranges()
+    };
+}
+
+// Сборки busybox сильно разнятся: где-то nc умеет -z и -w, где-то это
+// "Usage: nc [IPADDR PORT]" вообще без флагов. Пробуем от лучшего к худшему.
+function nc_option_rejected(command) {
+    let output = lc(as_string(capture(command).output));
+    return index(output, "invalid option") >= 0 || index(output, "unrecognized option") >= 0 ||
+        index(output, "usage:") >= 0 || index(output, "bad port") >= 0;
+}
+
+function detect_nc_mode() {
+    if (!command_exists("nc"))
+        return "none";
+    if (!nc_option_rejected("nc -z -w 1 127.0.0.1 1 2>&1"))
+        return "zero";
+    if (!nc_option_rejected("nc -w 1 127.0.0.1 1 2>&1"))
+        return "wait";
+    return "plain";
+}
+
+function capabilities() {
+    let backend = backend_id();
+    let running = backend_running();
+    let interface = lan_interface();
+    let address = interface_ipv4(interface);
+    let nc_mode = detect_nc_mode();
+    let clash_api = clash_api_diagnostic();
+    let dns = dns_diagnostic();
+
+    return {
+        curl: command_exists("curl"),
+        uclient_fetch: command_exists("uclient-fetch") || command_exists("wget"),
+        dig: command_exists("dig"),
+        nslookup: command_exists("nslookup"),
+        nc: nc_mode != "none",
+        nc_mode,
+        timeout_cmd: command_exists("timeout"),
+        netns: run_quiet([ "ip", "netns", "list" ]) && command_exists("ip"),
+        lan_interface: interface,
+        lan_address: address == null ? "" : address.address,
+        lan_prefix: address == null ? 0 : address.prefix,
+        fakeip_ranges: fakeip_ranges(),
+        backend,
+        backend_name: backend_name(backend),
+        backend_version: backend_version(backend),
+        module_version: trim(as_string(fs.readfile(VERSION_FILE))) || "unknown",
+        backend_installed: backend != "none",
+        backend_running: running,
+        tachyon_installed: fs.stat(TACHYON_BIN) != null,
+        forkop_installed: fs.stat(FORKOP_BIN) != null,
+        podkop_installed: fs.stat(PODKOP_BIN) != null,
+        fixes_available: backend == "forkop" && fs.stat(FORKOP_BIN) != null,
+        sing_box_config: sing_box_config_path(),
+        clash_api,
+        dns,
+        // Старое поле оставлено для совместимости со страницей предыдущих версий.
+        forkop_running: running,
+        profiles_version: int(object_or_empty(read_json_file(profiles_file())).version || 0)
+    };
+}
+

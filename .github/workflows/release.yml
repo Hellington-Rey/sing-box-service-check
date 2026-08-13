@@ -20,7 +20,9 @@ jobs:
           python-version: "3.12"
 
       - name: Validate tag
-        run: python tools/project_version.py
+        run: |
+          python tools/project_version.py
+          python tools/assemble_sources.py --check
 
       - name: Build release artifacts
         shell: pwsh

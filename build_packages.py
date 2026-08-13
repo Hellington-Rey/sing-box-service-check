@@ -20,8 +20,10 @@ import tarfile
 from pathlib import Path
 
 from tools.project_version import project_version
+from tools.assemble_sources import assemble_all
 
 ROOT = Path(__file__).parent
+assemble_all()
 FILES_DIR = ROOT / "files"
 OUT_DIR = ROOT / "dist"
 

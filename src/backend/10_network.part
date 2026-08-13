@@ -1,0 +1,79 @@
+// ---------------------------------------------------------------------------
+// Сеть: разбор адресов
+// ---------------------------------------------------------------------------
+
+function valid_ipv4(value) {
+    value = trim(as_string(value));
+    let matched = match(value, /^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/);
+    if (matched == null)
+        return false;
+    for (let i = 1; i <= 4; i++)
+        if (int(matched[i]) > 255)
+            return false;
+    return true;
+}
+
+function valid_domain(value) {
+    value = trim(as_string(value));
+    if (length(value) < 1 || length(value) > 253 || index(value, "..") >= 0)
+        return false;
+
+    for (let label in split(value, ".")) {
+        if (length(label) < 1 || length(label) > 63 ||
+            match(label, /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$/) == null)
+            return false;
+    }
+
+    return true;
+}
+
+function valid_custom_host(value) {
+    value = trim(as_string(value));
+    if (valid_ipv4(value))
+        return true;
+    // Не принимаем ошибочный IPv4 вроде 999.1.1.1 за обычное доменное имя.
+    if (match(value, /^[0-9.]+$/) != null)
+        return false;
+    return valid_domain(value);
+}
+
+function ipv4_to_int(value) {
+    let parts = split(trim(as_string(value)), ".");
+    if (length(parts) != 4)
+        return -1;
+    return int(parts[0]) * 16777216 + int(parts[1]) * 65536 + int(parts[2]) * 256 + int(parts[3]);
+}
+
+function int_to_ipv4(value) {
+    value = int(value);
+    let a = int(value / 16777216) % 256;
+    let b = int(value / 65536) % 256;
+    let c = int(value / 256) % 256;
+    let d = value % 256;
+    return sprintf("%d.%d.%d.%d", a, b, c, d);
+}
+
+function prefix_mask(prefix) {
+    prefix = int(prefix);
+    if (prefix <= 0)
+        return 0;
+    if (prefix >= 32)
+        return 4294967295;
+    return (4294967295 << (32 - prefix)) & 4294967295;
+}
+
+function ipv4_in_cidr(ip, cidr) {
+    let parts = split(as_string(cidr), "/");
+    if (length(parts) != 2 || !valid_ipv4(ip) || !valid_ipv4(parts[0]))
+        return false;
+    let mask = prefix_mask(parts[1]);
+    return (ipv4_to_int(ip) & mask) == (ipv4_to_int(parts[0]) & mask);
+}
+
+function ipv4_in_any_cidr(ip, cidrs) {
+    for (let cidr in array_or_empty(cidrs))
+        if (ipv4_in_cidr(ip, cidr))
+            return true;
+    return false;
+}
+

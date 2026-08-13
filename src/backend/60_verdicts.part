@@ -1,0 +1,102 @@
+// ---------------------------------------------------------------------------
+// Вердикты
+// ---------------------------------------------------------------------------
+
+function expected_codes(target) {
+    let expect = array_or_empty(object_or_empty(target).expect);
+    return length(expect) > 0 ? expect : [ 200 ];
+}
+
+function code_expected(code, target) {
+    code = int(code);
+    for (let value in expected_codes(target))
+        if (int(value) == code)
+            return true;
+    return false;
+}
+
+function target_verdict(target, dns, connection) {
+    if (as_string(connection.verdict) == "skipped")
+        return { state: "skipped", verdict: "skipped", message: as_string(connection.message) };
+
+    if (as_string(connection.verdict) == "udp_unconfirmed")
+        return { state: "warning", verdict: "udp_unconfirmed", message: as_string(connection.message) };
+
+    if (!dns.ok && !valid_ipv4(as_string(target.host)))
+        return { state: "error", verdict: "dns_fail", message: "DNS не отдал адрес: " + as_string(dns.error) };
+
+    if (!connection.reached) {
+        let verdict = as_string(connection.verdict);
+        // Круг редиректов означает, что сервис отвечает: сеть до него рабочая,
+        // поэтому это замечание, а не отказ.
+        if (verdict == "redirect_loop")
+            return { state: "warning", verdict, message: as_string(connection.message) };
+        return { state: "error", verdict: verdict != "" ? verdict : "failed", message: as_string(connection.message) };
+    }
+
+    if (as_string(target.kind) == "gemini_geo") {
+        if (connection.verdict == "gemini_geo_ok")
+            return { state: "success", verdict: "ok", message: as_string(connection.message) };
+        if (connection.verdict == "gemini_geo_blocked")
+            return { state: "warning", verdict: "geo_blocked", message: as_string(connection.message) };
+        if (connection.verdict == "gemini_api_key_invalid")
+            return { state: "warning", verdict: "gemini_api_key_invalid", message: as_string(connection.message) };
+        return { state: "error", verdict: as_string(connection.verdict) != "" ? as_string(connection.verdict) : "failed", message: as_string(connection.message) };
+    }
+
+    if (as_string(target.kind) == "tcp" || as_string(target.kind) == "udp" || as_string(target.kind) == "udp_dns")
+        return int(connection.total_ms) > SLOW_THRESHOLD_MS
+            ? { state: "warning", verdict: "slow", message: "соединение установлено, но медленно" }
+            : { state: "success", verdict: "ok", message: "" };
+
+    let code = int(connection.code);
+    let expected = code_expected(code, target);
+
+    // Мы проверяем достижимость, а не семантику API: раз пришёл любой HTTP-ответ,
+    // значит DNS, TCP, TLS и HTTP отработали и путь до сервиса живой. Коды вроде
+    // 404 на голом корне CDN - это норма, а не проблема сети. Особые случаи ниже.
+    if (code >= 500)
+        return { state: "warning", verdict: "http_server_error", message: sprintf("сервис отвечает ошибкой %d", code) };
+
+    if (!expected && (code == 403 || code == 451))
+        return { state: "warning", verdict: "geo_blocked", message: sprintf("ответ %d — похоже на блокировку по IP или региону", code) };
+
+    if (int(connection.total_ms) > SLOW_THRESHOLD_MS)
+        return { state: "warning", verdict: "slow", message: sprintf("работает, но медленно: %d мс", int(connection.total_ms)) };
+
+    if (!expected)
+        return { state: "success", verdict: "ok", message: sprintf("ответ %d — нетипичный, но соединение проходит", code) };
+
+    return { state: "success", verdict: "ok", message: "" };
+}
+
+function service_state(items) {
+    let required_total = 0;
+    let required_ok = 0;
+    let has_warning = false;
+
+    for (let item in items) {
+        if (item.optional || item.state == "skipped")
+            continue;
+
+        required_total++;
+        if (item.state == "success")
+            required_ok++;
+        else if (item.state == "warning") {
+            required_ok++;
+            has_warning = true;
+        }
+    }
+
+    if (required_total == 0)
+        return { state: "warning", description: "проверить не удалось" };
+    if (required_ok == 0)
+        return { state: "error", description: "не работает" };
+    if (required_ok < required_total)
+        return { state: "warning", description: sprintf("работает частично (%d из %d)", required_ok, required_total) };
+    if (has_warning)
+        return { state: "warning", description: "работает с замечаниями" };
+
+    return { state: "success", description: "работает" };
+}
+

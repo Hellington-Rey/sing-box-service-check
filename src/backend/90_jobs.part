@@ -1,0 +1,405 @@
+// ---------------------------------------------------------------------------
+// Фоновые задания
+// ---------------------------------------------------------------------------
+
+function history_entry(state) {
+    let services = [];
+    for (let service in array_or_empty(state.services)) {
+        service = object_or_empty(service);
+        let items = [];
+        for (let item in array_or_empty(service.items)) {
+            item = object_or_empty(item);
+            push(items, {
+                label: as_string(item.label),
+                state: as_string(item.state),
+                verdict: as_string(item.verdict),
+                outbound: as_string(item.outbound),
+                route_status: as_string(item.route_status),
+                expected_route: as_string(item.expected_route || "any"),
+                total_ms: int(item.total_ms),
+                tcp_ms: int(item.tcp_ms)
+            });
+        }
+        push(services, {
+            id: as_string(service.id),
+            title: as_string(service.title),
+            state: as_string(service.state),
+            items
+        });
+    }
+
+    return {
+        finished_at: int(state.finished_at || now_seconds()),
+        mode: as_string(state.mode || "router"),
+        backend: as_string(state.backend),
+        backend_name: as_string(state.backend_name),
+        cancelled: state.cancelled === true,
+        services
+    };
+}
+
+function dns_chain_diagnostics(host) {
+    host = lc(trim(as_string(host || "cp.cloudflare.com")));
+    if (!valid_custom_host(host)) {
+        write_json({ success: false, message: "некорректный домен для DNS-диагностики" });
+        return 1;
+    }
+
+    let ctx = build_context("router", "");
+    let dns = probe_dns(ctx, host);
+    let diagnostic = dns_diagnostic();
+    write_json({
+        success: dns.ok,
+        target: host,
+        resolver: ctx.resolver,
+        dnsmasq_running: run_quiet([ "pgrep", "-x", "dnsmasq" ]),
+        backend: ctx.backend,
+        backend_name: ctx.backend_name,
+        backend_running: ctx.backend_running,
+        config_readable: diagnostic.config_readable,
+        fakeip_enabled: diagnostic.fakeip_enabled,
+        resolved: dns.ok,
+        fakeip_received: dns.fakeip === true,
+        elapsed_ms: int(dns.ms),
+        error: as_string(dns.error),
+        stages: [
+            { id: "dnsmasq", ok: run_quiet([ "pgrep", "-x", "dnsmasq" ]), message: "локальный dnsmasq" },
+            { id: "sing_box_config", ok: diagnostic.config_readable, message: diagnostic.config_path },
+            { id: "backend", ok: ctx.backend_running, message: ctx.backend_name },
+            { id: "resolve", ok: dns.ok, message: dns.ok ? (dns.fakeip ? "получен FakeIP" : "получен обычный адрес") : as_string(dns.error) }
+        ]
+    });
+    return dns.ok ? 0 : 1;
+}
+
+function save_history(state) {
+    ensure_state_dir();
+    let history = object_or_empty(read_json_file(HISTORY_FILE));
+    let entries = array_or_empty(history.entries);
+    unshift(entries, history_entry(state));
+    if (length(entries) > 10)
+        entries = slice(entries, 0, 10);
+    return write_state(HISTORY_FILE, { version: 1, entries });
+}
+
+function history_get() {
+    let history = object_or_empty(read_json_file(HISTORY_FILE));
+    write_json({ success: true, version: 1, entries: array_or_empty(history.entries) });
+    return 0;
+}
+
+function doctor() {
+    let checks = [];
+    let healthy = true;
+
+    let version = installed_version();
+    let version_ok = version != "0.0.0";
+    push(checks, { id: "version", ok: version_ok, critical: true, message: version_ok ? "версия " + version : "маркер версии повреждён" });
+    healthy = healthy && version_ok;
+
+    let required = [
+        [ "cli", "/usr/bin/sing-box-service-check" ],
+        [ "engine", ENGINE ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v112.js" ],
+        [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
+        [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
+    ];
+    for (let entry in required) {
+        let ok = fs.stat(entry[1]) != null;
+        push(checks, { id: entry[0], ok, critical: true, message: ok ? entry[1] : "файл отсутствует: " + entry[1] });
+        healthy = healthy && ok;
+    }
+
+    let shell_ok = capture_args([ "sh", "-n", "/usr/bin/sing-box-service-check" ], true).status == 0;
+    push(checks, { id: "shell_syntax", ok: shell_ok, critical: true, message: shell_ok ? "CLI: синтаксис корректен" : "CLI: синтаксическая ошибка" });
+    healthy = healthy && shell_ok;
+
+    let ucode_check = capture_args([ "ucode", "-c", "-o", "/dev/null", ENGINE ], true);
+    let ucode_ok = ucode_check.status == 0 || index(lc(ucode_check.output), "invalid option") >= 0;
+    push(checks, { id: "ucode_syntax", ok: ucode_ok, critical: true, message: ucode_ok ? "probe.uc загружается" : short_output(ucode_check.output) });
+    healthy = healthy && ucode_ok;
+
+    let profile_config = read_json_file(profiles_file());
+    let profile_error = validate_profiles_config(profile_config);
+    let profiles_ok = profile_error == "";
+    push(checks, { id: "profiles", ok: profiles_ok, critical: true, message: profiles_ok ? "профили корректны" : profile_error });
+    healthy = healthy && profiles_ok;
+
+    let recovery_files = fs.stat(RECOVERY_ARCHIVE) != null && fs.stat(RECOVERY_CHECKSUM) != null;
+    let recovery_check = recovery_files
+        ? capture("cd /usr/share/forkop-servicecheck && sha256sum -c recovery.sha256 2>&1")
+        : { status: 1, output: "архив восстановления отсутствует" };
+    let recovery_ok = recovery_check.status == 0;
+    push(checks, { id: "recovery", ok: recovery_ok, critical: true, message: recovery_ok ? "архив восстановления проверен" : short_output(recovery_check.output) });
+    healthy = healthy && recovery_ok;
+
+    let backend = backend_id();
+    let backend_ok = backend != "none";
+    push(checks, { id: "backend", ok: backend_ok, critical: true, message: backend_ok ? backend_name(backend) + " " + backend_version(backend) : "backend не найден" });
+    healthy = healthy && backend_ok;
+
+    let running = backend_running();
+    push(checks, { id: "backend_running", ok: running, critical: false, message: running ? "backend запущен" : "backend остановлен" });
+    let clash = clash_api_diagnostic();
+    push(checks, { id: "clash_api", ok: clash.reachable, critical: false, message: clash.reachable ? "Clash API доступен" : "Clash API недоступен" });
+
+    write_json({ success: true, healthy, version, backend, checks });
+    return 0;
+}
+
+function repair() {
+    if (fs.stat(REPAIR_SCRIPT) == null) {
+        write_json({ success: false, message: "скрипт восстановления не установлен" });
+        return 1;
+    }
+    let result = capture_args([ "sh", REPAIR_SCRIPT ], true);
+    write_json({
+        success: result.status == 0,
+        code: result.status,
+        message: result.status == 0 ? "файлы текущей версии восстановлены" : "восстановление завершилось ошибкой",
+        output: short_output(result.output)
+    });
+    return result.status;
+}
+
+function history_clear() {
+    if (fs.stat(HISTORY_FILE) != null)
+        fs.unlink(HISTORY_FILE);
+    write_json({ success: true, entries: [], message: "история проверок очищена" });
+    return 0;
+}
+
+function cleanup_jobs() {
+    ensure_state_dir();
+    let now = now_seconds();
+    for (let path in fs.glob(STATE_DIR + "/*.json")) {
+        let state = object_or_empty(read_json_file(path));
+        let started = int(state.started_at || 0);
+        if (started > 0 && now - started > JOB_MAX_AGE) {
+            let job_id = as_string(state.job_id);
+            let pid_path = job_pid_path(job_id);
+            let pid = trim(as_string(fs.readfile(pid_path)));
+            let cmdline = match(pid, /^[0-9]+$/) != null
+                ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
+            if (cmdline != "" && index(cmdline, ENGINE) >= 0 && index(cmdline, path) >= 0)
+                run_quiet([ "kill", "-TERM", pid ]);
+            if (as_string(state.mode) == "netns")
+                netns_teardown();
+            if (pid_path != "")
+                fs.unlink(pid_path);
+            fs.unlink(path);
+        }
+    }
+}
+
+function start_job(ids, mode, client_ip) {
+    ensure_state_dir();
+    cleanup_jobs();
+
+    let job_id = sprintf("sc-%d-%d", now_seconds(), int(now_ms() % 100000));
+    let path = job_path(job_id);
+    let pid_path = job_pid_path(job_id);
+    if (path == "") {
+        write_json({ success: false, message: "не удалось создать задание" });
+        return 1;
+    }
+
+    let profiles = selected_profiles(ids);
+    let total = 0;
+    for (let profile in profiles)
+        total += length(array_or_empty(object_or_empty(profile).targets));
+
+    if (length(profiles) == 0) {
+        write_json({ success: false, message: "не выбран ни один сервис" });
+        return 1;
+    }
+
+    let state = {
+        kind: "service_check",
+        job_id,
+        running: true,
+        success: false,
+        started_at: now_seconds(),
+        finished_at: 0,
+        mode: as_string(mode) == "netns" ? "netns" : "router",
+        ids: as_string(ids),
+        progress: { done: 0, total },
+        services: []
+    };
+
+    if (!write_state(path, state)) {
+        write_json({ success: false, message: "не удалось записать состояние задания" });
+        return 1;
+    }
+
+    let launch = command_from_args([
+        "sh", "-c", "pid_file=$1; shift; echo $$ > \"$pid_file\"; exec \"$@\"",
+        "service-check-worker", pid_path,
+        "ucode", "-L", LIB_DIR, ENGINE, "worker", path, as_string(ids), as_string(mode), as_string(client_ip)
+    ]);
+    system("(" + launch + " >/dev/null 2>&1 &)");
+
+    write_json({ success: true, job_id, progress: state.progress });
+    return 0;
+}
+
+function worker(path, ids, mode, client_ip) {
+    let initial = object_or_empty(read_json_file(path));
+    if (initial.cancelled || initial.cancel_requested || initial.running == false) {
+        fs.unlink(job_pid_path(initial.job_id));
+        return 0;
+    }
+
+    let result = run_check(ids, mode, client_ip, path);
+    let state = object_or_empty(read_json_file(path));
+
+    if (state.cancelled || state.cancel_requested || result.cancelled) {
+        state.running = false;
+        state.success = false;
+        state.cancelled = true;
+        state.finished_at = state.finished_at || now_seconds();
+        state.services = result.services;
+        state.progress = result.progress;
+        state.message = as_string(state.message) || "проверка остановлена";
+        let history_saved = state.history_saved === true;
+        state.history_saved = true;
+        write_state(path, state);
+        if (!history_saved)
+            save_history(state);
+        fs.unlink(job_pid_path(state.job_id));
+        return 0;
+    }
+
+    state.running = false;
+    state.success = true;
+    state.finished_at = now_seconds();
+    state.services = result.services;
+    state.resolver = result.resolver;
+    state.tools = result.tools;
+    state.fakeip_ranges = result.fakeip_ranges;
+    state.progress = result.progress;
+    state.mode = result.mode;
+    state.netns_error = result.netns_error;
+    state.client_ip = result.client_ip;
+    state.backend = result.backend;
+    state.backend_name = result.backend_name;
+    state.backend_running = result.backend_running;
+    state.forkop_running = result.forkop_running;
+    state.history_saved = true;
+
+    write_state(path, state);
+    save_history(state);
+    fs.unlink(job_pid_path(state.job_id));
+    return 0;
+}
+
+function cancel_job(job_id) {
+    let path = job_path(job_id);
+    let pid_path = job_pid_path(job_id);
+    if (path == "" || fs.stat(path) == null) {
+        write_json({ success: false, running: false, message: "задание не найдено" });
+        return 1;
+    }
+
+    let state = object_or_empty(read_json_file(path));
+    if (length(keys(state)) == 0) {
+        write_json({ success: false, running: false, message: "не удалось прочитать состояние задания" });
+        return 1;
+    }
+    if (!state.running) {
+        write_json(state);
+        return 0;
+    }
+
+    state.cancel_requested = true;
+    state.cancelled = true;
+    state.running = false;
+    state.success = false;
+    state.finished_at = now_seconds();
+    state.message = "проверка остановлена пользователем";
+    state.history_saved = true;
+    write_state(path, state);
+
+    let pid = trim(as_string(fs.readfile(pid_path)));
+    let cmdline = match(pid, /^[0-9]+$/) != null
+        ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
+    if (cmdline != "" && index(cmdline, ENGINE) >= 0 && index(cmdline, path) >= 0)
+        run_quiet([ "kill", "-TERM", pid ]);
+    if (pid_path != "")
+        fs.unlink(pid_path);
+    if (as_string(state.mode) == "netns")
+        netns_teardown();
+
+    save_history(state);
+    write_json(state);
+    return 0;
+}
+
+function job_status(job_id) {
+    let path = job_path(job_id);
+    if (path == "" || fs.stat(path) == null) {
+        write_json({ success: false, running: false, message: "задание не найдено" });
+        return 1;
+    }
+
+    let state = object_or_empty(read_json_file(path));
+    if (length(keys(state)) == 0) {
+        write_json({ success: false, running: false, message: "не удалось прочитать состояние задания" });
+        return 1;
+    }
+
+    write_json(state);
+    return 0;
+}
+
+function list_profiles() {
+    let data = object_or_empty(read_json_file(profiles_file()));
+    let profiles = [];
+
+    for (let profile in array_or_empty(data.profiles)) {
+        profile = object_or_empty(profile);
+        push(profiles, {
+            id: as_string(profile.id),
+            title: as_string(profile.title),
+            group: as_string(profile.group),
+            description: as_string(profile.description),
+            targets: length(array_or_empty(profile.targets))
+        });
+    }
+
+    write_json({ version: int(data.version || 0), updated: as_string(data.updated), profiles });
+    return 0;
+}
+
+function gemini_key_set(value) {
+    let key = trim(as_string(value));
+    if (match(key, /^[A-Za-z0-9_-]{20,200}$/) == null) {
+        write_json({ success: false, message: "ключ имеет недопустимый формат" });
+        return 1;
+    }
+
+    run_quiet([ "mkdir", "-p", CONFIG_DIR ]);
+    if (fs.writefile(GEMINI_API_KEY_FILE, key + "\n") == null) {
+        write_json({ success: false, message: "не удалось сохранить ключ" });
+        return 1;
+    }
+
+    run_quiet([ "chmod", "600", GEMINI_API_KEY_FILE ]);
+    write_json({ success: true, configured: true, message: "ключ сохранён" });
+    return 0;
+}
+
+function gemini_key_reset() {
+    fs.unlink(GEMINI_API_KEY_FILE);
+    write_json({ success: true, configured: false, message: "ключ удалён" });
+    return 0;
+}
+
+function gemini_key_status() {
+    let configured = read_gemini_api_key() != "";
+    write_json({ success: true, configured, message: configured ? "используется пользовательский ключ" : "ключ не задан" });
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+

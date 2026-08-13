@@ -1,0 +1,359 @@
+return view.extend({
+  handleSaveApply: null,
+  handleSave: null,
+  handleReset: null,
+
+  load: function () {
+    return Promise.all([
+      callBin(["capabilities"]).catch(function () {
+        return null;
+      }),
+      callBin(["list"]).catch(function () {
+        return null;
+      }),
+      callBin(["fixes"]).catch(function () {
+        return { fixes: [] };
+      }),
+      callBin(["profiles-get"]).catch(function () {
+        return null;
+      }),
+      callBin(["history"]).catch(function () {
+        return { success: false, entries: [] };
+      }),
+    ]);
+  },
+
+  render: function (data) {
+    injectStyles();
+
+    var capabilities = data[0];
+    var catalogue = data[1];
+    var fixes = (data[2] && data[2].fixes) || [];
+    var profilesData = data[3];
+    var historyData = data[4] || { entries: [] };
+    var profilesDraft = profilesData && profilesData.config ?
+      JSON.parse(JSON.stringify(profilesData.config)) : { version: 2, profiles: [] };
+    if (!Array.isArray(profilesDraft.profiles)) {
+      profilesDraft.profiles = [];
+    }
+
+    if (!capabilities || !catalogue) {
+      return E("div", { class: "cbi-map fkpsc" }, [
+        E("h2", {}, "Sing-box Service Check"),
+        E("div", { class: "alert-message error" },
+          "Не удалось обратиться к " + BIN + ". Проверьте, что модуль установлен и у пользователя есть права на его запуск."),
+      ]);
+    }
+
+    var backendId = capabilities.backend || "forkop";
+    var backendName = capabilities.backend_name || (backendId === "tachyon" ? "Tachyon" : (backendId === "podkop" ? "Podkop" : "Forkop"));
+    var backendRunning = capabilities.backend_running;
+    if (backendRunning === undefined) {
+      backendRunning = capabilities.forkop_running;
+    }
+    var showForkopFixes = backendId === "forkop" && capabilities.forkop_installed !== false;
+
+    var profiles = catalogue.profiles || [];
+    var selected = {};
+
+    profiles.forEach(function (profile) {
+      selected[profile.id] = profile.id === "baseline" || profile.group !== "system";
+    });
+
+    var tilesNode = E("div", { class: "fkpsc-tiles" });
+    var summaryNode = E("div", {});
+    var progressBar = E("div", {});
+    var progressWrap = E("div", { class: "fkpsc-progress", style: "display:none" }, [progressBar]);
+    var progressText = E("span", { class: "fkpsc-dim" }, "");
+    var metaNode = E("div", {});
+    var customResultNode = E("div", {});
+    var lastReportState = null;
+    var copyReportButton = E("button", { class: "cbi-button cbi-button-action", type: "button" }, "Скопировать отчёт");
+    var downloadReportButton = E("button", { class: "cbi-button", type: "button" }, "Скачать JSON");
+    var reportPanel = E("div", { class: "fkpsc-card", style: "display:none" }, [
+      E("div", { class: "fkpsc-update-row" }, [
+        E("div", { class: "fkpsc-update-status" }, [
+          E("h3", {}, "Диагностический отчёт"),
+          E("p", { class: "fkpsc-dim" }, "API-ключи, секреты, IP клиента и полученные IP-адреса в отчёт не включаются."),
+        ]),
+        E("div", { class: "fkpsc-update-actions" }, [copyReportButton, downloadReportButton]),
+      ]),
+    ]);
+    var previousHistoryEntry = (historyData.entries || [])[0] || null;
+    var lastComparedJobId = "";
+    var historyCountNode = E("span", { class: "fkpsc-badge" }, "сохранено: " + (historyData.entries || []).length + " из 10");
+    var historyComparisonNode = E("div", {}, previousHistoryEntry
+      ? E("p", { class: "fkpsc-dim" }, "Запустите проверку, чтобы сравнить результат с предыдущим.")
+      : E("p", { class: "fkpsc-dim" }, "История пока пуста."));
+    var clearHistoryButton = E("button", { class: "cbi-button", type: "button" }, "Очистить историю");
+    var historyPanel = E("div", { class: "fkpsc-card", style: previousHistoryEntry ? "" : "display:none" }, [
+      E("div", { class: "fkpsc-update-row" }, [
+        E("div", { class: "fkpsc-update-status" }, [E("h3", {}, "Изменения с предыдущей проверки"), historyCountNode]),
+        E("div", { class: "fkpsc-update-actions" }, [clearHistoryButton]),
+      ]),
+      historyComparisonNode,
+    ]);
+
+    clearHistoryButton.addEventListener("click", function () {
+      clearHistoryButton.disabled = true;
+      callBin(["history-clear"]).then(function (result) {
+        previousHistoryEntry = null;
+        historyCountNode.textContent = "сохранено: 0 из 10";
+        historyPanel.style.display = "none";
+        ui.addNotification(null, E("p", {}, result.message || "История очищена."), "info");
+      }).catch(function (error) {
+        ui.addNotification(null, E("p", {}, "Не удалось очистить историю: " + error.message), "warning");
+      }).then(function () { clearHistoryButton.disabled = false; });
+    });
+
+    copyReportButton.addEventListener("click", function () {
+      if (!lastReportState) { return; }
+      var text = reportAsText(sanitizedReport(lastReportState, capabilities.module_version));
+      copyReportButton.disabled = true;
+      copyReportText(text).then(function () {
+        ui.addNotification(null, E("p", {}, "Обезличенный отчёт скопирован в буфер обмена."), "info");
+      }).catch(function (error) {
+        ui.addNotification(null, E("p", {}, "Не удалось скопировать отчёт: " + error.message), "warning");
+      }).then(function () { copyReportButton.disabled = false; });
+    });
+
+    downloadReportButton.addEventListener("click", function () {
+      if (!lastReportState) { return; }
+      var report = sanitizedReport(lastReportState, capabilities.module_version);
+      var blob = new Blob([JSON.stringify(report, null, 2) + "\n"], { type: "application/json;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var link = E("a", { href: url, download: "sing-box-service-check-report.json" });
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
+
+    var modeRouter = E("input", { type: "radio", name: "fkpsc-mode", value: "router", checked: "" });
+    var modeNetns = E("input", {
+      type: "radio",
+      name: "fkpsc-mode",
+      value: "netns",
+      disabled: capabilities.netns ? null : "",
+    });
+    var clientIpInput = E("input", {
+      type: "text",
+      class: "cbi-input-text",
+      placeholder: "авто",
+      style: "width: 9em; margin-left: .4em;",
+      disabled: "",
+    });
+
+    modeRouter.addEventListener("change", function () {
+      clientIpInput.disabled = true;
+    });
+    modeNetns.addEventListener("change", function () {
+      clientIpInput.disabled = false;
+    });
+
+    var customTargetInput = E("input", {
+      type: "text",
+      class: "cbi-input-text fkpsc-custom-target",
+      placeholder: "example.com или 1.1.1.1",
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+    var customPortInput = E("input", {
+      type: "number",
+      class: "cbi-input-text fkpsc-custom-port",
+      min: "1",
+      max: "65535",
+      value: "443",
+      title: "TCP-порт",
+    });
+    var customCheckButton = E("button", {
+      class: "cbi-button cbi-button-action important",
+      type: "button",
+    }, "Проверить IP/домен");
+
+    function runCustomCheck() {
+      if (customCheckButton.disabled) {
+        return;
+      }
+      var target = customTargetInput.value.trim();
+      var port = parseInt(customPortInput.value, 10) || 443;
+      if (!target) {
+        ui.addNotification(null, E("p", {}, "Введите IP-адрес или домен."), "warning");
+        customTargetInput.focus();
+        return;
+      }
+
+      var mode = modeNetns.checked ? "netns" : "router";
+      var clientIp = mode === "netns" ? clientIpInput.value.trim() : "";
+      customCheckButton.disabled = true;
+      customCheckButton.textContent = "Проверяем…";
+      customResultNode.replaceChildren(E("div", { class: "fkpsc-custom-result state-warning" },
+        "Устанавливаем соединение и смотрим маршрут в sing-box…"));
+
+      callBin(["custom", target, String(port), mode, clientIp]).then(function (result) {
+        if (!result.success) {
+          customResultNode.replaceChildren(E("div", { class: "fkpsc-custom-result state-error" },
+            result.message || "Не удалось выполнить проверку."));
+          return;
+        }
+        customResultNode.replaceChildren(renderCustomResult(result));
+      }).catch(function (error) {
+        customResultNode.replaceChildren(E("div", { class: "fkpsc-custom-result state-error" },
+          "Ошибка проверки: " + error.message));
+      }).finally(function () {
+        customCheckButton.disabled = false;
+        customCheckButton.textContent = "Проверить IP/домен";
+      });
+    }
+
+    customCheckButton.addEventListener("click", runCustomCheck);
+    customTargetInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        runCustomCheck();
+      }
+    });
+
+    var groupMeta = {
+      system: ["Основное", "#55a7ef"],
+      messenger: ["Мессенджеры", "#6f9ff8"],
+      social: ["Социальные сети", "#e879a9"],
+      video: ["Видео и стриминг", "#b789f7"],
+      ai: ["ИИ-сервисы", "#67c6ba"],
+      music: ["Музыка", "#55b889"],
+      games: ["Игры", "#e2a84b"],
+      dev: ["Разработка", "#8b9cad"],
+      bypass: ["Доступ", "#e07b67"],
+      network: ["Сеть и UDP", "#6bbbd8"],
+      custom: ["Свои сервисы", "#a78bfa"],
+    };
+    var pickNodes = {};
+    var groupNodes = {};
+    var groups = [];
+
+    profiles.forEach(function (profile) {
+      var groupId = profile.group || "custom";
+      if (!groupNodes[groupId]) {
+        groupNodes[groupId] = { id: groupId, profiles: [] };
+        groups.push(groupNodes[groupId]);
+      }
+      groupNodes[groupId].profiles.push(profile);
+    });
+
+    function updatePick(profile) {
+      var chip = pickNodes[profile.id];
+      chip.classList.toggle("on", selected[profile.id]);
+      chip.setAttribute("aria-checked", selected[profile.id] ? "true" : "false");
+    }
+
+    function updateGroup(group) {
+      var selectedCount = group.profiles.filter(function (profile) {
+        return selected[profile.id];
+      }).length;
+      group.node.classList.toggle("has-selection", selectedCount > 0);
+      group.count.textContent = selectedCount + " / " + group.profiles.length;
+      group.toggle.textContent = selectedCount === group.profiles.length ? "Снять" : "Выбрать";
+      group.toggle.setAttribute("aria-label", (selectedCount === group.profiles.length ? "Снять группу " : "Выбрать группу ") + group.title);
+    }
+
+    var picker = E("div", { class: "fkpsc-service-groups" }, groups.map(function (group) {
+      var meta = groupMeta[group.id] || [group.id || "Другое", "#8b9cad"];
+      group.title = meta[0];
+      group.count = E("span", { class: "fkpsc-group-count" });
+      group.toggle = E("button", { class: "fkpsc-group-toggle", type: "button" });
+      var picks = E("div", { class: "fkpsc-group-picks" }, group.profiles.map(function (profile) {
+        var chip = E("span", {
+          class: "fkpsc-pick" + (selected[profile.id] ? " on" : ""),
+          title: profile.description || "",
+          tabindex: "0",
+          role: "checkbox",
+          "aria-checked": selected[profile.id] ? "true" : "false",
+        }, [
+          E("span", { class: "tick" }),
+          E("span", {}, profile.title),
+          E("span", { class: "num", title: "Целей проверки: " + profile.targets }, String(profile.targets)),
+        ]);
+
+        function toggle() {
+          selected[profile.id] = !selected[profile.id];
+          updatePick(profile);
+          updateGroup(group);
+        }
+
+        chip.addEventListener("click", toggle);
+        chip.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggle();
+          }
+        });
+        pickNodes[profile.id] = chip;
+        return chip;
+      }));
+
+      group.node = E("section", {
+        class: "fkpsc-service-group",
+        style: "--group-color:" + meta[1],
+        "data-group": group.id,
+      }, [
+        E("div", { class: "fkpsc-group-head" }, [
+          E("span", { class: "fkpsc-group-mark" }),
+          E("span", { class: "fkpsc-group-name" }, group.title),
+          group.count,
+          group.toggle,
+        ]),
+        picks,
+      ]);
+
+      group.toggle.addEventListener("click", function () {
+        var allSelected = group.profiles.every(function (profile) { return selected[profile.id]; });
+        group.profiles.forEach(function (profile) {
+          selected[profile.id] = !allSelected;
+          updatePick(profile);
+        });
+        updateGroup(group);
+      });
+      updateGroup(group);
+      return group.node;
+    }));
+
+    function setAll(value) {
+      profiles.forEach(function (profile) {
+        selected[profile.id] = value;
+        updatePick(profile);
+      });
+      groups.forEach(updateGroup);
+    }
+
+    function selectOnly(ids) {
+      var wanted = {};
+      ids.forEach(function (id) { wanted[id] = true; });
+      profiles.forEach(function (profile) {
+        selected[profile.id] = !!wanted[profile.id];
+        updatePick(profile);
+      });
+      groups.forEach(updateGroup);
+    }
+
+    var serviceSearch = E("input", { type: "search", class: "cbi-input-text fkpsc-search", placeholder: "Найти сервис…" });
+    serviceSearch.addEventListener("input", function () {
+      var query = serviceSearch.value.trim().toLowerCase();
+      profiles.forEach(function (profile) {
+        var group = groupNodes[profile.group || "custom"];
+        var haystack = (profile.title + " " + (profile.description || "") + " " + group.title).toLowerCase();
+        pickNodes[profile.id].style.display = !query || haystack.indexOf(query) >= 0 ? "" : "none";
+      });
+      groups.forEach(function (group) {
+        group.node.style.display = group.profiles.some(function (profile) {
+          return pickNodes[profile.id].style.display !== "none";
+        }) ? "" : "none";
+      });
+    });
+
+    var quickPreset = E("button", { class: "cbi-button", type: "button" }, "Быстрая");
+    quickPreset.addEventListener("click", function () {
+      selectOnly(["baseline", "telegram", "youtube", "discord", "udp_common"]);
+    });
+    var udpPreset = E("button", { class: "cbi-button", type: "button" }, "Только UDP");
+    udpPreset.addEventListener("click", function () { selectOnly(["udp_common"]); });
+
