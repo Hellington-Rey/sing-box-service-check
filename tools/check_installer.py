@@ -78,6 +78,11 @@ def main():
     assert 'callBin(["cancel", runState.jobId])' in view
     assert 'callBin(["cancel", jobId])' in view
     assert 'cancel JOB_ID' in cli
+    assert 'function sanitizedReport(state, moduleVersion)' in view
+    assert 'function reportAsText(report)' in view
+    assert '"Скопировать отчёт"' in view
+    assert '"Скачать JSON"' in view
+    assert 'Report is sanitized' in view
     assert 'status == 28 && connect_ms <= 0 && remote_ip == ""' in engine
     assert 'else if (mode == "profiles-save")' in engine
     assert 'callBin(["profiles-save", JSON.stringify(profilesDraft)])' in view

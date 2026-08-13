@@ -669,6 +669,105 @@ function renderRunMeta(state) {
   }));
 }
 
+function sanitizedReport(state, moduleVersion) {
+  var services = (state.services || []).map(function (service) {
+    return {
+      id: service.id || "",
+      title: service.title || service.id || "",
+      state: service.state || "",
+      verdict: service.verdict || "",
+      message: service.message || "",
+      items: (service.items || []).map(function (item) {
+        return {
+          label: item.label || item.host || "",
+          kind: item.kind || "",
+          state: item.state || "",
+          verdict: item.verdict || "",
+          message: item.message || "",
+          dns_ok: !!item.dns_ok,
+          dns_fakeip: !!item.dns_fakeip,
+          http_code: item.http_code || 0,
+          tcp_ms: item.tcp_ms || 0,
+          tls_ms: item.tls_ms || 0,
+          total_ms: item.total_ms || 0,
+          outbound: item.outbound || "",
+          optional: !!item.optional,
+        };
+      }),
+    };
+  });
+
+  return {
+    report_format: 1,
+    sanitized: true,
+    module_version: moduleVersion || "unknown",
+    generated_at: state.generated_at || state.finished_at || 0,
+    mode: state.mode || "router",
+    requested_mode: state.requested_mode || state.mode || "router",
+    netns_fallback: !!state.netns_error,
+    backend: state.backend || "unknown",
+    backend_name: state.backend_name || state.backend || "unknown",
+    backend_running: state.backend_running !== false,
+    cancelled: !!state.cancelled,
+    tools: {
+      curl: !!(state.tools && state.tools.curl),
+      dig: !!(state.tools && state.tools.dig),
+      nc: !!(state.tools && state.tools.nc),
+    },
+    services: services,
+  };
+}
+
+function reportAsText(report) {
+  var counts = { success: 0, warning: 0, error: 0, skipped: 0 };
+  report.services.forEach(function (service) {
+    counts[service.state] = (counts[service.state] || 0) + 1;
+  });
+
+  var lines = [
+    "Sing-box Service Check " + report.module_version,
+    "Backend: " + report.backend_name + (report.backend_running ? " (running)" : " (stopped)"),
+    "Mode: " + report.mode + (report.netns_fallback ? " (netns fallback)" : ""),
+    "Summary: " + counts.success + " OK, " + counts.warning + " warning, " + counts.error + " error",
+  ];
+
+  if (report.cancelled) {
+    lines.push("Status: cancelled");
+  }
+  lines.push("");
+
+  report.services.forEach(function (service) {
+    lines.push("[" + (service.state || "unknown").toUpperCase() + "] " + service.title);
+    service.items.forEach(function (item) {
+      var details = [];
+      if (item.http_code) { details.push("HTTP " + item.http_code); }
+      if (item.total_ms) { details.push(item.total_ms + " ms"); }
+      else if (item.tcp_ms) { details.push("TCP " + item.tcp_ms + " ms"); }
+      if (item.outbound) { details.push("outbound " + item.outbound); }
+      lines.push("  - " + item.label + ": " + (item.verdict || item.state || "unknown") +
+        (details.length ? " · " + details.join(" · ") : ""));
+    });
+  });
+
+  lines.push("", "Report is sanitized: secrets, client IP and resolved addresses are omitted.");
+  return lines.join("\n");
+}
+
+function copyReportText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise(function (resolve, reject) {
+    var field = E("textarea", { style: "position:fixed;left:-9999px;top:-9999px" }, text);
+    document.body.appendChild(field);
+    field.select();
+    var copied = false;
+    try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+    field.remove();
+    if (copied) { resolve(); } else { reject(new Error("буфер обмена недоступен")); }
+  });
+}
+
 function renderCustomResult(result) {
   var item = result.item || {};
   var route = result.route || {};
@@ -771,6 +870,41 @@ return view.extend({
     var progressText = E("span", { class: "fkpsc-dim" }, "");
     var metaNode = E("div", {});
     var customResultNode = E("div", {});
+    var lastReportState = null;
+    var copyReportButton = E("button", { class: "cbi-button cbi-button-action", type: "button" }, "Скопировать отчёт");
+    var downloadReportButton = E("button", { class: "cbi-button", type: "button" }, "Скачать JSON");
+    var reportPanel = E("div", { class: "fkpsc-card", style: "display:none" }, [
+      E("div", { class: "fkpsc-update-row" }, [
+        E("div", { class: "fkpsc-update-status" }, [
+          E("h3", {}, "Диагностический отчёт"),
+          E("p", { class: "fkpsc-dim" }, "API-ключи, секреты, IP клиента и полученные IP-адреса в отчёт не включаются."),
+        ]),
+        E("div", { class: "fkpsc-update-actions" }, [copyReportButton, downloadReportButton]),
+      ]),
+    ]);
+
+    copyReportButton.addEventListener("click", function () {
+      if (!lastReportState) { return; }
+      var text = reportAsText(sanitizedReport(lastReportState, capabilities.module_version));
+      copyReportButton.disabled = true;
+      copyReportText(text).then(function () {
+        ui.addNotification(null, E("p", {}, "Обезличенный отчёт скопирован в буфер обмена."), "info");
+      }).catch(function (error) {
+        ui.addNotification(null, E("p", {}, "Не удалось скопировать отчёт: " + error.message), "warning");
+      }).then(function () { copyReportButton.disabled = false; });
+    });
+
+    downloadReportButton.addEventListener("click", function () {
+      if (!lastReportState) { return; }
+      var report = sanitizedReport(lastReportState, capabilities.module_version);
+      var blob = new Blob([JSON.stringify(report, null, 2) + "\n"], { type: "application/json;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var link = E("a", { href: url, download: "sing-box-service-check-report.json" });
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
 
     var modeRouter = E("input", { type: "radio", name: "fkpsc-mode", value: "router", checked: "" });
     var modeNetns = E("input", {
@@ -1065,6 +1199,8 @@ return view.extend({
       summaryNode.replaceChildren(state.running ? E("div", {}) : renderSummary(services));
       tilesNode.replaceChildren.apply(tilesNode, services.map(renderTile));
       if (!state.running) {
+        lastReportState = services.length ? state : null;
+        reportPanel.style.display = lastReportState ? "" : "none";
         lastProblemIds = services.filter(function (service) {
           return service.state === "error";
         }).map(function (service) {
@@ -1380,6 +1516,7 @@ return view.extend({
       summaryNode,
       metaNode,
       tilesNode,
+      reportPanel,
     ]);
     var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
     var profilesCardsNode = E("div", {});
