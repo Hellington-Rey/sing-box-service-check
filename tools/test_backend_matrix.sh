@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 
-command -v ucode >/dev/null 2>&1 || {
+UCODE_BIN="$(command -v ucode || true)"
+[ -n "$UCODE_BIN" ] || {
     echo "ucode is required for backend matrix tests" >&2
     exit 1
 }
@@ -66,7 +67,7 @@ run_engine() {
     PODKOP_BIN="$TMP/podkop" \
     MALFORMED_CLASH="${MALFORMED_CLASH:-0}" \
     MALFORMED_STATUS="${MALFORMED_STATUS:-0}" \
-    ucode -L "$LIB" "$ENGINE" "$@"
+    "$UCODE_BIN" -L "$LIB" "$ENGINE" "$@"
 }
 
 assert_caps() {
