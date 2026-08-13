@@ -26,6 +26,7 @@ const UPDATE_API = "https://api.github.com/repos/Hellington-Rey/sing-box-service
 const UPDATE_RELEASE_BASE = "https://github.com/Hellington-Rey/sing-box-service-check/releases";
 const UPDATE_INSTALLER = "install-sing-box-service-check.sh";
 const UPDATE_STATE_FILE = STATE_DIR + "/update.json";
+const HISTORY_FILE = STATE_DIR + "/history.json";
 const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "fkpsc";
 const NETNS_VETH_HOST = "fkpsc0";
 const NETNS_VETH_PEER = "fkpsc1";
@@ -498,7 +499,8 @@ function validate_profiles_config(config) {
         return "допускается не более 100 профилей";
 
     let seen = {};
-    let allowed_kinds = { https: true, http: true, tcp: true, udp: true, udp_dns: true };
+    let allowed_kinds = { https: true, http: true, tcp: true, udp: true, udp_dns: true, gemini_geo: true };
+    let allowed_routes = { any: true, proxy: true, direct: true };
 
     for (let profile in profiles) {
         profile = object_or_empty(profile);
@@ -521,6 +523,7 @@ function validate_profiles_config(config) {
             let kind = as_string(target.kind || "https");
             let host = trim(as_string(target.host));
             let port = int(target.port || (kind == "http" ? 80 : 443));
+            let expected_route = as_string(target.expected_route || "any");
 
             if (!allowed_kinds[kind])
                 return "неподдерживаемый kind в профиле " + id + ": " + kind;
@@ -528,6 +531,8 @@ function validate_profiles_config(config) {
                 return "некорректный host в профиле " + id;
             if (port < 1 || port > 65535)
                 return "некорректный port в профиле " + id;
+            if (!allowed_routes[expected_route])
+                return "некорректный expected_route в профиле " + id + ": " + expected_route;
         }
     }
 
@@ -1488,10 +1493,39 @@ function probe_target(ctx, target) {
         tls_ms: int(connection.tls_ms),
         total_ms: int(connection.total_ms),
         outbound: "",
+        expected_route: as_string(target.expected_route || "any"),
+        route_status: "unknown",
         state: verdict.state,
         verdict: verdict.verdict,
         message: verdict.message
     };
+}
+
+function apply_route_expectation(item, backend_running) {
+    let expected = as_string(item.expected_route || "any");
+    let actual = "unknown";
+
+    if (as_string(item.outbound) != "" || item.dns_fakeip)
+        actual = "proxy";
+    else if (backend_running == false)
+        actual = "direct";
+
+    item.route_status = actual;
+    if (expected == "any" || item.state == "error" || item.state == "skipped")
+        return item;
+
+    if (actual == "unknown") {
+        item.state = "warning";
+        item.verdict = "route_unconfirmed";
+        item.message = "доступность подтверждена, но маршрут " + expected + " не удалось подтвердить";
+    }
+    else if (actual != expected) {
+        item.state = "error";
+        item.verdict = "route_mismatch";
+        item.message = "ожидался маршрут " + expected + ", обнаружен " + actual;
+    }
+
+    return item;
 }
 
 function probe_service(ctx, profile) {
@@ -1514,6 +1548,9 @@ function probe_service(ctx, profile) {
             }
         }
     }
+
+    for (let item in items)
+        apply_route_expectation(item, ctx.backend_running);
 
     let summary = service_state(items);
 
@@ -1944,6 +1981,65 @@ function run_check(ids, mode, client_ip, progress_path) {
 // Фоновые задания
 // ---------------------------------------------------------------------------
 
+function history_entry(state) {
+    let services = [];
+    for (let service in array_or_empty(state.services)) {
+        service = object_or_empty(service);
+        let items = [];
+        for (let item in array_or_empty(service.items)) {
+            item = object_or_empty(item);
+            push(items, {
+                label: as_string(item.label),
+                state: as_string(item.state),
+                verdict: as_string(item.verdict),
+                outbound: as_string(item.outbound),
+                route_status: as_string(item.route_status),
+                expected_route: as_string(item.expected_route || "any"),
+                total_ms: int(item.total_ms),
+                tcp_ms: int(item.tcp_ms)
+            });
+        }
+        push(services, {
+            id: as_string(service.id),
+            title: as_string(service.title),
+            state: as_string(service.state),
+            items
+        });
+    }
+
+    return {
+        finished_at: int(state.finished_at || now_seconds()),
+        mode: as_string(state.mode || "router"),
+        backend: as_string(state.backend),
+        backend_name: as_string(state.backend_name),
+        cancelled: state.cancelled === true,
+        services
+    };
+}
+
+function save_history(state) {
+    ensure_state_dir();
+    let history = object_or_empty(read_json_file(HISTORY_FILE));
+    let entries = array_or_empty(history.entries);
+    unshift(entries, history_entry(state));
+    if (length(entries) > 10)
+        entries = slice(entries, 0, 10);
+    return write_state(HISTORY_FILE, { version: 1, entries });
+}
+
+function history_get() {
+    let history = object_or_empty(read_json_file(HISTORY_FILE));
+    write_json({ success: true, version: 1, entries: array_or_empty(history.entries) });
+    return 0;
+}
+
+function history_clear() {
+    if (fs.stat(HISTORY_FILE) != null)
+        fs.unlink(HISTORY_FILE);
+    write_json({ success: true, entries: [], message: "история проверок очищена" });
+    return 0;
+}
+
 function cleanup_jobs() {
     ensure_state_dir();
     let now = now_seconds();
@@ -2036,7 +2132,11 @@ function worker(path, ids, mode, client_ip) {
         state.services = result.services;
         state.progress = result.progress;
         state.message = as_string(state.message) || "проверка остановлена";
+        let history_saved = state.history_saved === true;
+        state.history_saved = true;
         write_state(path, state);
+        if (!history_saved)
+            save_history(state);
         fs.unlink(job_pid_path(state.job_id));
         return 0;
     }
@@ -2056,8 +2156,10 @@ function worker(path, ids, mode, client_ip) {
     state.backend_name = result.backend_name;
     state.backend_running = result.backend_running;
     state.forkop_running = result.forkop_running;
+    state.history_saved = true;
 
     write_state(path, state);
+    save_history(state);
     fs.unlink(job_pid_path(state.job_id));
     return 0;
 }
@@ -2086,6 +2188,7 @@ function cancel_job(job_id) {
     state.success = false;
     state.finished_at = now_seconds();
     state.message = "проверка остановлена пользователем";
+    state.history_saved = true;
     write_state(path, state);
 
     let pid = trim(as_string(fs.readfile(pid_path)));
@@ -2098,6 +2201,7 @@ function cancel_job(job_id) {
     if (as_string(state.mode) == "netns")
         netns_teardown();
 
+    save_history(state);
     write_json(state);
     return 0;
 }
@@ -2209,6 +2313,10 @@ else if (mode == "cleanup") {
     cleanup_jobs();
     exit(0);
 }
+else if (mode == "history")
+    exit(history_get());
+else if (mode == "history-clear")
+    exit(history_clear());
 else if (mode == "update-check")
     exit(update_check());
 else if (mode == "update-start")

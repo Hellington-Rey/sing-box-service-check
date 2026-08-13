@@ -83,6 +83,18 @@ def main():
     assert '"Скопировать отчёт"' in view
     assert '"Скачать JSON"' in view
     assert 'Report is sanitized' in view
+    assert 'expected_route: as_string(target.expected_route || "any")' in engine
+    assert 'function apply_route_expectation(item, backend_running)' in engine
+    assert 'route_mismatch' in engine and 'route_unconfirmed' in engine
+    assert '"Ожидаемый маршрут"' in view
+    assert '["proxy", "Только через sing-box"]' in view
+    assert 'function save_history(state)' in engine
+    assert 'else if (mode == "history")' in engine
+    assert 'else if (mode == "history-clear")' in engine
+    assert 'function renderHistoryComparison(currentState, previous)' in view
+    assert 'callBin(["history"])' in view
+    assert 'callBin(["history-clear"])' in view
+    assert 'history-clear' in cli
     assert 'status == 28 && connect_ms <= 0 && remote_ip == ""' in engine
     assert 'else if (mode == "profiles-save")' in engine
     assert 'callBin(["profiles-save", JSON.stringify(profilesDraft)])' in view

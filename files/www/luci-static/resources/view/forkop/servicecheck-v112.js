@@ -43,6 +43,8 @@ var VERDICT_LABEL = {
   tls_cert_untrusted: "часы или CA",
   tls_reset: "соединение сброшено",
   redirect_loop: "круг редиректов",
+  route_mismatch: "неверный маршрут",
+  route_unconfirmed: "маршрут не подтверждён",
   geo_blocked: "блокировка по IP/региону",
   gemini_api_key_invalid: "API-ключ невалиден",
   gemini_geo_error: "ошибка геопроверки",
@@ -374,6 +376,10 @@ function renderFacts(item) {
 
   if (item.outbound) {
     facts.push({ text: "через " + item.outbound, hl: true });
+  }
+
+  if (item.expected_route && item.expected_route !== "any") {
+    facts.push({ text: "ожидался " + item.expected_route });
   }
 
   if (!facts.length) {
@@ -768,6 +774,88 @@ function copyReportText(text) {
   });
 }
 
+function historyEntryFromState(state) {
+  return {
+    finished_at: state.finished_at || state.generated_at || 0,
+    mode: state.mode || "router",
+    backend: state.backend || "unknown",
+    backend_name: state.backend_name || state.backend || "unknown",
+    cancelled: !!state.cancelled,
+    services: (state.services || []).map(function (service) {
+      return {
+        id: service.id || "",
+        title: service.title || service.id || "",
+        state: service.state || "",
+        items: (service.items || []).map(function (item) {
+          return {
+            label: item.label || item.host || "",
+            state: item.state || "",
+            verdict: item.verdict || "",
+            outbound: item.outbound || "",
+            route_status: item.route_status || "unknown",
+            expected_route: item.expected_route || "any",
+            total_ms: item.total_ms || 0,
+            tcp_ms: item.tcp_ms || 0,
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function renderHistoryComparison(currentState, previous) {
+  if (!previous || !(previous.services || []).length) {
+    return E("p", { class: "fkpsc-dim" }, "Это первая проверка в текущей истории — сравнение появится после следующего запуска.");
+  }
+
+  var previousServices = {};
+  (previous.services || []).forEach(function (service) { previousServices[service.id] = service; });
+  var changes = [];
+
+  (currentState.services || []).forEach(function (service) {
+    var oldService = previousServices[service.id];
+    if (!oldService) {
+      changes.push({ state: "info", text: service.title + ": новая категория в проверке" });
+      return;
+    }
+    if (oldService.state !== service.state) {
+      changes.push({
+        state: service.state === "error" ? "error" : (service.state === "warning" ? "warning" : "success"),
+        text: service.title + ": " + (STATE_LABEL[oldService.state] || oldService.state) + " → " +
+          (STATE_LABEL[service.state] || service.state),
+      });
+    }
+
+    var previousItems = {};
+    (oldService.items || []).forEach(function (item) { previousItems[item.label] = item; });
+    (service.items || []).forEach(function (item) {
+      var oldItem = previousItems[item.label || item.host || ""];
+      if (!oldItem) { return; }
+      var currentRoute = item.route_status || (item.outbound || item.dns_fakeip ? "proxy" : "unknown");
+      var oldRoute = oldItem.route_status || (oldItem.outbound ? "proxy" : "unknown");
+      if (currentRoute !== oldRoute && currentRoute !== "unknown" && oldRoute !== "unknown") {
+        changes.push({ state: "warning", text: service.title + " / " + oldItem.label + ": маршрут " + oldRoute + " → " + currentRoute });
+      }
+
+      var currentMs = item.total_ms || item.tcp_ms || 0;
+      var previousMs = oldItem.total_ms || oldItem.tcp_ms || 0;
+      if (currentMs > 0 && previousMs > 0 && currentMs - previousMs >= 100 && currentMs >= previousMs * 1.5) {
+        changes.push({ state: "warning", text: service.title + " / " + oldItem.label + ": медленнее " + previousMs + " → " + currentMs + " мс" });
+      }
+      else if (currentMs > 0 && previousMs > 0 && previousMs - currentMs >= 100 && currentMs <= previousMs * 0.67) {
+        changes.push({ state: "success", text: service.title + " / " + oldItem.label + ": быстрее " + previousMs + " → " + currentMs + " мс" });
+      }
+    });
+  });
+
+  if (!changes.length) {
+    return E("p", { class: "fkpsc-dim" }, "Заметных изменений относительно предыдущей проверки нет.");
+  }
+  return E("div", {}, changes.slice(0, 20).map(function (change) {
+    return E("div", { class: "fkpsc-custom-result state-" + change.state, style: "margin:.35em 0" }, change.text);
+  }));
+}
+
 function renderCustomResult(result) {
   var item = result.item || {};
   var route = result.route || {};
@@ -824,6 +912,9 @@ return view.extend({
       callBin(["profiles-get"]).catch(function () {
         return null;
       }),
+      callBin(["history"]).catch(function () {
+        return { success: false, entries: [] };
+      }),
     ]);
   },
 
@@ -834,6 +925,7 @@ return view.extend({
     var catalogue = data[1];
     var fixes = (data[2] && data[2].fixes) || [];
     var profilesData = data[3];
+    var historyData = data[4] || { entries: [] };
     var profilesDraft = profilesData && profilesData.config ?
       JSON.parse(JSON.stringify(profilesData.config)) : { version: 2, profiles: [] };
     if (!Array.isArray(profilesDraft.profiles)) {
@@ -882,6 +974,32 @@ return view.extend({
         E("div", { class: "fkpsc-update-actions" }, [copyReportButton, downloadReportButton]),
       ]),
     ]);
+    var previousHistoryEntry = (historyData.entries || [])[0] || null;
+    var lastComparedJobId = "";
+    var historyCountNode = E("span", { class: "fkpsc-badge" }, "сохранено: " + (historyData.entries || []).length + " из 10");
+    var historyComparisonNode = E("div", {}, previousHistoryEntry
+      ? E("p", { class: "fkpsc-dim" }, "Запустите проверку, чтобы сравнить результат с предыдущим.")
+      : E("p", { class: "fkpsc-dim" }, "История пока пуста."));
+    var clearHistoryButton = E("button", { class: "cbi-button", type: "button" }, "Очистить историю");
+    var historyPanel = E("div", { class: "fkpsc-card", style: previousHistoryEntry ? "" : "display:none" }, [
+      E("div", { class: "fkpsc-update-row" }, [
+        E("div", { class: "fkpsc-update-status" }, [E("h3", {}, "Изменения с предыдущей проверки"), historyCountNode]),
+        E("div", { class: "fkpsc-update-actions" }, [clearHistoryButton]),
+      ]),
+      historyComparisonNode,
+    ]);
+
+    clearHistoryButton.addEventListener("click", function () {
+      clearHistoryButton.disabled = true;
+      callBin(["history-clear"]).then(function (result) {
+        previousHistoryEntry = null;
+        historyCountNode.textContent = "сохранено: 0 из 10";
+        historyPanel.style.display = "none";
+        ui.addNotification(null, E("p", {}, result.message || "История очищена."), "info");
+      }).catch(function (error) {
+        ui.addNotification(null, E("p", {}, "Не удалось очистить историю: " + error.message), "warning");
+      }).then(function () { clearHistoryButton.disabled = false; });
+    });
 
     copyReportButton.addEventListener("click", function () {
       if (!lastReportState) { return; }
@@ -1201,6 +1319,14 @@ return view.extend({
       if (!state.running) {
         lastReportState = services.length ? state : null;
         reportPanel.style.display = lastReportState ? "" : "none";
+        if (services.length && (!state.job_id || state.job_id !== lastComparedJobId)) {
+          historyComparisonNode.replaceChildren(renderHistoryComparison(state, previousHistoryEntry));
+          previousHistoryEntry = historyEntryFromState(state);
+          lastComparedJobId = state.job_id || String(state.finished_at || Date.now());
+          var historyCount = Math.min(10, parseInt(historyCountNode.textContent.match(/\d+/), 10) + 1 || 1);
+          historyCountNode.textContent = "сохранено: " + historyCount + " из 10";
+          historyPanel.style.display = "";
+        }
         lastProblemIds = services.filter(function (service) {
           return service.state === "error";
         }).map(function (service) {
@@ -1516,6 +1642,7 @@ return view.extend({
       summaryNode,
       metaNode,
       tilesNode,
+      historyPanel,
       reportPanel,
     ]);
     var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
@@ -1593,6 +1720,16 @@ return view.extend({
       var optionalInput = E("input", { type: "checkbox", checked: target.optional ? "" : null });
       optionalInput.addEventListener("change", function () { target.optional = optionalInput.checked; });
 
+      var expectedRoute = target.expected_route || "any";
+      var routeSelect = E("select", { class: "cbi-input-select" }, [
+        ["any", "Любой маршрут"],
+        ["proxy", "Только через sing-box"],
+        ["direct", "Только напрямую"],
+      ].map(function (entry) {
+        return E("option", { value: entry[0], selected: expectedRoute === entry[0] ? "" : null }, entry[1]);
+      }));
+      routeSelect.addEventListener("change", function () { target.expected_route = routeSelect.value; });
+
       var fields = [
         E("label", { class: "fkpsc-editor-field" }, [E("span", {}, "Тип проверки"), kindSelect]),
         editorField("Домен или IP", target.host || "", function (value) { target.host = value.trim(); }, { placeholder: "example.com или 1.1.1.1" }),
@@ -1604,6 +1741,7 @@ return view.extend({
           }
         }, { type: "number", min: 1, max: 65535 }),
         editorField("Подпись", target.label || "", function (value) { target.label = value; }, { placeholder: "Необязательно" }),
+        E("label", { class: "fkpsc-editor-field" }, [E("span", {}, "Ожидаемый маршрут"), routeSelect]),
       ];
 
       if (kind === "https" || kind === "http") {

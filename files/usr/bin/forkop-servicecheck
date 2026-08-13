@@ -21,6 +21,8 @@ Available commands:
     status JOB_ID           Показать состояние фоновой проверки
     cancel JOB_ID           Остановить фоновую проверку и очистить netns
     cleanup                 Удалить устаревшие задания
+    history                 Показать до 10 последних результатов из tmpfs
+    history-clear           Очистить историю результатов
     update-check            Проверить последнюю версию в GitHub Releases
     update-start            Безопасно установить доступное обновление в фоне
     update-status           Показать состояние обновления
@@ -61,7 +63,7 @@ command -v ucode >/dev/null 2>&1 || {
 }
 
 case "$COMMAND" in
-    list|capabilities|fixes|cleanup|profiles-get|profiles-reset|update-check|update-start|update-status)
+    list|capabilities|fixes|cleanup|history|history-clear|profiles-get|profiles-reset|update-check|update-start|update-status)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND"
         ;;
     gemini_key_reset)

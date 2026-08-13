@@ -41,6 +41,8 @@ printf '%s\n' "$CUSTOM_OUTPUT" | grep -Fxq -- '192.168.2.55'
 [ "$(run_wrapper update-check | tail -n 1)" = "update-check" ]
 [ "$(run_wrapper update-start | tail -n 1)" = "update-start" ]
 [ "$(run_wrapper update-status | tail -n 1)" = "update-status" ]
+[ "$(run_wrapper history | tail -n 1)" = "history" ]
+[ "$(run_wrapper history-clear | tail -n 1)" = "history-clear" ]
 [ "$(run_wrapper cancel sc-123-456 | tail -n 2 | head -n 1)" = "cancel" ]
 [ "$(run_wrapper cancel sc-123-456 | tail -n 1)" = "sc-123-456" ]
 [ "$(run_wrapper gemini_key_reset | tail -n 1)" = "gemini-key-reset" ]
