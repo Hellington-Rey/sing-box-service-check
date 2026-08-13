@@ -1,5 +1,5 @@
     var updateStatusNode = E("div", { class: "fkpsc-update-status" }, [
-      E("b", {}, "Установлена версия " + UI_VERSION),
+      E("b", {}, "Установлена версия " + moduleVersion),
       E("div", { class: "fkpsc-dim" }, "Нажмите «Проверить обновления», чтобы обратиться к GitHub Releases."),
     ]);
     var checkUpdateButton = E("button", { class: "cbi-button", type: "button" }, "Проверить обновления");
@@ -35,7 +35,7 @@
         return;
       }
 
-      var current = info.installed_version || UI_VERSION;
+      var current = info.installed_version || moduleVersion;
       var latest = info.latest_version || current;
       if (info.update_available) {
         availableUpdate = info;
@@ -222,4 +222,3 @@
     if (!capabilities.netns) {
       notes.push("Режим «от имени клиента» недоступен: ip netns не поддерживается этой прошивкой.");
     }
-

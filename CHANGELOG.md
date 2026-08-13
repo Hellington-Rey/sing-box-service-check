@@ -21,6 +21,10 @@
 - CI собирает официальный runtime ucode и выполняет матрицу сценариев Tachyon, Forkop, Podkop, override, битого Clash API и валидации профилей.
 - Ответ Clash API считается доступным только при корректном JSON, а не только по коду завершения команды.
 
+### Исправлено
+
+- Устранена ошибка загрузки LuCI `ReferenceError: UI_VERSION is not defined` после перехода на версию из backend capabilities.
+
 ## 1.8.0 — 12 августа 2026
 
 ### Добавлено

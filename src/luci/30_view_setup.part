@@ -47,6 +47,7 @@ return view.extend({
 
     var backendId = capabilities.backend || "forkop";
     var backendName = capabilities.backend_name || (backendId === "tachyon" ? "Tachyon" : (backendId === "podkop" ? "Podkop" : "Forkop"));
+    var moduleVersion = capabilities.module_version || "unknown";
     var backendRunning = capabilities.backend_running;
     if (backendRunning === undefined) {
       backendRunning = capabilities.forkop_running;
@@ -356,4 +357,3 @@ return view.extend({
     });
     var udpPreset = E("button", { class: "cbi-button", type: "button" }, "Только UDP");
     udpPreset.addEventListener("click", function () { selectOnly(["udp_common"]); });
-

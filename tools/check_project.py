@@ -63,6 +63,14 @@ def validate_documentation(version: str) -> None:
         fail(f"CHANGELOG.md has no entry for {version}")
 
 
+def validate_luci_source() -> None:
+    source = (ROOT / "files/www/luci-static/resources/view/forkop/servicecheck-v112.js").read_text(
+        encoding="utf-8"
+    )
+    if "UI_VERSION" in source:
+        fail("LuCI source still references removed UI_VERSION; use capabilities.module_version")
+
+
 def main() -> int:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
@@ -71,6 +79,7 @@ def main() -> int:
     assemble_all(check=True)
     validate_profiles()
     validate_documentation(version)
+    validate_luci_source()
 
     required = [
         ".github/workflows/ci.yml",

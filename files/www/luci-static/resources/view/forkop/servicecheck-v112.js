@@ -946,6 +946,7 @@ return view.extend({
 
     var backendId = capabilities.backend || "forkop";
     var backendName = capabilities.backend_name || (backendId === "tachyon" ? "Tachyon" : (backendId === "podkop" ? "Podkop" : "Forkop"));
+    var moduleVersion = capabilities.module_version || "unknown";
     var backendRunning = capabilities.backend_running;
     if (backendRunning === undefined) {
       backendRunning = capabilities.forkop_running;
@@ -1255,7 +1256,6 @@ return view.extend({
     });
     var udpPreset = E("button", { class: "cbi-button", type: "button" }, "Только UDP");
     udpPreset.addEventListener("click", function () { selectOnly(["udp_common"]); });
-
     var runButton = E("button", { class: "cbi-button cbi-button-action important" }, "Проверить сервис");
     var retryButton = E("button", { class: "cbi-button", style: "display:none" }, "Повторить ошибки");
     var lastProblemIds = [];
@@ -1450,7 +1450,7 @@ return view.extend({
     });
 
     var updateStatusNode = E("div", { class: "fkpsc-update-status" }, [
-      E("b", {}, "Установлена версия " + UI_VERSION),
+      E("b", {}, "Установлена версия " + moduleVersion),
       E("div", { class: "fkpsc-dim" }, "Нажмите «Проверить обновления», чтобы обратиться к GitHub Releases."),
     ]);
     var checkUpdateButton = E("button", { class: "cbi-button", type: "button" }, "Проверить обновления");
@@ -1486,7 +1486,7 @@ return view.extend({
         return;
       }
 
-      var current = info.installed_version || UI_VERSION;
+      var current = info.installed_version || moduleVersion;
       var latest = info.latest_version || current;
       if (info.update_available) {
         availableUpdate = info;
@@ -1673,7 +1673,6 @@ return view.extend({
     if (!capabilities.netns) {
       notes.push("Режим «от имени клиента» недоступен: ip netns не поддерживается этой прошивкой.");
     }
-
     var checkTab = E("button", { class: "fkpsc-tab active", type: "button", role: "tab", "aria-selected": "true" }, "Проверка сервисов");
     var fixTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Фикс Forkop");
     var listsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Списки");
