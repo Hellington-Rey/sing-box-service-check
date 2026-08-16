@@ -29,8 +29,9 @@ else if (mode == "run") {
 }
 else if (mode == "dns") {
     let domain = dns_matrix_domain(ARGV[1] || "www.nvidia.com");
-    if (domain == "" || !command_exists("dig")) {
-        write_json({ success: false, message: domain == "" ? "некорректный домен" : "dig не установлен" });
+    let dig_status = dig_runtime_check();
+    if (domain == "" || !dig_status.runnable) {
+        write_json({ success: false, message: domain == "" ? "некорректный домен" : dig_status.message, dig_status });
         exit(1);
     }
     write_json(run_dns_matrix(domain, ""));

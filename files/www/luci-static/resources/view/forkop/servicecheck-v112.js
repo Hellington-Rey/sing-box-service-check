@@ -1678,7 +1678,7 @@ return view.extend({
         diagnosticCell("LAN-интерфейс", capabilities.lan_interface || "не определён"),
         diagnosticCell("DNS-серверы", (dnsDiagnostic.server_count || 0) + " · " + ((dnsDiagnostic.server_types || []).join(", ") || "тип не определён")),
         diagnosticCell("FakeIP", dnsDiagnostic.fakeip_enabled ? "включён · " + (dnsDiagnostic.fakeip_ranges || []).join(", ") : "не обнаружен"),
-        diagnosticCell("Инструменты", [capabilities.curl ? "curl" : "без curl", capabilities.dig ? "dig" : "без dig", capabilities.nc ? "nc" : "без nc", capabilities.netns ? "netns" : "без netns"].join(" · ")),
+        diagnosticCell("Инструменты", [capabilities.curl ? "curl" : "без curl", capabilities.dig ? "dig" : ((capabilities.dig_status || {}).available ? "dig сломан" : "без dig"), capabilities.nc ? "nc" : "без nc", capabilities.netns ? "netns" : "без netns"].join(" · ")),
       ]),
       dnsChainButton,
       doctorButton,
@@ -1895,7 +1895,8 @@ return view.extend({
           "Приложение отправит A-запрос выбранного домена всем DNS-серверам из списка и покажет время ответа отдельно для UDP, DNS over HTTPS и DNS over TLS."),
         E("div", { class: "fkpsc-note" }, capabilities.dig ?
           "Полный тест выполняется последовательно и может занять несколько минут, если часть серверов недоступна." :
-          "Для теста нужен пакет bind-dig. Установите его командой: opkg install bind-dig (или apk add bind-dig)."),
+          (((capabilities.dig_status || {}).message) ||
+            "Для теста нужен пакет bind-dig. Установите его командой: opkg install bind-dig (или apk add bind-dig).")),
         E("div", { class: "fkpsc-dns-form" }, [dnsDomainInput, dnsStartButton, dnsStopButton]),
         E("div", { class: "fkpsc-actions" }, [dnsProgressWrap, dnsProgressText]),
       ]),

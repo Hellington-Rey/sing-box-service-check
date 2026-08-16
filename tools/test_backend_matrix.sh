@@ -55,6 +55,27 @@ cat > "$TMP/bin/curl" <<'EOF'
 #!/bin/sh
 [ "${MALFORMED_CLASH:-0}" = "1" ] && echo broken || echo '{"connections":[]}'
 EOF
+cat > "$TMP/bin/dig" <<'EOF'
+#!/bin/sh
+if [ "${BROKEN_DIG:-0}" = "1" ]; then
+    echo 'Error relocating /usr/bin/dig: isc_assertion_failed: symbol not found' >&2
+    exit 127
+fi
+if [ "${1:-}" = "-v" ]; then
+    echo 'DiG 9.20.0-test'
+    exit 0
+fi
+case "${1:-}" in
+    +notcp|+https|+tls) ;;
+    *) echo "invalid DNS protocol option: ${1:-}" >&2; exit 64 ;;
+esac
+[ "${2:-}" = "+tries=1" ] || { echo 'missing +tries=1' >&2; exit 64; }
+case "${3:-}" in +time=*) ;; *) echo 'missing +time' >&2; exit 64 ;; esac
+case "${4:-}" in @*) ;; *) echo 'missing resolver' >&2; exit 64 ;; esac
+[ -n "${5:-}" ] && [ "${6:-}" = "A" ] || { echo 'invalid A query' >&2; exit 64; }
+printf '%s.\t60\tIN\tA\t93.184.216.34\n' "$5"
+echo ';; Query time: 7 msec'
+EOF
 chmod +x "$TMP/backend" "$TMP/bin/"*
 
 run_engine() {
@@ -67,6 +88,7 @@ run_engine() {
     PODKOP_BIN="$TMP/podkop" \
     MALFORMED_CLASH="${MALFORMED_CLASH:-0}" \
     MALFORMED_STATUS="${MALFORMED_STATUS:-0}" \
+    BROKEN_DIG="${BROKEN_DIG:-0}" \
     "$UCODE_BIN" -L "$LIB" "$ENGINE" "$@"
 }
 
@@ -111,6 +133,38 @@ import json, os
 data = json.loads(os.environ["JSON_DATA"])
 assert data["clash_api"]["reachable"] is False, data
 assert data["clash_api"]["connections"] == 0, data
+PY
+
+output="$(run_engine dns example.com)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+items = [item for group in data["groups"] for item in group["items"]]
+assert data["progress"] == {"done": 61, "total": 61}, data["progress"]
+assert len(items) == 61 and all(item["ok"] for item in items), items
+assert {item["query_ms"] for item in items} == {7}, items
+PY
+
+output="$(BROKEN_DIG=1 run_engine capabilities)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["dig"] is False, data
+assert data["dig_status"]["available"] is True, data
+assert data["dig_status"]["runnable"] is False, data
+assert "bind-libs" in data["dig_status"]["message"], data
+assert "isc_assertion_failed" in data["dig_status"]["message"], data
+PY
+
+if BROKEN_DIG=1 run_engine dns-start example.com >"$TMP/broken-dig.json" 2>/dev/null; then
+    echo "broken dig was allowed to start a DNS job" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/broken-dig.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False, data
+assert "bind-libs" in data["message"], data
 PY
 
 valid='{"profiles":[{"id":"route_test","title":"Route test","targets":[{"kind":"https","host":"example.com","expected_route":"direct"}]},{"id":"gemini","title":"Gemini","targets":[{"kind":"gemini_geo","host":"generativelanguage.googleapis.com"}]}]}'

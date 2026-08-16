@@ -593,6 +593,46 @@ function detect_nc_mode() {
     return "plain";
 }
 
+function dig_repair_hint() {
+    if (command_exists("opkg"))
+        return "opkg update && opkg install --force-reinstall bind-libs bind-dig";
+    if (command_exists("apk"))
+        return "apk update && apk fix --upgrade bind-libs bind-dig";
+    return "переустановите bind-libs и bind-dig из одного репозитория прошивки";
+}
+
+function dig_runtime_check() {
+    if (!command_exists("dig"))
+        return {
+            available: false,
+            runnable: false,
+            version: "",
+            message: "Для теста DNS нужен пакет bind-dig. Установите его командой: opkg install bind-dig (или apk add bind-dig)."
+        };
+
+    let probe = capture_args([ "dig", "-v" ], true);
+    let detail = trim(as_string(probe.output));
+    if (length(detail) > 360)
+        detail = substr(detail, 0, 360) + "…";
+    if (probe.status == 0)
+        return { available: true, runnable: true, version: detail, message: "" };
+
+    let lowered = lc(detail);
+    let linker_error = index(lowered, "error relocating") >= 0 ||
+        index(lowered, "symbol not found") >= 0 ||
+        index(lowered, "error loading shared") >= 0;
+    let reason = linker_error
+        ? "dig установлен, но его бинарник несовместим с библиотеками BIND"
+        : "dig установлен, но не запускается";
+    return {
+        available: true,
+        runnable: false,
+        version: "",
+        message: reason + ". Выполните: " + dig_repair_hint() +
+            (detail != "" ? ". Ошибка: " + detail : "")
+    };
+}
+
 function capabilities() {
     let backend = backend_id();
     let running = backend_running();
@@ -601,11 +641,13 @@ function capabilities() {
     let nc_mode = detect_nc_mode();
     let clash_api = clash_api_diagnostic();
     let dns = dns_diagnostic();
+    let dig_status = dig_runtime_check();
 
     return {
         curl: command_exists("curl"),
         uclient_fetch: command_exists("uclient-fetch") || command_exists("wget"),
-        dig: command_exists("dig"),
+        dig: dig_status.runnable,
+        dig_status,
         nslookup: command_exists("nslookup"),
         nc: nc_mode != "none",
         nc_mode,
@@ -2502,11 +2544,9 @@ function start_dns_job(domain) {
         write_json({ success: false, message: "Введите корректный домен без протокола и пути" });
         return 1;
     }
-    if (!command_exists("dig")) {
-        write_json({
-            success: false,
-            message: "Для теста DNS нужен dig. Установите bind-dig (opkg install bind-dig или apk add bind-dig)."
-        });
+    let dig_status = dig_runtime_check();
+    if (!dig_status.runnable) {
+        write_json({ success: false, message: dig_status.message, dig_status });
         return 1;
     }
 
@@ -2807,8 +2847,9 @@ else if (mode == "run") {
 }
 else if (mode == "dns") {
     let domain = dns_matrix_domain(ARGV[1] || "www.nvidia.com");
-    if (domain == "" || !command_exists("dig")) {
-        write_json({ success: false, message: domain == "" ? "некорректный домен" : "dig не установлен" });
+    let dig_status = dig_runtime_check();
+    if (domain == "" || !dig_status.runnable) {
+        write_json({ success: false, message: domain == "" ? "некорректный домен" : dig_status.message, dig_status });
         exit(1);
     }
     write_json(run_dns_matrix(domain, ""));

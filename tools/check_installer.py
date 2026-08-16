@@ -123,6 +123,12 @@ def main():
     assert 'const DNS_MATRIX = [' in engine
     assert 'function run_dns_matrix(domain, progress_path)' in engine
     assert 'function dns_matrix_error_detail(output)' in engine
+    assert 'function dig_runtime_check()' in engine
+    assert '"dig", "-v"' in engine
+    assert 'opkg install --force-reinstall bind-libs bind-dig' in engine
+    assert 'apk fix --upgrade bind-libs bind-dig' in engine
+    assert 'dig: dig_status.runnable' in engine
+    assert 'dig сломан' in view
     assert 'не удалось выполнить защищённый DNS-запрос' not in engine
     assert 'else if (mode == "dns-start")' in engine
     assert 'dns|dns-start)' in cli

@@ -201,11 +201,9 @@ function start_dns_job(domain) {
         write_json({ success: false, message: "Введите корректный домен без протокола и пути" });
         return 1;
     }
-    if (!command_exists("dig")) {
-        write_json({
-            success: false,
-            message: "Для теста DNS нужен dig. Установите bind-dig (opkg install bind-dig или apk add bind-dig)."
-        });
+    let dig_status = dig_runtime_check();
+    if (!dig_status.runnable) {
+        write_json({ success: false, message: dig_status.message, dig_status });
         return 1;
     }
 
