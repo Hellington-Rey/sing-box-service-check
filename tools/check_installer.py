@@ -123,6 +123,10 @@ def main():
     assert 'const DNS_MATRIX = [' in engine
     assert 'function run_dns_matrix(domain, progress_path)' in engine
     assert 'function dns_matrix_error_detail(output)' in engine
+    assert '"dig", "-u", as_string(protocol.option)' in engine
+    assert 'query_us = int(timing_us[1])' in engine
+    assert 'function dnsQueryTime(item)' in view
+    assert 'Точное время DNS-запроса' in view
     assert 'function dig_runtime_check()' in engine
     assert '"dig", "-v"' in engine
     assert 'opkg install --force-reinstall bind-libs bind-dig' in engine

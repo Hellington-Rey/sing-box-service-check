@@ -65,16 +65,17 @@ if [ "${1:-}" = "-v" ]; then
     echo 'DiG 9.20.0-test'
     exit 0
 fi
-case "${1:-}" in
+[ "${1:-}" = "-u" ] || { echo 'missing -u' >&2; exit 64; }
+case "${2:-}" in
     +notcp|+https|+tls) ;;
-    *) echo "invalid DNS protocol option: ${1:-}" >&2; exit 64 ;;
+    *) echo "invalid DNS protocol option: ${2:-}" >&2; exit 64 ;;
 esac
-[ "${2:-}" = "+tries=1" ] || { echo 'missing +tries=1' >&2; exit 64; }
-case "${3:-}" in +time=*) ;; *) echo 'missing +time' >&2; exit 64 ;; esac
-case "${4:-}" in @*) ;; *) echo 'missing resolver' >&2; exit 64 ;; esac
-[ -n "${5:-}" ] && [ "${6:-}" = "A" ] || { echo 'invalid A query' >&2; exit 64; }
-printf '%s.\t60\tIN\tA\t93.184.216.34\n' "$5"
-echo ';; Query time: 7 msec'
+[ "${3:-}" = "+tries=1" ] || { echo 'missing +tries=1' >&2; exit 64; }
+case "${4:-}" in +time=*) ;; *) echo 'missing +time' >&2; exit 64 ;; esac
+case "${5:-}" in @*) ;; *) echo 'missing resolver' >&2; exit 64 ;; esac
+[ -n "${6:-}" ] && [ "${7:-}" = "A" ] || { echo 'invalid A query' >&2; exit 64; }
+printf '%s.\t60\tIN\tA\t93.184.216.34\n' "$6"
+echo ';; Query time: 750 usec'
 EOF
 chmod +x "$TMP/backend" "$TMP/bin/"*
 
@@ -142,7 +143,8 @@ data = json.loads(os.environ["JSON_DATA"])
 items = [item for group in data["groups"] for item in group["items"]]
 assert data["progress"] == {"done": 61, "total": 61}, data["progress"]
 assert len(items) == 61 and all(item["ok"] for item in items), items
-assert {item["query_ms"] for item in items} == {7}, items
+assert {item["query_us"] for item in items} == {750}, items
+assert {item["query_ms"] for item in items} == {None}, items
 PY
 
 output="$(BROKEN_DIG=1 run_engine capabilities)"

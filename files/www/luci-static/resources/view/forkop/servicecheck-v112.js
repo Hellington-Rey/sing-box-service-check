@@ -723,18 +723,55 @@ function renderDnsSummary(state) {
   ]);
 }
 
+function dnsDecimal(value, digits) {
+  var text = Number(value).toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
+  return text.replace(".", ",");
+}
+
+function dnsQueryTime(item) {
+  if (!item.ok) {
+    return { text: "—", title: "DNS-сервер не ответил" };
+  }
+  if (item.query_us != null) {
+    var microseconds = Math.max(0, Number(item.query_us) || 0);
+    var milliseconds = microseconds / 1000;
+    var text = microseconds === 0 ? "<0,001 мс" :
+      (milliseconds < 1 ? dnsDecimal(milliseconds, 3) + " мс" :
+        (milliseconds < 10 ? dnsDecimal(milliseconds, 2) + " мс" :
+          (milliseconds < 100 ? dnsDecimal(milliseconds, 1) + " мс" : Math.round(milliseconds) + " мс")));
+    return {
+      text: text,
+      title: "Точное время DNS-запроса: " + microseconds + " мкс" +
+        (item.total_ms > 0 ? "; полное время запуска dig: " + item.total_ms + " мс" : ""),
+    };
+  }
+  if (item.query_ms != null) {
+    var millisecondsLegacy = Math.max(0, Number(item.query_ms) || 0);
+    return {
+      text: millisecondsLegacy === 0 ? "<1 мс" : millisecondsLegacy + " мс",
+      title: "Время DNS-запроса по данным dig с точностью до миллисекунды",
+    };
+  }
+  if (item.total_ms > 0) {
+    return {
+      text: "≈" + Math.round(item.total_ms) + " мс",
+      title: "dig не вернул Query time; показано полное время выполнения процесса",
+    };
+  }
+  return { text: "—", title: "dig не вернул время запроса" };
+}
+
 function renderDnsGroups(groups) {
   return E("div", { class: "fkpsc-dns-groups" }, (groups || []).map(function (group) {
     var items = group.items || [];
     var successful = items.filter(function (item) { return item.ok; }).length;
     var rows = items.map(function (item) {
-      var measured = item.query_ms != null ? item.query_ms : (item.total_ms || 0);
-      var time = item.ok ? String(measured) + " мс" : "—";
+      var time = dnsQueryTime(item);
       var answer = item.ok ? (item.addresses || []).join(", ") : (item.message || "нет ответа");
       return E("div", { class: "fkpsc-dns-row state-" + (item.ok ? "success" : "error") }, [
         E("strong", {}, item.resolver || "DNS"),
         E("span", { class: "fkpsc-dns-host" }, item.host || ""),
-        E("span", { class: "fkpsc-dns-time" }, time),
+        E("span", { class: "fkpsc-dns-time", title: time.title }, time.text),
         E("span", { class: "fkpsc-dns-answer" }, answer),
       ]);
     });

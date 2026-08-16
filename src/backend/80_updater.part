@@ -308,18 +308,24 @@ function dns_matrix_query(protocol, resolver_name, resolver_host, domain) {
     protocol = object_or_empty(protocol);
     let started = now_ms();
     let result = capture_args([
-        "dig", as_string(protocol.option), "+tries=1",
+        "dig", "-u", as_string(protocol.option), "+tries=1",
         "+time=" + as_string(DNS_MATRIX_TIMEOUT), "@" + as_string(resolver_host),
         as_string(domain), "A"
     ], true);
     let elapsed = now_ms() - started;
     let ips = [];
-    let query_ms = 0;
+    let query_us = null;
+    let query_ms = null;
 
     for (let line in split(as_string(result.output), "\n")) {
-        let timing = match(as_string(line), /Query time:[ \t]+([0-9]+)[ \t]+msec/);
-        if (timing != null)
-            query_ms = int(timing[1]);
+        let timing_us = match(as_string(line), /Query time:[ \t]+([0-9]+)[ \t]+usec/);
+        if (timing_us != null)
+            query_us = int(timing_us[1]);
+        else {
+            let timing_ms = match(as_string(line), /Query time:[ \t]+([0-9]+)[ \t]+msec/);
+            if (timing_ms != null)
+                query_ms = int(timing_ms[1]);
+        }
 
         let answer = match(as_string(line), /[ \t]IN[ \t]+A[ \t]+([0-9]{1,3}(\.[0-9]{1,3}){3})[ \t]*$/);
         if (answer != null && valid_ipv4(answer[1]))
@@ -332,6 +338,7 @@ function dns_matrix_query(protocol, resolver_name, resolver_host, domain) {
         host: as_string(resolver_host),
         state: ok ? "success" : "error",
         ok,
+        query_us,
         query_ms,
         total_ms: elapsed,
         addresses: ips,
