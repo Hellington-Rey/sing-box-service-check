@@ -122,6 +122,8 @@ def main():
     assert 'callBin(["dns-diagnostics", target])' in view
     assert 'const DNS_MATRIX = [' in engine
     assert 'function run_dns_matrix(domain, progress_path)' in engine
+    assert 'function dns_matrix_error_detail(output)' in engine
+    assert 'не удалось выполнить защищённый DNS-запрос' not in engine
     assert 'else if (mode == "dns-start")' in engine
     assert 'dns|dns-start)' in cli
     assert 'callBin(["dns-start", domain])' in view

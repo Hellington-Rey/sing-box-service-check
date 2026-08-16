@@ -258,21 +258,50 @@ function dns_matrix_domain(value) {
     return valid_domain(value) ? value : "";
 }
 
+function dns_matrix_error_detail(output) {
+    let fallback = "";
+    for (let line in split(as_string(output), "\n")) {
+        line = trim(as_string(line));
+        if (line == "")
+            continue;
+
+        let lowered = lc(line);
+        if (index(lowered, "failed:") >= 0 ||
+            index(lowered, "timed out") >= 0 ||
+            index(lowered, "no servers") >= 0 ||
+            index(lowered, "connection") >= 0 ||
+            index(lowered, "unreachable") >= 0 ||
+            index(lowered, "invalid option") >= 0 ||
+            index(lowered, "unknown option") >= 0)
+            return substr(line, 0, 240);
+
+        if (fallback == "" && substr(line, 0, 1) != ";")
+            fallback = substr(line, 0, 240);
+    }
+    return fallback;
+}
+
 function dns_matrix_error(output, status) {
     let lowered = lc(as_string(output));
+    let detail = dns_matrix_error_detail(output);
+    let message;
+
     if (index(lowered, "timed out") >= 0 || index(lowered, "no servers could be reached") >= 0)
-        return "таймаут: сервер не ответил";
-    if (index(lowered, "connection refused") >= 0)
-        return "соединение отклонено";
-    if (index(lowered, "host unreachable") >= 0 || index(lowered, "network unreachable") >= 0)
-        return "сервер недоступен по сети";
-    if (index(lowered, "invalid option") >= 0 || index(lowered, "unknown option") >= 0)
-        return "установленная версия dig не поддерживает этот протокол";
-    if (index(lowered, "failed:") >= 0)
-        return "не удалось выполнить защищённый DNS-запрос";
-    if (int(status) != 0)
-        return sprintf("dig завершился с кодом %d", int(status));
-    return "ответ не содержит A-записи";
+        message = "таймаут: сервер не ответил";
+    else if (index(lowered, "connection refused") >= 0)
+        message = "соединение отклонено";
+    else if (index(lowered, "host unreachable") >= 0 || index(lowered, "network unreachable") >= 0)
+        message = "сервер недоступен по сети";
+    else if (index(lowered, "invalid option") >= 0 || index(lowered, "unknown option") >= 0)
+        message = "установленная версия dig не поддерживает этот протокол";
+    else if (index(lowered, "failed:") >= 0)
+        message = "не удалось выполнить DNS-запрос";
+    else if (int(status) != 0)
+        message = sprintf("dig завершился с кодом %d", int(status));
+    else
+        message = "ответ не содержит A-записи";
+
+    return detail != "" ? message + " · " + detail : message;
 }
 
 function dns_matrix_query(protocol, resolver_name, resolver_host, domain) {
