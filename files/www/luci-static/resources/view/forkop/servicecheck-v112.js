@@ -61,6 +61,13 @@ var runState = {
   cancelled: false,
 };
 
+var dnsRunState = {
+  running: false,
+  jobId: "",
+  timer: null,
+  cancelled: false,
+};
+
 var openTiles = {};
 
 function callBin(args) {
@@ -109,7 +116,7 @@ function injectStyles() {
     ".fkpsc-update-row { display:flex; flex-wrap:wrap; align-items:center; gap:.65em; }",
     ".fkpsc-update-status { flex:1 1 260px; min-width:0; }",
     ".fkpsc-update-actions { display:flex; flex-wrap:wrap; gap:.5em; }",
-    ".fkpsc-tabs { display:flex; gap:.35em; margin:0 0 1em; padding:.25em; border-radius:11px; background:var(--surface-soft); border:1px solid var(--border-soft); }",
+    ".fkpsc-tabs { display:flex; flex-wrap:wrap; gap:.35em; margin:0 0 1em; padding:.25em; border-radius:11px; background:var(--surface-soft); border:1px solid var(--border-soft); }",
     ".fkpsc-tab { flex:0 1 auto; padding:.55em .9em; border:0; border-radius:8px; background:transparent; color:inherit; cursor:pointer; font-weight:600; }",
     ".fkpsc-tab.active { color:#fff; background:var(--accent); box-shadow:0 2px 8px rgba(0,0,0,.18); }",
     ".fkpsc-page { display:none; } .fkpsc-page.active { display:block; }",
@@ -179,6 +186,18 @@ function injectStyles() {
     ".fkpsc-custom-pill.ok { color:var(--ok); background:rgba(47,158,68,.13); }",
     ".fkpsc-custom-pill.warn { color:#9a6500; background:rgba(232,163,61,.16); }",
     ".fkpsc-custom-pill.err { color:var(--err); background:rgba(224,49,49,.13); }",
+    ".fkpsc-dns-form { display:flex; flex-wrap:wrap; align-items:center; gap:.6em; margin:.8em 0; }",
+    ".fkpsc-dns-domain { flex:1 1 280px; min-width:190px; }",
+    ".fkpsc-dns-groups { display:grid; gap:1em; }",
+    ".fkpsc-dns-group { padding:1em; border:1px solid var(--border); border-radius:11px; background:var(--surface-raised); box-shadow:0 4px 14px rgba(0,0,0,.08); }",
+    ".fkpsc-dns-group-head { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.5em; align-items:baseline; margin-bottom:.7em; }",
+    ".fkpsc-dns-group-head h3 { margin:0; }",
+    ".fkpsc-dns-row { display:grid; grid-template-columns:minmax(7.5em,1fr) minmax(10em,1.4fr) 6em minmax(12em,2fr); gap:.7em; align-items:center; padding:.55em .65em; margin:.35em 0; border-left:3px solid var(--skip); border-radius:0 7px 7px 0; background:var(--surface-soft); }",
+    ".fkpsc-dns-row.state-success { border-left-color:var(--ok); }",
+    ".fkpsc-dns-row.state-error { border-left-color:var(--err); }",
+    ".fkpsc-dns-host { font-family:monospace; overflow-wrap:anywhere; }",
+    ".fkpsc-dns-time { font-family:monospace; font-weight:700; white-space:nowrap; }",
+    ".fkpsc-dns-answer { overflow-wrap:anywhere; }",
 
     /* --- сводка --- */
     ".fkpsc-summary { display: flex; flex-wrap: wrap; gap: .5em; margin: 0 0 1em; }",
@@ -281,6 +300,8 @@ function injectStyles() {
     "  .fkpsc-theme-line { align-items:center; }",
     "  .fkpsc-theme-switch { width:100%; box-sizing:border-box; }",
     "  .fkpsc-theme-button { flex:1 1 30%; }",
+    "  .fkpsc-dns-row { grid-template-columns:1fr auto; gap:.3em .6em; }",
+    "  .fkpsc-dns-host, .fkpsc-dns-answer { grid-column:1/-1; }",
     "  .fkpsc-tabs { position:sticky; top:0; z-index:20; }",
     "  .fkpsc-tab { flex:1 1 30%; padding:.65em .35em; }",
     "  .fkpsc-card { padding:.8em; border-radius:9px; }",
@@ -298,7 +319,6 @@ function injectStyles() {
 
   document.head.appendChild(E("style", { id: "fkpsc-styles" }, css));
 }
-
 function formatMs(value) {
   value = parseInt(value, 10) || 0;
   return value > 0 ? value + " мс" : "—";
@@ -679,6 +699,58 @@ function renderRunMeta(state) {
   }));
 }
 
+function dnsResultCounts(groups) {
+  var counts = { success: 0, error: 0, total: 0 };
+  (groups || []).forEach(function (group) {
+    (group.items || []).forEach(function (item) {
+      counts.total++;
+      if (item.ok) {
+        counts.success++;
+      } else {
+        counts.error++;
+      }
+    });
+  });
+  return counts;
+}
+
+function renderDnsSummary(state) {
+  var counts = dnsResultCounts(state.groups || []);
+  return E("div", { class: "fkpsc-summary" }, [
+    E("span", { class: "fkpsc-sum ok" }, [E("b", {}, String(counts.success)), E("span", {}, "ответили")]),
+    E("span", { class: "fkpsc-sum err" }, [E("b", {}, String(counts.error)), E("span", {}, "ошибок")]),
+    E("span", { class: "fkpsc-sum" }, [E("b", {}, String(counts.total)), E("span", {}, "проверено")]),
+  ]);
+}
+
+function renderDnsGroups(groups) {
+  return E("div", { class: "fkpsc-dns-groups" }, (groups || []).map(function (group) {
+    var items = group.items || [];
+    var successful = items.filter(function (item) { return item.ok; }).length;
+    var rows = items.map(function (item) {
+      var measured = item.query_ms != null ? item.query_ms : (item.total_ms || 0);
+      var time = item.ok ? String(measured) + " мс" : "—";
+      var answer = item.ok ? (item.addresses || []).join(", ") : (item.message || "нет ответа");
+      return E("div", { class: "fkpsc-dns-row state-" + (item.ok ? "success" : "error") }, [
+        E("strong", {}, item.resolver || "DNS"),
+        E("span", { class: "fkpsc-dns-host" }, item.host || ""),
+        E("span", { class: "fkpsc-dns-time" }, time),
+        E("span", { class: "fkpsc-dns-answer" }, answer),
+      ]);
+    });
+
+    if (!rows.length) {
+      rows.push(E("div", { class: "fkpsc-empty" }, "Ожидаем результаты…"));
+    }
+
+    return E("div", { class: "fkpsc-dns-group" }, [
+      E("div", { class: "fkpsc-dns-group-head" }, [
+        E("h3", {}, group.title || group.id || "DNS"),
+        E("span", { class: "fkpsc-dim" }, successful + " из " + (group.total || items.length) + " ответили"),
+      ]),
+    ].concat(rows));
+  }));
+}
 function sanitizedReport(state, moduleVersion) {
   var services = (state.services || []).map(function (service) {
     return {
@@ -1673,7 +1745,165 @@ return view.extend({
     if (!capabilities.netns) {
       notes.push("Режим «от имени клиента» недоступен: ip netns не поддерживается этой прошивкой.");
     }
+
+    var dnsDomainInput = E("input", {
+      type: "text",
+      class: "cbi-input-text fkpsc-dns-domain",
+      value: "www.nvidia.com",
+      placeholder: "www.nvidia.com",
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+    var dnsStartButton = E("button", {
+      class: "cbi-button cbi-button-action important",
+      type: "button",
+      disabled: capabilities.dig ? null : "",
+    }, "Запустить тест");
+    var dnsStopButton = E("button", {
+      class: "cbi-button",
+      type: "button",
+      style: "display:none",
+    }, "Остановить");
+    var dnsProgressBar = E("div", {});
+    var dnsProgressWrap = E("div", { class: "fkpsc-progress", style: "display:none" }, [dnsProgressBar]);
+    var dnsProgressText = E("span", { class: "fkpsc-dim" }, "");
+    var dnsSummaryNode = E("div", {});
+    var dnsResultsNode = E("div", {});
+
+    function setDnsRunning(running) {
+      dnsRunState.running = running;
+      dnsStartButton.disabled = running || !capabilities.dig;
+      dnsStartButton.textContent = running ? "Тестируем…" : "Запустить тест";
+      dnsStopButton.style.display = running ? "" : "none";
+      dnsStopButton.disabled = false;
+      dnsStopButton.textContent = "Остановить";
+      dnsProgressWrap.style.display = running ? "" : "none";
+    }
+
+    function updateDnsProgress(progress) {
+      var done = (progress && progress.done) || 0;
+      var total = (progress && progress.total) || 0;
+      var percent = total > 0 ? Math.round((done / total) * 100) : 0;
+      dnsProgressBar.style.width = percent + "%";
+      dnsProgressText.textContent = total > 0 ? done + " из " + total + " DNS-запросов" : "";
+    }
+
+    function renderDnsState(state) {
+      dnsSummaryNode.replaceChildren(renderDnsSummary(state));
+      dnsResultsNode.replaceChildren(renderDnsGroups(state.groups || []));
+    }
+
+    function pollDnsJob(jobId, startedAt) {
+      dnsRunState.timer = window.setTimeout(function () {
+        if (dnsRunState.cancelled) {
+          return;
+        }
+        callBin(["status", jobId]).then(function (state) {
+          if (dnsRunState.cancelled) {
+            return;
+          }
+          updateDnsProgress(state.progress);
+          renderDnsState(state);
+          if (state.running) {
+            if (Date.now() - startedAt > JOB_TIMEOUT_MS) {
+              dnsRunState.cancelled = true;
+              callBin(["cancel", jobId]).catch(function () { return null; }).then(function () {
+                setDnsRunning(false);
+                dnsRunState.jobId = "";
+                ui.addNotification(null, E("p", {}, "Тест DNS остановлен по таймауту."), "warning");
+              });
+              return;
+            }
+            pollDnsJob(jobId, startedAt);
+            return;
+          }
+          setDnsRunning(false);
+          dnsRunState.jobId = "";
+        }).catch(function (error) {
+          setDnsRunning(false);
+          dnsRunState.jobId = "";
+          ui.addNotification(null, E("p", {}, "Ошибка чтения теста DNS: " + error.message), "error");
+        });
+      }, POLL_INTERVAL_MS);
+    }
+
+    function startDnsTest() {
+      if (dnsStartButton.disabled) {
+        return;
+      }
+      var domain = dnsDomainInput.value.trim();
+      if (!domain) {
+        ui.addNotification(null, E("p", {}, "Введите домен для тестового A-запроса."), "warning");
+        dnsDomainInput.focus();
+        return;
+      }
+
+      dnsRunState.cancelled = false;
+      setDnsRunning(true);
+      updateDnsProgress({ done: 0, total: 0 });
+      dnsSummaryNode.replaceChildren();
+      dnsResultsNode.replaceChildren();
+
+      callBin(["dns-start", domain]).then(function (response) {
+        if (!response.success) {
+          throw new Error(response.message || "не удалось запустить тест DNS");
+        }
+        dnsRunState.jobId = response.job_id;
+        updateDnsProgress(response.progress);
+        pollDnsJob(response.job_id, Date.now());
+      }).catch(function (error) {
+        setDnsRunning(false);
+        dnsRunState.jobId = "";
+        ui.addNotification(null, E("p", {}, error.message || "Не удалось запустить тест DNS"), "error");
+      });
+    }
+
+    dnsStartButton.addEventListener("click", startDnsTest);
+    dnsDomainInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        startDnsTest();
+      }
+    });
+    dnsStopButton.addEventListener("click", function () {
+      if (!dnsRunState.jobId) {
+        return;
+      }
+      dnsRunState.cancelled = true;
+      dnsStopButton.disabled = true;
+      dnsStopButton.textContent = "Останавливаем…";
+      if (dnsRunState.timer) {
+        window.clearTimeout(dnsRunState.timer);
+        dnsRunState.timer = null;
+      }
+      callBin(["cancel", dnsRunState.jobId]).then(function (state) {
+        renderDnsState(state);
+        setDnsRunning(false);
+        dnsRunState.jobId = "";
+        ui.addNotification(null, E("p", {}, state.message || "Тест DNS остановлен."), "info");
+      }).catch(function (error) {
+        setDnsRunning(false);
+        dnsRunState.jobId = "";
+        ui.addNotification(null, E("p", {}, "Не удалось подтвердить остановку: " + error.message), "warning");
+      });
+    });
+
+    var dnsPage = E("div", { class: "fkpsc-page" }, [
+      E("div", { class: "fkpsc-card" }, [
+        E("h3", {}, "Тест скорости DNS-серверов"),
+        E("p", { class: "fkpsc-dim" },
+          "Приложение отправит A-запрос выбранного домена всем DNS-серверам из списка и покажет время ответа отдельно для UDP, DNS over HTTPS и DNS over TLS."),
+        E("div", { class: "fkpsc-note" }, capabilities.dig ?
+          "Полный тест выполняется последовательно и может занять несколько минут, если часть серверов недоступна." :
+          "Для теста нужен пакет bind-dig. Установите его командой: opkg install bind-dig (или apk add bind-dig)."),
+        E("div", { class: "fkpsc-dns-form" }, [dnsDomainInput, dnsStartButton, dnsStopButton]),
+        E("div", { class: "fkpsc-actions" }, [dnsProgressWrap, dnsProgressText]),
+      ]),
+      dnsSummaryNode,
+      dnsResultsNode,
+    ]);
     var checkTab = E("button", { class: "fkpsc-tab active", type: "button", role: "tab", "aria-selected": "true" }, "Проверка сервисов");
+    var dnsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Тест DNS");
     var fixTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Фикс Forkop");
     var listsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Списки");
     var checkPage = E("div", { class: "fkpsc-page active" }, [
@@ -2033,21 +2263,26 @@ return view.extend({
     ]);
 
     function showPage(name) {
+      var showDns = name === "dns";
       var showFix = name === "fix";
       var showLists = name === "lists";
-      var showCheck = !showFix && !showLists;
+      var showCheck = !showDns && !showFix && !showLists;
       checkTab.classList.toggle("active", showCheck);
+      dnsTab.classList.toggle("active", showDns);
       fixTab.classList.toggle("active", showFix);
       listsTab.classList.toggle("active", showLists);
       checkTab.setAttribute("aria-selected", showCheck ? "true" : "false");
+      dnsTab.setAttribute("aria-selected", showDns ? "true" : "false");
       fixTab.setAttribute("aria-selected", showFix ? "true" : "false");
       listsTab.setAttribute("aria-selected", showLists ? "true" : "false");
       checkPage.classList.toggle("active", showCheck);
+      dnsPage.classList.toggle("active", showDns);
       fixPage.classList.toggle("active", showFix);
       listsPage.classList.toggle("active", showLists);
     }
 
     checkTab.addEventListener("click", function () { showPage("check"); });
+    dnsTab.addEventListener("click", function () { showPage("dns"); });
     if (showForkopFixes) {
       fixTab.addEventListener("click", function () { showPage("fix"); });
     }
@@ -2183,8 +2418,9 @@ return view.extend({
           E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
         ]),
       ]),
-      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, fixTab, listsTab] : [checkTab, listsTab]),
+      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, dnsTab, fixTab, listsTab] : [checkTab, dnsTab, listsTab]),
       checkPage,
+      dnsPage,
       showForkopFixes ? fixPage : "",
       listsPage,
     ]);

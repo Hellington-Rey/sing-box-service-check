@@ -378,3 +378,55 @@ function renderRunMeta(state) {
   }));
 }
 
+function dnsResultCounts(groups) {
+  var counts = { success: 0, error: 0, total: 0 };
+  (groups || []).forEach(function (group) {
+    (group.items || []).forEach(function (item) {
+      counts.total++;
+      if (item.ok) {
+        counts.success++;
+      } else {
+        counts.error++;
+      }
+    });
+  });
+  return counts;
+}
+
+function renderDnsSummary(state) {
+  var counts = dnsResultCounts(state.groups || []);
+  return E("div", { class: "fkpsc-summary" }, [
+    E("span", { class: "fkpsc-sum ok" }, [E("b", {}, String(counts.success)), E("span", {}, "ответили")]),
+    E("span", { class: "fkpsc-sum err" }, [E("b", {}, String(counts.error)), E("span", {}, "ошибок")]),
+    E("span", { class: "fkpsc-sum" }, [E("b", {}, String(counts.total)), E("span", {}, "проверено")]),
+  ]);
+}
+
+function renderDnsGroups(groups) {
+  return E("div", { class: "fkpsc-dns-groups" }, (groups || []).map(function (group) {
+    var items = group.items || [];
+    var successful = items.filter(function (item) { return item.ok; }).length;
+    var rows = items.map(function (item) {
+      var measured = item.query_ms != null ? item.query_ms : (item.total_ms || 0);
+      var time = item.ok ? String(measured) + " мс" : "—";
+      var answer = item.ok ? (item.addresses || []).join(", ") : (item.message || "нет ответа");
+      return E("div", { class: "fkpsc-dns-row state-" + (item.ok ? "success" : "error") }, [
+        E("strong", {}, item.resolver || "DNS"),
+        E("span", { class: "fkpsc-dns-host" }, item.host || ""),
+        E("span", { class: "fkpsc-dns-time" }, time),
+        E("span", { class: "fkpsc-dns-answer" }, answer),
+      ]);
+    });
+
+    if (!rows.length) {
+      rows.push(E("div", { class: "fkpsc-empty" }, "Ожидаем результаты…"));
+    }
+
+    return E("div", { class: "fkpsc-dns-group" }, [
+      E("div", { class: "fkpsc-dns-group-head" }, [
+        E("h3", {}, group.title || group.id || "DNS"),
+        E("span", { class: "fkpsc-dim" }, successful + " из " + (group.total || items.length) + " ответили"),
+      ]),
+    ].concat(rows));
+  }));
+}

@@ -35,6 +35,12 @@ printf '%s\n' "$CUSTOM_OUTPUT" | grep -Fxq -- '192.168.2.55'
 DNS_DIAGNOSTICS_OUTPUT="$(run_wrapper dns-diagnostics example.com)"
 [ "$(printf '%s\n' "$DNS_DIAGNOSTICS_OUTPUT" | tail -n 2 | head -n 1)" = "dns-diagnostics" ]
 [ "$(printf '%s\n' "$DNS_DIAGNOSTICS_OUTPUT" | tail -n 1)" = "example.com" ]
+DNS_OUTPUT="$(run_wrapper dns example.com)"
+[ "$(printf '%s\n' "$DNS_OUTPUT" | tail -n 2 | head -n 1)" = "dns" ]
+[ "$(printf '%s\n' "$DNS_OUTPUT" | tail -n 1)" = "example.com" ]
+DNS_START_OUTPUT="$(run_wrapper dns-start example.org)"
+[ "$(printf '%s\n' "$DNS_START_OUTPUT" | tail -n 2 | head -n 1)" = "dns-start" ]
+[ "$(printf '%s\n' "$DNS_START_OUTPUT" | tail -n 1)" = "example.org" ]
 
 [ "$(run_wrapper xhttp_patch | tail -n 1)" = "xhttp-patch" ]
 [ "$(run_wrapper icmp_tproxy_patch | tail -n 1)" = "icmp-tproxy-patch" ]

@@ -44,6 +44,77 @@ const CONNECT_TIMEOUT = 7;
 const TOTAL_TIMEOUT = 15;
 const SLOW_THRESHOLD_MS = 5000;
 const JOB_MAX_AGE = 1800;
+const DNS_MATRIX_TIMEOUT = 5;
+
+// Набор резолверов перенесён из checkdns.sh проекта clarkxkent/checkdns.
+// Храним его локально: проверка не зависит от GitHub и не исполняет удалённый код.
+const DNS_MATRIX = [
+    {
+        id: "udp",
+        title: "Обычный DNS (UDP)",
+        option: "+notcp",
+        resolvers: [
+            [ "Cloudflare", [ "1.1.1.1", "1.0.0.1" ] ],
+            [ "Google", [ "8.8.8.8", "8.8.4.4" ] ],
+            [ "Quad9", [ "9.9.9.9", "149.112.112.112" ] ],
+            [ "AliDNS", [ "223.5.5.5", "223.6.6.6" ] ],
+            [ "DNS.SB", [ "185.222.222.222" ] ],
+            [ "Yandex", [ "77.88.8.8", "77.88.8.1" ] ],
+            [ "AdGuardDNS", [ "94.140.14.14", "94.140.15.15" ] ],
+            [ "COMSS", [ "212.109.195.93", "83.220.169.155" ] ],
+            [ "OpenDNS", [ "208.67.222.222", "208.67.220.220" ] ],
+            [ "NextDNS", [ "45.90.28.80", "45.90.30.80" ] ],
+            [ "MSK-IX", [ "62.76.76.62", "62.76.62.76" ] ],
+            [ "ControlD", [ "76.76.2.0", "76.76.10.0" ] ]
+        ]
+    },
+    {
+        id: "doh",
+        title: "DNS over HTTPS (DoH)",
+        option: "+https",
+        resolvers: [
+            [ "Cloudflare", [ "1.1.1.1", "1.0.0.1" ] ],
+            [ "Google", [ "8.8.8.8", "8.8.4.4" ] ],
+            [ "Quad9", [ "9.9.9.9", "149.112.112.112" ] ],
+            [ "AliDNS", [ "dns.alidns.com" ] ],
+            [ "DNS.SB", [ "doh.dns.sb" ] ],
+            [ "Yandex", [ "common.dot.dns.yandex.net" ] ],
+            [ "AdGuardDNS", [ "dns.adguard-dns.com" ] ],
+            [ "COMSS", [ "dns.comss.one" ] ],
+            [ "OpenDNS", [ "doh.opendns.com" ] ],
+            [ "NextDNS", [ "dns.nextdns.io" ] ],
+            [ "ControlD", [ "freedns.controld.com" ] ],
+            [ "IIJ.jp", [ "public.dns.iij.jp" ] ],
+            [ "Tencent", [ "doh.pub" ] ],
+            [ "LibreDNS", [ "doh.libredns.gr" ] ],
+            [ "Mullvad", [ "dns.mullvad.net" ] ],
+            [ "Wikimedia", [ "wikimedia-dns.org" ] ]
+        ]
+    },
+    {
+        id: "dot",
+        title: "DNS over TLS (DoT)",
+        option: "+tls",
+        resolvers: [
+            [ "Cloudflare", [ "1.1.1.1", "1.0.0.1" ] ],
+            [ "Google", [ "8.8.8.8", "8.8.4.4" ] ],
+            [ "Quad9", [ "9.9.9.9", "149.112.112.112" ] ],
+            [ "AliDNS", [ "dns.alidns.com" ] ],
+            [ "DNS.SB", [ "dot.sb" ] ],
+            [ "Yandex", [ "common.dot.dns.yandex.net" ] ],
+            [ "AdGuardDNS", [ "dns.adguard-dns.com" ] ],
+            [ "COMSS", [ "dns.comss.one" ] ],
+            [ "OpenDNS", [ "dns.opendns.com" ] ],
+            [ "NextDNS", [ "dns.nextdns.io" ] ],
+            [ "ControlD", [ "p0.freedns.controld.com" ] ],
+            [ "IIJ.jp", [ "public.dns.iij.jp" ] ],
+            [ "Tencent", [ "doh.pub" ] ],
+            [ "LibreDNS", [ "doh.libredns.gr" ] ],
+            [ "Mullvad", [ "dns.mullvad.net" ] ],
+            [ "Wikimedia", [ "wikimedia-dns.org" ] ]
+        ]
+    }
+];
 
 function as_string(value) {
     return value == null ? "" : "" + value;
@@ -256,7 +327,6 @@ function profiles_file() {
         return PROFILES_OVERRIDE;
     return PROFILES_DEFAULT;
 }
-
 // ---------------------------------------------------------------------------
 // Сеть: разбор адресов
 // ---------------------------------------------------------------------------
@@ -2034,6 +2104,130 @@ function job_cancel_requested(path) {
     return state.cancel_requested || state.cancelled || state.running == false;
 }
 
+function dns_matrix_total() {
+    let total = 0;
+    for (let protocol in DNS_MATRIX)
+        for (let resolver in array_or_empty(object_or_empty(protocol).resolvers))
+            total += length(array_or_empty(resolver[1]));
+    return total;
+}
+
+function dns_matrix_domain(value) {
+    value = lc(trim(as_string(value)));
+    if (length(value) > 0 && substr(value, length(value) - 1, 1) == ".")
+        value = substr(value, 0, length(value) - 1);
+    return valid_domain(value) ? value : "";
+}
+
+function dns_matrix_error(output, status) {
+    let lowered = lc(as_string(output));
+    if (index(lowered, "timed out") >= 0 || index(lowered, "no servers could be reached") >= 0)
+        return "таймаут: сервер не ответил";
+    if (index(lowered, "connection refused") >= 0)
+        return "соединение отклонено";
+    if (index(lowered, "host unreachable") >= 0 || index(lowered, "network unreachable") >= 0)
+        return "сервер недоступен по сети";
+    if (index(lowered, "invalid option") >= 0 || index(lowered, "unknown option") >= 0)
+        return "установленная версия dig не поддерживает этот протокол";
+    if (index(lowered, "failed:") >= 0)
+        return "не удалось выполнить защищённый DNS-запрос";
+    if (int(status) != 0)
+        return sprintf("dig завершился с кодом %d", int(status));
+    return "ответ не содержит A-записи";
+}
+
+function dns_matrix_query(protocol, resolver_name, resolver_host, domain) {
+    protocol = object_or_empty(protocol);
+    let started = now_ms();
+    let result = capture_args([
+        "dig", as_string(protocol.option), "+tries=1",
+        "+time=" + as_string(DNS_MATRIX_TIMEOUT), "@" + as_string(resolver_host),
+        as_string(domain), "A"
+    ], true);
+    let elapsed = now_ms() - started;
+    let ips = [];
+    let query_ms = 0;
+
+    for (let line in split(as_string(result.output), "\n")) {
+        let timing = match(as_string(line), /Query time:[ \t]+([0-9]+)[ \t]+msec/);
+        if (timing != null)
+            query_ms = int(timing[1]);
+
+        let answer = match(as_string(line), /[ \t]IN[ \t]+A[ \t]+([0-9]{1,3}(\.[0-9]{1,3}){3})[ \t]*$/);
+        if (answer != null && valid_ipv4(answer[1]))
+            push(ips, answer[1]);
+    }
+
+    let ok = result.status == 0 && length(ips) > 0;
+    return {
+        resolver: as_string(resolver_name),
+        host: as_string(resolver_host),
+        state: ok ? "success" : "error",
+        ok,
+        query_ms,
+        total_ms: elapsed,
+        addresses: ips,
+        message: ok ? "получена A-запись" : dns_matrix_error(result.output, result.status)
+    };
+}
+
+function dns_matrix_empty_groups() {
+    let groups = [];
+    for (let protocol in DNS_MATRIX) {
+        let total = 0;
+        for (let resolver in array_or_empty(object_or_empty(protocol).resolvers))
+            total += length(array_or_empty(resolver[1]));
+        push(groups, {
+            id: as_string(object_or_empty(protocol).id),
+            title: as_string(object_or_empty(protocol).title),
+            total,
+            items: []
+        });
+    }
+    return groups;
+}
+
+function update_dns_progress(path, domain, done, total, groups) {
+    let state = object_or_empty(read_json_file(path));
+    if (!state.running)
+        return;
+    state.domain = as_string(domain);
+    state.progress = { done: int(done), total: int(total) };
+    state.groups = groups;
+    write_state(path, state);
+}
+
+function run_dns_matrix(domain, progress_path) {
+    domain = dns_matrix_domain(domain);
+    let groups = dns_matrix_empty_groups();
+    let total = dns_matrix_total();
+    let done = 0;
+
+    for (let protocol_index = 0; protocol_index < length(DNS_MATRIX); protocol_index++) {
+        let protocol = object_or_empty(DNS_MATRIX[protocol_index]);
+        for (let resolver in array_or_empty(protocol.resolvers)) {
+            let resolver_name = as_string(resolver[0]);
+            for (let resolver_host in array_or_empty(resolver[1])) {
+                if (job_cancel_requested(progress_path))
+                    return { generated_at: now_seconds(), domain, cancelled: true, progress: { done, total }, groups };
+                push(groups[protocol_index].items,
+                    dns_matrix_query(protocol, resolver_name, resolver_host, domain));
+                done++;
+                if (as_string(progress_path) != "")
+                    update_dns_progress(progress_path, domain, done, total, groups);
+            }
+        }
+    }
+
+    return {
+        generated_at: now_seconds(),
+        domain,
+        cancelled: false,
+        progress: { done, total },
+        groups
+    };
+}
+
 function run_check(ids, mode, client_ip, progress_path) {
     let profiles = selected_profiles(ids);
     let ctx = build_context(mode, client_ip);
@@ -2076,7 +2270,6 @@ function run_check(ids, mode, client_ip, progress_path) {
         services
     };
 }
-
 // ---------------------------------------------------------------------------
 // Фоновые задания
 // ---------------------------------------------------------------------------
@@ -2271,6 +2464,76 @@ function cleanup_jobs() {
     }
 }
 
+function start_dns_job(domain) {
+    ensure_state_dir();
+    cleanup_jobs();
+
+    domain = dns_matrix_domain(domain);
+    if (domain == "") {
+        write_json({ success: false, message: "Введите корректный домен без протокола и пути" });
+        return 1;
+    }
+    if (!command_exists("dig")) {
+        write_json({
+            success: false,
+            message: "Для теста DNS нужен dig. Установите bind-dig (opkg install bind-dig или apk add bind-dig)."
+        });
+        return 1;
+    }
+
+    let job_id = sprintf("dns-%d-%d", now_seconds(), int(now_ms() % 100000));
+    let path = job_path(job_id);
+    let pid_path = job_pid_path(job_id);
+    let state = {
+        kind: "dns_test",
+        job_id,
+        running: true,
+        success: false,
+        started_at: now_seconds(),
+        finished_at: 0,
+        domain,
+        progress: { done: 0, total: dns_matrix_total() },
+        groups: dns_matrix_empty_groups()
+    };
+
+    if (path == "" || !write_state(path, state)) {
+        write_json({ success: false, message: "не удалось записать состояние теста DNS" });
+        return 1;
+    }
+
+    let launch = command_from_args([
+        "sh", "-c", "pid_file=$1; shift; echo $$ > \"$pid_file\"; exec \"$@\"",
+        "dns-test-worker", pid_path,
+        "ucode", "-L", LIB_DIR, ENGINE, "dns-worker", path, domain
+    ]);
+    system("(" + launch + " >/dev/null 2>&1 &)");
+
+    write_json({ success: true, job_id, progress: state.progress });
+    return 0;
+}
+
+function dns_worker(path, domain) {
+    let initial = object_or_empty(read_json_file(path));
+    if (initial.cancelled || initial.cancel_requested || initial.running == false) {
+        fs.unlink(job_pid_path(initial.job_id));
+        return 0;
+    }
+
+    let result = run_dns_matrix(domain, path);
+    let state = object_or_empty(read_json_file(path));
+    state.running = false;
+    state.success = !result.cancelled;
+    state.cancelled = result.cancelled;
+    state.finished_at = now_seconds();
+    state.domain = result.domain;
+    state.progress = result.progress;
+    state.groups = result.groups;
+    state.message = result.cancelled ? "тест DNS остановлен" : "тест DNS завершён";
+    write_state(path, state);
+    fs.unlink(job_pid_path(state.job_id));
+    return 0;
+}
+
 function start_job(ids, mode, client_ip) {
     ensure_state_dir();
     cleanup_jobs();
@@ -2395,8 +2658,10 @@ function cancel_job(job_id) {
     state.running = false;
     state.success = false;
     state.finished_at = now_seconds();
-    state.message = "проверка остановлена пользователем";
-    state.history_saved = true;
+    state.message = as_string(state.kind) == "dns_test"
+        ? "тест DNS остановлен пользователем" : "проверка остановлена пользователем";
+    let record_history = as_string(state.kind) == "service_check";
+    state.history_saved = record_history;
     write_state(path, state);
 
     let pid = trim(as_string(fs.readfile(pid_path)));
@@ -2409,7 +2674,8 @@ function cancel_job(job_id) {
     if (as_string(state.mode) == "netns")
         netns_teardown();
 
-    save_history(state);
+    if (record_history)
+        save_history(state);
     write_json(state);
     return 0;
 }
@@ -2481,7 +2747,6 @@ function gemini_key_status() {
 }
 
 // ---------------------------------------------------------------------------
-
 let mode = as_string(ARGV[0]);
 
 if (mode == "list")
@@ -2511,6 +2776,19 @@ else if (mode == "run") {
     write_json(run_check(ARGV[1], ARGV[2], ARGV[3], ""));
     exit(0);
 }
+else if (mode == "dns") {
+    let domain = dns_matrix_domain(ARGV[1] || "www.nvidia.com");
+    if (domain == "" || !command_exists("dig")) {
+        write_json({ success: false, message: domain == "" ? "некорректный домен" : "dig не установлен" });
+        exit(1);
+    }
+    write_json(run_dns_matrix(domain, ""));
+    exit(0);
+}
+else if (mode == "dns-start")
+    exit(start_dns_job(ARGV[1] || "www.nvidia.com"));
+else if (mode == "dns-worker")
+    exit(dns_worker(ARGV[1], ARGV[2]));
 else if (mode == "start")
     exit(start_job(ARGV[1], ARGV[2], ARGV[3]));
 else if (mode == "status")

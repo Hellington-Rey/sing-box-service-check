@@ -27,6 +27,19 @@ else if (mode == "run") {
     write_json(run_check(ARGV[1], ARGV[2], ARGV[3], ""));
     exit(0);
 }
+else if (mode == "dns") {
+    let domain = dns_matrix_domain(ARGV[1] || "www.nvidia.com");
+    if (domain == "" || !command_exists("dig")) {
+        write_json({ success: false, message: domain == "" ? "некорректный домен" : "dig не установлен" });
+        exit(1);
+    }
+    write_json(run_dns_matrix(domain, ""));
+    exit(0);
+}
+else if (mode == "dns-start")
+    exit(start_dns_job(ARGV[1] || "www.nvidia.com"));
+else if (mode == "dns-worker")
+    exit(dns_worker(ARGV[1], ARGV[2]));
 else if (mode == "start")
     exit(start_job(ARGV[1], ARGV[2], ARGV[3]));
 else if (mode == "status")

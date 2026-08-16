@@ -120,6 +120,12 @@ def main():
     assert 'function dns_chain_diagnostics(host)' in engine
     assert 'dns-diagnostics' in cli
     assert 'callBin(["dns-diagnostics", target])' in view
+    assert 'const DNS_MATRIX = [' in engine
+    assert 'function run_dns_matrix(domain, progress_path)' in engine
+    assert 'else if (mode == "dns-start")' in engine
+    assert 'dns|dns-start)' in cli
+    assert 'callBin(["dns-start", domain])' in view
+    assert '"Тест DNS"' in view
     assert 'function doctor()' in engine and 'function repair()' in engine
     assert 'doctor|repair' in cli
     assert 'callBin(["doctor"])' in view and 'callBin(["repair"])' in view
@@ -161,7 +167,7 @@ def main():
     assert 'backend_running: running' in engine
     assert 'backendId === "tachyon" ? "Tachyon"' in view
     assert 'var showForkopFixes = backendId === "forkop"' in view
-    assert 'showForkopFixes ? [checkTab, fixTab, listsTab] : [checkTab, listsTab]' in view
+    assert 'showForkopFixes ? [checkTab, dnsTab, fixTab, listsTab] : [checkTab, dnsTab, listsTab]' in view
     assert '[ -x /usr/bin/tachyon ]' in script
     assert '[ -x /usr/bin/podkop ]' in script
     assert script.index('[ -x /usr/bin/tachyon ]') < script.index('[ -x /usr/bin/forkop ]') < script.index('[ -x /usr/bin/podkop ]')

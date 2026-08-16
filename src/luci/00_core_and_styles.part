@@ -61,6 +61,13 @@ var runState = {
   cancelled: false,
 };
 
+var dnsRunState = {
+  running: false,
+  jobId: "",
+  timer: null,
+  cancelled: false,
+};
+
 var openTiles = {};
 
 function callBin(args) {
@@ -109,7 +116,7 @@ function injectStyles() {
     ".fkpsc-update-row { display:flex; flex-wrap:wrap; align-items:center; gap:.65em; }",
     ".fkpsc-update-status { flex:1 1 260px; min-width:0; }",
     ".fkpsc-update-actions { display:flex; flex-wrap:wrap; gap:.5em; }",
-    ".fkpsc-tabs { display:flex; gap:.35em; margin:0 0 1em; padding:.25em; border-radius:11px; background:var(--surface-soft); border:1px solid var(--border-soft); }",
+    ".fkpsc-tabs { display:flex; flex-wrap:wrap; gap:.35em; margin:0 0 1em; padding:.25em; border-radius:11px; background:var(--surface-soft); border:1px solid var(--border-soft); }",
     ".fkpsc-tab { flex:0 1 auto; padding:.55em .9em; border:0; border-radius:8px; background:transparent; color:inherit; cursor:pointer; font-weight:600; }",
     ".fkpsc-tab.active { color:#fff; background:var(--accent); box-shadow:0 2px 8px rgba(0,0,0,.18); }",
     ".fkpsc-page { display:none; } .fkpsc-page.active { display:block; }",
@@ -179,6 +186,18 @@ function injectStyles() {
     ".fkpsc-custom-pill.ok { color:var(--ok); background:rgba(47,158,68,.13); }",
     ".fkpsc-custom-pill.warn { color:#9a6500; background:rgba(232,163,61,.16); }",
     ".fkpsc-custom-pill.err { color:var(--err); background:rgba(224,49,49,.13); }",
+    ".fkpsc-dns-form { display:flex; flex-wrap:wrap; align-items:center; gap:.6em; margin:.8em 0; }",
+    ".fkpsc-dns-domain { flex:1 1 280px; min-width:190px; }",
+    ".fkpsc-dns-groups { display:grid; gap:1em; }",
+    ".fkpsc-dns-group { padding:1em; border:1px solid var(--border); border-radius:11px; background:var(--surface-raised); box-shadow:0 4px 14px rgba(0,0,0,.08); }",
+    ".fkpsc-dns-group-head { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.5em; align-items:baseline; margin-bottom:.7em; }",
+    ".fkpsc-dns-group-head h3 { margin:0; }",
+    ".fkpsc-dns-row { display:grid; grid-template-columns:minmax(7.5em,1fr) minmax(10em,1.4fr) 6em minmax(12em,2fr); gap:.7em; align-items:center; padding:.55em .65em; margin:.35em 0; border-left:3px solid var(--skip); border-radius:0 7px 7px 0; background:var(--surface-soft); }",
+    ".fkpsc-dns-row.state-success { border-left-color:var(--ok); }",
+    ".fkpsc-dns-row.state-error { border-left-color:var(--err); }",
+    ".fkpsc-dns-host { font-family:monospace; overflow-wrap:anywhere; }",
+    ".fkpsc-dns-time { font-family:monospace; font-weight:700; white-space:nowrap; }",
+    ".fkpsc-dns-answer { overflow-wrap:anywhere; }",
 
     /* --- сводка --- */
     ".fkpsc-summary { display: flex; flex-wrap: wrap; gap: .5em; margin: 0 0 1em; }",
@@ -281,6 +300,8 @@ function injectStyles() {
     "  .fkpsc-theme-line { align-items:center; }",
     "  .fkpsc-theme-switch { width:100%; box-sizing:border-box; }",
     "  .fkpsc-theme-button { flex:1 1 30%; }",
+    "  .fkpsc-dns-row { grid-template-columns:1fr auto; gap:.3em .6em; }",
+    "  .fkpsc-dns-host, .fkpsc-dns-answer { grid-column:1/-1; }",
     "  .fkpsc-tabs { position:sticky; top:0; z-index:20; }",
     "  .fkpsc-tab { flex:1 1 30%; padding:.65em .35em; }",
     "  .fkpsc-card { padding:.8em; border-radius:9px; }",
@@ -298,4 +319,3 @@ function injectStyles() {
 
   document.head.appendChild(E("style", { id: "fkpsc-styles" }, css));
 }
-

@@ -243,6 +243,130 @@ function job_cancel_requested(path) {
     return state.cancel_requested || state.cancelled || state.running == false;
 }
 
+function dns_matrix_total() {
+    let total = 0;
+    for (let protocol in DNS_MATRIX)
+        for (let resolver in array_or_empty(object_or_empty(protocol).resolvers))
+            total += length(array_or_empty(resolver[1]));
+    return total;
+}
+
+function dns_matrix_domain(value) {
+    value = lc(trim(as_string(value)));
+    if (length(value) > 0 && substr(value, length(value) - 1, 1) == ".")
+        value = substr(value, 0, length(value) - 1);
+    return valid_domain(value) ? value : "";
+}
+
+function dns_matrix_error(output, status) {
+    let lowered = lc(as_string(output));
+    if (index(lowered, "timed out") >= 0 || index(lowered, "no servers could be reached") >= 0)
+        return "таймаут: сервер не ответил";
+    if (index(lowered, "connection refused") >= 0)
+        return "соединение отклонено";
+    if (index(lowered, "host unreachable") >= 0 || index(lowered, "network unreachable") >= 0)
+        return "сервер недоступен по сети";
+    if (index(lowered, "invalid option") >= 0 || index(lowered, "unknown option") >= 0)
+        return "установленная версия dig не поддерживает этот протокол";
+    if (index(lowered, "failed:") >= 0)
+        return "не удалось выполнить защищённый DNS-запрос";
+    if (int(status) != 0)
+        return sprintf("dig завершился с кодом %d", int(status));
+    return "ответ не содержит A-записи";
+}
+
+function dns_matrix_query(protocol, resolver_name, resolver_host, domain) {
+    protocol = object_or_empty(protocol);
+    let started = now_ms();
+    let result = capture_args([
+        "dig", as_string(protocol.option), "+tries=1",
+        "+time=" + as_string(DNS_MATRIX_TIMEOUT), "@" + as_string(resolver_host),
+        as_string(domain), "A"
+    ], true);
+    let elapsed = now_ms() - started;
+    let ips = [];
+    let query_ms = 0;
+
+    for (let line in split(as_string(result.output), "\n")) {
+        let timing = match(as_string(line), /Query time:[ \t]+([0-9]+)[ \t]+msec/);
+        if (timing != null)
+            query_ms = int(timing[1]);
+
+        let answer = match(as_string(line), /[ \t]IN[ \t]+A[ \t]+([0-9]{1,3}(\.[0-9]{1,3}){3})[ \t]*$/);
+        if (answer != null && valid_ipv4(answer[1]))
+            push(ips, answer[1]);
+    }
+
+    let ok = result.status == 0 && length(ips) > 0;
+    return {
+        resolver: as_string(resolver_name),
+        host: as_string(resolver_host),
+        state: ok ? "success" : "error",
+        ok,
+        query_ms,
+        total_ms: elapsed,
+        addresses: ips,
+        message: ok ? "получена A-запись" : dns_matrix_error(result.output, result.status)
+    };
+}
+
+function dns_matrix_empty_groups() {
+    let groups = [];
+    for (let protocol in DNS_MATRIX) {
+        let total = 0;
+        for (let resolver in array_or_empty(object_or_empty(protocol).resolvers))
+            total += length(array_or_empty(resolver[1]));
+        push(groups, {
+            id: as_string(object_or_empty(protocol).id),
+            title: as_string(object_or_empty(protocol).title),
+            total,
+            items: []
+        });
+    }
+    return groups;
+}
+
+function update_dns_progress(path, domain, done, total, groups) {
+    let state = object_or_empty(read_json_file(path));
+    if (!state.running)
+        return;
+    state.domain = as_string(domain);
+    state.progress = { done: int(done), total: int(total) };
+    state.groups = groups;
+    write_state(path, state);
+}
+
+function run_dns_matrix(domain, progress_path) {
+    domain = dns_matrix_domain(domain);
+    let groups = dns_matrix_empty_groups();
+    let total = dns_matrix_total();
+    let done = 0;
+
+    for (let protocol_index = 0; protocol_index < length(DNS_MATRIX); protocol_index++) {
+        let protocol = object_or_empty(DNS_MATRIX[protocol_index]);
+        for (let resolver in array_or_empty(protocol.resolvers)) {
+            let resolver_name = as_string(resolver[0]);
+            for (let resolver_host in array_or_empty(resolver[1])) {
+                if (job_cancel_requested(progress_path))
+                    return { generated_at: now_seconds(), domain, cancelled: true, progress: { done, total }, groups };
+                push(groups[protocol_index].items,
+                    dns_matrix_query(protocol, resolver_name, resolver_host, domain));
+                done++;
+                if (as_string(progress_path) != "")
+                    update_dns_progress(progress_path, domain, done, total, groups);
+            }
+        }
+    }
+
+    return {
+        generated_at: now_seconds(),
+        domain,
+        cancelled: false,
+        progress: { done, total },
+        groups
+    };
+}
+
 function run_check(ids, mode, client_ip, progress_path) {
     let profiles = selected_profiles(ids);
     let ctx = build_context(mode, client_ip);
@@ -285,4 +409,3 @@ function run_check(ids, mode, client_ip, progress_path) {
         services
     };
 }
-

@@ -43,6 +43,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Кнопка **«Фикс ping/ICMP для правил подсетей»**: priority-правила TProxy ограничиваются TCP/UDP, чтобы ICMP не получал proxy-маркер.
 - Расширяемая панель **«Фиксы Forkop»** показывается только при установленном Forkop: новые исправления добавляются в whitelist-реестр backend и не позволяют запускать произвольные команды из браузера.
 - Двусторонние UDP-проверки через DNS в составе обычной проверки сервисов.
+- Отдельная вкладка **«Тест DNS»** с замером времени ответа публичных резолверов по UDP, DoH и DoT.
 - Ожидаемый маршрут `proxy` или `direct` для каждой цели с отдельным предупреждением, если фактический outbound не совпал или его нельзя подтвердить.
 - История десяти последних запусков в оперативной памяти и сравнение статуса, outbound и времени ответа с предыдущим запуском.
 - Копирование безопасного текстового отчёта и скачивание JSON для поддержки без ключей, клиентских адресов и разрешённых IP.
@@ -67,13 +68,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.9.0-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.9.1-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.9.0-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.9.1-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -149,6 +150,16 @@ sing-box-service-check update-status
 ```sh
 sing-box-service-check history
 sing-box-service-check history-clear
+```
+
+## Тест DNS
+
+Отдельная вкладка **«Тест DNS»** отправляет A-запрос выбранного домена публичным DNS-серверам и показывает время ответа, полученные адреса и ошибки отдельно для обычного DNS по UDP, DNS over HTTPS и DNS over TLS. Проверка выполняется в фоне и обновляет результаты по мере прохождения списка.
+
+Для теста нужен `dig` из пакета `bind-dig`. Тот же тест из консоли:
+
+```sh
+sing-box-service-check dns example.com
 ```
 
 ## Профили и диагностика установки

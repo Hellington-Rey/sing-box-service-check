@@ -44,6 +44,77 @@ const CONNECT_TIMEOUT = 7;
 const TOTAL_TIMEOUT = 15;
 const SLOW_THRESHOLD_MS = 5000;
 const JOB_MAX_AGE = 1800;
+const DNS_MATRIX_TIMEOUT = 5;
+
+// Набор резолверов перенесён из checkdns.sh проекта clarkxkent/checkdns.
+// Храним его локально: проверка не зависит от GitHub и не исполняет удалённый код.
+const DNS_MATRIX = [
+    {
+        id: "udp",
+        title: "Обычный DNS (UDP)",
+        option: "+notcp",
+        resolvers: [
+            [ "Cloudflare", [ "1.1.1.1", "1.0.0.1" ] ],
+            [ "Google", [ "8.8.8.8", "8.8.4.4" ] ],
+            [ "Quad9", [ "9.9.9.9", "149.112.112.112" ] ],
+            [ "AliDNS", [ "223.5.5.5", "223.6.6.6" ] ],
+            [ "DNS.SB", [ "185.222.222.222" ] ],
+            [ "Yandex", [ "77.88.8.8", "77.88.8.1" ] ],
+            [ "AdGuardDNS", [ "94.140.14.14", "94.140.15.15" ] ],
+            [ "COMSS", [ "212.109.195.93", "83.220.169.155" ] ],
+            [ "OpenDNS", [ "208.67.222.222", "208.67.220.220" ] ],
+            [ "NextDNS", [ "45.90.28.80", "45.90.30.80" ] ],
+            [ "MSK-IX", [ "62.76.76.62", "62.76.62.76" ] ],
+            [ "ControlD", [ "76.76.2.0", "76.76.10.0" ] ]
+        ]
+    },
+    {
+        id: "doh",
+        title: "DNS over HTTPS (DoH)",
+        option: "+https",
+        resolvers: [
+            [ "Cloudflare", [ "1.1.1.1", "1.0.0.1" ] ],
+            [ "Google", [ "8.8.8.8", "8.8.4.4" ] ],
+            [ "Quad9", [ "9.9.9.9", "149.112.112.112" ] ],
+            [ "AliDNS", [ "dns.alidns.com" ] ],
+            [ "DNS.SB", [ "doh.dns.sb" ] ],
+            [ "Yandex", [ "common.dot.dns.yandex.net" ] ],
+            [ "AdGuardDNS", [ "dns.adguard-dns.com" ] ],
+            [ "COMSS", [ "dns.comss.one" ] ],
+            [ "OpenDNS", [ "doh.opendns.com" ] ],
+            [ "NextDNS", [ "dns.nextdns.io" ] ],
+            [ "ControlD", [ "freedns.controld.com" ] ],
+            [ "IIJ.jp", [ "public.dns.iij.jp" ] ],
+            [ "Tencent", [ "doh.pub" ] ],
+            [ "LibreDNS", [ "doh.libredns.gr" ] ],
+            [ "Mullvad", [ "dns.mullvad.net" ] ],
+            [ "Wikimedia", [ "wikimedia-dns.org" ] ]
+        ]
+    },
+    {
+        id: "dot",
+        title: "DNS over TLS (DoT)",
+        option: "+tls",
+        resolvers: [
+            [ "Cloudflare", [ "1.1.1.1", "1.0.0.1" ] ],
+            [ "Google", [ "8.8.8.8", "8.8.4.4" ] ],
+            [ "Quad9", [ "9.9.9.9", "149.112.112.112" ] ],
+            [ "AliDNS", [ "dns.alidns.com" ] ],
+            [ "DNS.SB", [ "dot.sb" ] ],
+            [ "Yandex", [ "common.dot.dns.yandex.net" ] ],
+            [ "AdGuardDNS", [ "dns.adguard-dns.com" ] ],
+            [ "COMSS", [ "dns.comss.one" ] ],
+            [ "OpenDNS", [ "dns.opendns.com" ] ],
+            [ "NextDNS", [ "dns.nextdns.io" ] ],
+            [ "ControlD", [ "p0.freedns.controld.com" ] ],
+            [ "IIJ.jp", [ "public.dns.iij.jp" ] ],
+            [ "Tencent", [ "doh.pub" ] ],
+            [ "LibreDNS", [ "doh.libredns.gr" ] ],
+            [ "Mullvad", [ "dns.mullvad.net" ] ],
+            [ "Wikimedia", [ "wikimedia-dns.org" ] ]
+        ]
+    }
+];
 
 function as_string(value) {
     return value == null ? "" : "" + value;
@@ -256,4 +327,3 @@ function profiles_file() {
         return PROFILES_OVERRIDE;
     return PROFILES_DEFAULT;
 }
-

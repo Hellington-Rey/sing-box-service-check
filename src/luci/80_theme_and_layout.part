@@ -1,19 +1,24 @@
     function showPage(name) {
+      var showDns = name === "dns";
       var showFix = name === "fix";
       var showLists = name === "lists";
-      var showCheck = !showFix && !showLists;
+      var showCheck = !showDns && !showFix && !showLists;
       checkTab.classList.toggle("active", showCheck);
+      dnsTab.classList.toggle("active", showDns);
       fixTab.classList.toggle("active", showFix);
       listsTab.classList.toggle("active", showLists);
       checkTab.setAttribute("aria-selected", showCheck ? "true" : "false");
+      dnsTab.setAttribute("aria-selected", showDns ? "true" : "false");
       fixTab.setAttribute("aria-selected", showFix ? "true" : "false");
       listsTab.setAttribute("aria-selected", showLists ? "true" : "false");
       checkPage.classList.toggle("active", showCheck);
+      dnsPage.classList.toggle("active", showDns);
       fixPage.classList.toggle("active", showFix);
       listsPage.classList.toggle("active", showLists);
     }
 
     checkTab.addEventListener("click", function () { showPage("check"); });
+    dnsTab.addEventListener("click", function () { showPage("dns"); });
     if (showForkopFixes) {
       fixTab.addEventListener("click", function () { showPage("fix"); });
     }
@@ -149,8 +154,9 @@
           E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
         ]),
       ]),
-      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, fixTab, listsTab] : [checkTab, listsTab]),
+      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, dnsTab, fixTab, listsTab] : [checkTab, dnsTab, listsTab]),
       checkPage,
+      dnsPage,
       showForkopFixes ? fixPage : "",
       listsPage,
     ]);

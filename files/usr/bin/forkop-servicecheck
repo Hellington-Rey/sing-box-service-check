@@ -16,6 +16,8 @@ Available commands:
     capabilities            Показать возможности роутера (curl, dig, netns, fakeip)
     custom HOST [PORT] [MODE] [IP]
                             Проверить любой IPv4/домен и маршрут через sing-box
+    dns [DOMAIN]            Проверить скорость публичных DNS по UDP, DoH и DoT
+    dns-start [DOMAIN]      Запустить тест DNS в фоне, вернуть job_id
     dns-diagnostics [HOST]  Проверить цепочку dnsmasq → sing-box → backend
     run IDS [MODE] [IP]     Проверить сервисы синхронно и напечатать JSON
     start IDS [MODE] [IP]   Запустить проверку в фоне, вернуть job_id
@@ -46,6 +48,7 @@ IP   - желаемый адрес клиента для режима netns
 
 Примеры:
     $BIN_PATH custom example.com 443 router
+    $BIN_PATH dns www.nvidia.com
     $BIN_PATH run telegram,youtube
     $BIN_PATH run all netns
 EOF
@@ -84,6 +87,9 @@ case "$COMMAND" in
         ;;
     custom)
         exec ucode -L "$LIB_DIR" "$ENGINE" custom "${2:-}" "${3:-}" "${4:-}" "${5:-}"
+        ;;
+    dns|dns-start)
+        exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-www.nvidia.com}"
         ;;
     dns-diagnostics)
         exec ucode -L "$LIB_DIR" "$ENGINE" dns-diagnostics "${2:-}"

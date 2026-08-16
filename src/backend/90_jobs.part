@@ -192,6 +192,76 @@ function cleanup_jobs() {
     }
 }
 
+function start_dns_job(domain) {
+    ensure_state_dir();
+    cleanup_jobs();
+
+    domain = dns_matrix_domain(domain);
+    if (domain == "") {
+        write_json({ success: false, message: "Введите корректный домен без протокола и пути" });
+        return 1;
+    }
+    if (!command_exists("dig")) {
+        write_json({
+            success: false,
+            message: "Для теста DNS нужен dig. Установите bind-dig (opkg install bind-dig или apk add bind-dig)."
+        });
+        return 1;
+    }
+
+    let job_id = sprintf("dns-%d-%d", now_seconds(), int(now_ms() % 100000));
+    let path = job_path(job_id);
+    let pid_path = job_pid_path(job_id);
+    let state = {
+        kind: "dns_test",
+        job_id,
+        running: true,
+        success: false,
+        started_at: now_seconds(),
+        finished_at: 0,
+        domain,
+        progress: { done: 0, total: dns_matrix_total() },
+        groups: dns_matrix_empty_groups()
+    };
+
+    if (path == "" || !write_state(path, state)) {
+        write_json({ success: false, message: "не удалось записать состояние теста DNS" });
+        return 1;
+    }
+
+    let launch = command_from_args([
+        "sh", "-c", "pid_file=$1; shift; echo $$ > \"$pid_file\"; exec \"$@\"",
+        "dns-test-worker", pid_path,
+        "ucode", "-L", LIB_DIR, ENGINE, "dns-worker", path, domain
+    ]);
+    system("(" + launch + " >/dev/null 2>&1 &)");
+
+    write_json({ success: true, job_id, progress: state.progress });
+    return 0;
+}
+
+function dns_worker(path, domain) {
+    let initial = object_or_empty(read_json_file(path));
+    if (initial.cancelled || initial.cancel_requested || initial.running == false) {
+        fs.unlink(job_pid_path(initial.job_id));
+        return 0;
+    }
+
+    let result = run_dns_matrix(domain, path);
+    let state = object_or_empty(read_json_file(path));
+    state.running = false;
+    state.success = !result.cancelled;
+    state.cancelled = result.cancelled;
+    state.finished_at = now_seconds();
+    state.domain = result.domain;
+    state.progress = result.progress;
+    state.groups = result.groups;
+    state.message = result.cancelled ? "тест DNS остановлен" : "тест DNS завершён";
+    write_state(path, state);
+    fs.unlink(job_pid_path(state.job_id));
+    return 0;
+}
+
 function start_job(ids, mode, client_ip) {
     ensure_state_dir();
     cleanup_jobs();
@@ -316,8 +386,10 @@ function cancel_job(job_id) {
     state.running = false;
     state.success = false;
     state.finished_at = now_seconds();
-    state.message = "проверка остановлена пользователем";
-    state.history_saved = true;
+    state.message = as_string(state.kind) == "dns_test"
+        ? "тест DNS остановлен пользователем" : "проверка остановлена пользователем";
+    let record_history = as_string(state.kind) == "service_check";
+    state.history_saved = record_history;
     write_state(path, state);
 
     let pid = trim(as_string(fs.readfile(pid_path)));
@@ -330,7 +402,8 @@ function cancel_job(job_id) {
     if (as_string(state.mode) == "netns")
         netns_teardown();
 
-    save_history(state);
+    if (record_history)
+        save_history(state);
     write_json(state);
     return 0;
 }
@@ -402,4 +475,3 @@ function gemini_key_status() {
 }
 
 // ---------------------------------------------------------------------------
-

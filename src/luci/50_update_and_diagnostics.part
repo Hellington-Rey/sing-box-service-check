@@ -222,3 +222,160 @@
     if (!capabilities.netns) {
       notes.push("Режим «от имени клиента» недоступен: ip netns не поддерживается этой прошивкой.");
     }
+
+    var dnsDomainInput = E("input", {
+      type: "text",
+      class: "cbi-input-text fkpsc-dns-domain",
+      value: "www.nvidia.com",
+      placeholder: "www.nvidia.com",
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+    var dnsStartButton = E("button", {
+      class: "cbi-button cbi-button-action important",
+      type: "button",
+      disabled: capabilities.dig ? null : "",
+    }, "Запустить тест");
+    var dnsStopButton = E("button", {
+      class: "cbi-button",
+      type: "button",
+      style: "display:none",
+    }, "Остановить");
+    var dnsProgressBar = E("div", {});
+    var dnsProgressWrap = E("div", { class: "fkpsc-progress", style: "display:none" }, [dnsProgressBar]);
+    var dnsProgressText = E("span", { class: "fkpsc-dim" }, "");
+    var dnsSummaryNode = E("div", {});
+    var dnsResultsNode = E("div", {});
+
+    function setDnsRunning(running) {
+      dnsRunState.running = running;
+      dnsStartButton.disabled = running || !capabilities.dig;
+      dnsStartButton.textContent = running ? "Тестируем…" : "Запустить тест";
+      dnsStopButton.style.display = running ? "" : "none";
+      dnsStopButton.disabled = false;
+      dnsStopButton.textContent = "Остановить";
+      dnsProgressWrap.style.display = running ? "" : "none";
+    }
+
+    function updateDnsProgress(progress) {
+      var done = (progress && progress.done) || 0;
+      var total = (progress && progress.total) || 0;
+      var percent = total > 0 ? Math.round((done / total) * 100) : 0;
+      dnsProgressBar.style.width = percent + "%";
+      dnsProgressText.textContent = total > 0 ? done + " из " + total + " DNS-запросов" : "";
+    }
+
+    function renderDnsState(state) {
+      dnsSummaryNode.replaceChildren(renderDnsSummary(state));
+      dnsResultsNode.replaceChildren(renderDnsGroups(state.groups || []));
+    }
+
+    function pollDnsJob(jobId, startedAt) {
+      dnsRunState.timer = window.setTimeout(function () {
+        if (dnsRunState.cancelled) {
+          return;
+        }
+        callBin(["status", jobId]).then(function (state) {
+          if (dnsRunState.cancelled) {
+            return;
+          }
+          updateDnsProgress(state.progress);
+          renderDnsState(state);
+          if (state.running) {
+            if (Date.now() - startedAt > JOB_TIMEOUT_MS) {
+              dnsRunState.cancelled = true;
+              callBin(["cancel", jobId]).catch(function () { return null; }).then(function () {
+                setDnsRunning(false);
+                dnsRunState.jobId = "";
+                ui.addNotification(null, E("p", {}, "Тест DNS остановлен по таймауту."), "warning");
+              });
+              return;
+            }
+            pollDnsJob(jobId, startedAt);
+            return;
+          }
+          setDnsRunning(false);
+          dnsRunState.jobId = "";
+        }).catch(function (error) {
+          setDnsRunning(false);
+          dnsRunState.jobId = "";
+          ui.addNotification(null, E("p", {}, "Ошибка чтения теста DNS: " + error.message), "error");
+        });
+      }, POLL_INTERVAL_MS);
+    }
+
+    function startDnsTest() {
+      if (dnsStartButton.disabled) {
+        return;
+      }
+      var domain = dnsDomainInput.value.trim();
+      if (!domain) {
+        ui.addNotification(null, E("p", {}, "Введите домен для тестового A-запроса."), "warning");
+        dnsDomainInput.focus();
+        return;
+      }
+
+      dnsRunState.cancelled = false;
+      setDnsRunning(true);
+      updateDnsProgress({ done: 0, total: 0 });
+      dnsSummaryNode.replaceChildren();
+      dnsResultsNode.replaceChildren();
+
+      callBin(["dns-start", domain]).then(function (response) {
+        if (!response.success) {
+          throw new Error(response.message || "не удалось запустить тест DNS");
+        }
+        dnsRunState.jobId = response.job_id;
+        updateDnsProgress(response.progress);
+        pollDnsJob(response.job_id, Date.now());
+      }).catch(function (error) {
+        setDnsRunning(false);
+        dnsRunState.jobId = "";
+        ui.addNotification(null, E("p", {}, error.message || "Не удалось запустить тест DNS"), "error");
+      });
+    }
+
+    dnsStartButton.addEventListener("click", startDnsTest);
+    dnsDomainInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        startDnsTest();
+      }
+    });
+    dnsStopButton.addEventListener("click", function () {
+      if (!dnsRunState.jobId) {
+        return;
+      }
+      dnsRunState.cancelled = true;
+      dnsStopButton.disabled = true;
+      dnsStopButton.textContent = "Останавливаем…";
+      if (dnsRunState.timer) {
+        window.clearTimeout(dnsRunState.timer);
+        dnsRunState.timer = null;
+      }
+      callBin(["cancel", dnsRunState.jobId]).then(function (state) {
+        renderDnsState(state);
+        setDnsRunning(false);
+        dnsRunState.jobId = "";
+        ui.addNotification(null, E("p", {}, state.message || "Тест DNS остановлен."), "info");
+      }).catch(function (error) {
+        setDnsRunning(false);
+        dnsRunState.jobId = "";
+        ui.addNotification(null, E("p", {}, "Не удалось подтвердить остановку: " + error.message), "warning");
+      });
+    });
+
+    var dnsPage = E("div", { class: "fkpsc-page" }, [
+      E("div", { class: "fkpsc-card" }, [
+        E("h3", {}, "Тест скорости DNS-серверов"),
+        E("p", { class: "fkpsc-dim" },
+          "Приложение отправит A-запрос выбранного домена всем DNS-серверам из списка и покажет время ответа отдельно для UDP, DNS over HTTPS и DNS over TLS."),
+        E("div", { class: "fkpsc-note" }, capabilities.dig ?
+          "Полный тест выполняется последовательно и может занять несколько минут, если часть серверов недоступна." :
+          "Для теста нужен пакет bind-dig. Установите его командой: opkg install bind-dig (или apk add bind-dig)."),
+        E("div", { class: "fkpsc-dns-form" }, [dnsDomainInput, dnsStartButton, dnsStopButton]),
+        E("div", { class: "fkpsc-actions" }, [dnsProgressWrap, dnsProgressText]),
+      ]),
+      dnsSummaryNode,
+      dnsResultsNode,
+    ]);
