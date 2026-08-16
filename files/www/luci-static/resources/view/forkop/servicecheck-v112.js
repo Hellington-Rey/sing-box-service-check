@@ -783,7 +783,7 @@ function renderDnsGroups(groups) {
     return E("div", { class: "fkpsc-dns-group" }, [
       E("div", { class: "fkpsc-dns-group-head" }, [
         E("h3", {}, group.title || group.id || "DNS"),
-        E("span", { class: "fkpsc-dim" }, successful + " из " + (group.total || items.length) + " ответили"),
+        E("span", { class: "fkpsc-dim" }, successful + " из " + (group.total || items.length) + " ответили · быстрее → медленнее"),
       ]),
     ].concat(rows));
   }));

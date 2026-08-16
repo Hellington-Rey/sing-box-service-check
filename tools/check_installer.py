@@ -125,6 +125,9 @@ def main():
     assert 'function dns_matrix_error_detail(output)' in engine
     assert '"dig", "-u", as_string(protocol.option)' in engine
     assert 'query_us = int(timing_us[1])' in engine
+    assert 'function dns_matrix_sort_items(items)' in engine
+    assert 'dns_matrix_speed_us(item) < dns_matrix_speed_us(existing)' in engine
+    assert 'быстрее → медленнее' in view
     assert 'function dnsQueryTime(item)' in view
     assert 'Точное время DNS-запроса' in view
     assert 'function dig_runtime_check()' in engine

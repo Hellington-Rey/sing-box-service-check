@@ -74,8 +74,17 @@ esac
 case "${4:-}" in +time=*) ;; *) echo 'missing +time' >&2; exit 64 ;; esac
 case "${5:-}" in @*) ;; *) echo 'missing resolver' >&2; exit 64 ;; esac
 [ -n "${6:-}" ] && [ "${7:-}" = "A" ] || { echo 'invalid A query' >&2; exit 64; }
+if [ "${5:-}" = "@9.9.9.9" ]; then
+    echo ';; communications error to 9.9.9.9#53: connection refused' >&2
+    exit 9
+fi
+case "${5:-}" in
+    @1.1.1.1) query_us=5000 ;;
+    @1.0.0.1) query_us=1000 ;;
+    *) query_us=3000 ;;
+esac
 printf '%s.\t60\tIN\tA\t93.184.216.34\n' "$6"
-echo ';; Query time: 750 usec'
+echo ";; Query time: $query_us usec"
 EOF
 chmod +x "$TMP/backend" "$TMP/bin/"*
 
@@ -142,9 +151,17 @@ import json, os
 data = json.loads(os.environ["JSON_DATA"])
 items = [item for group in data["groups"] for item in group["items"]]
 assert data["progress"] == {"done": 61, "total": 61}, data["progress"]
-assert len(items) == 61 and all(item["ok"] for item in items), items
-assert {item["query_us"] for item in items} == {750}, items
+assert len(items) == 61, items
+assert sum(item["ok"] for item in items) == 58, items
+assert {item["query_us"] for item in items if item["ok"]} == {1000, 3000, 5000}, items
 assert {item["query_ms"] for item in items} == {None}, items
+for group in data["groups"]:
+    successful = [item for item in group["items"] if item["ok"]]
+    failed = [item for item in group["items"] if not item["ok"]]
+    assert group["items"] == successful + failed, group
+    speeds = [item["query_us"] for item in successful]
+    assert speeds == sorted(speeds), speeds
+    assert [item["host"] for item in failed] == ["9.9.9.9"], failed
 PY
 
 output="$(BROKEN_DIG=1 run_engine capabilities)"

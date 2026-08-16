@@ -2249,6 +2249,37 @@ function dns_matrix_query(protocol, resolver_name, resolver_host, domain) {
     };
 }
 
+function dns_matrix_speed_us(item) {
+    item = object_or_empty(item);
+    if (item.query_us != null)
+        return int(item.query_us);
+    if (item.query_ms != null)
+        return int(item.query_ms) * 1000;
+    return int(item.total_ms) > 0 ? int(item.total_ms) * 1000 : 2147483647;
+}
+
+function dns_matrix_sort_items(items) {
+    let sorted = [];
+    for (let item in array_or_empty(items)) {
+        item = object_or_empty(item);
+        let next = [];
+        let inserted = false;
+        for (let existing in sorted) {
+            existing = object_or_empty(existing);
+            if (!inserted && item.ok &&
+                (!existing.ok || dns_matrix_speed_us(item) < dns_matrix_speed_us(existing))) {
+                push(next, item);
+                inserted = true;
+            }
+            push(next, existing);
+        }
+        if (!inserted)
+            push(next, item);
+        sorted = next;
+    }
+    return sorted;
+}
+
 function dns_matrix_empty_groups() {
     let groups = [];
     for (let protocol in DNS_MATRIX) {
@@ -2290,6 +2321,7 @@ function run_dns_matrix(domain, progress_path) {
                     return { generated_at: now_seconds(), domain, cancelled: true, progress: { done, total }, groups };
                 push(groups[protocol_index].items,
                     dns_matrix_query(protocol, resolver_name, resolver_host, domain));
+                groups[protocol_index].items = dns_matrix_sort_items(groups[protocol_index].items);
                 done++;
                 if (as_string(progress_path) != "")
                     update_dns_progress(progress_path, domain, done, total, groups);
