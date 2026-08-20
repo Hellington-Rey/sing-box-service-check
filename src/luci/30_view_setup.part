@@ -20,6 +20,9 @@ return view.extend({
       callBin(["history"]).catch(function () {
         return { success: false, entries: [] };
       }),
+      callBin(["vpn-packages"]).catch(function () {
+        return { wireguard: {}, amneziawg: {} };
+      }),
     ]);
   },
 
@@ -31,6 +34,7 @@ return view.extend({
     var fixes = (data[2] && data[2].fixes) || [];
     var profilesData = data[3];
     var historyData = data[4] || { entries: [] };
+    var vpnPackages = data[5] || { wireguard: {}, amneziawg: {} };
     var profilesDraft = profilesData && profilesData.config ?
       JSON.parse(JSON.stringify(profilesData.config)) : { version: 2, profiles: [] };
     if (!Array.isArray(profilesDraft.profiles)) {

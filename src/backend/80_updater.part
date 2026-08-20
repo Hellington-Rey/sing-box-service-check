@@ -31,6 +31,22 @@ function short_output(value) {
     return length(value) > 2000 ? substr(value, 0, 2000) + "…" : value;
 }
 
+function update_dependency_info() {
+    let dig_status = dig_runtime_check();
+    let packages = [];
+    if (!dig_status.runnable) {
+        if (dig_status.available)
+            push(packages, "bind-libs");
+        push(packages, "bind-dig");
+    }
+    return {
+        ready: dig_status.runnable,
+        repair: dig_status.available && !dig_status.runnable,
+        packages,
+        command: dig_status.runnable ? "" : dig_repair_hint()
+    };
+}
+
 function latest_release_info() {
     let current = installed_version();
     if (!command_exists("curl"))
@@ -75,6 +91,7 @@ function latest_release_info() {
     if (size < 10000 || size > 2097152)
         return { success: false, installed_version: current, latest_version: latest, message: "размер установщика выходит за допустимые пределы" };
 
+    let dependencies = update_dependency_info();
     return {
         success: true,
         installed_version: current,
@@ -84,6 +101,10 @@ function latest_release_info() {
         installer_url: download_url,
         installer_digest: digest,
         installer_size: size,
+        dependencies_ready: dependencies.ready,
+        dependency_repair: dependencies.repair,
+        missing_packages: dependencies.packages,
+        dependency_command: dependencies.command,
         message: version_compare(latest, current) > 0
             ? "доступна версия " + latest
             : "установлена актуальная версия"
@@ -162,7 +183,9 @@ function update_worker() {
     state.message = "устанавливаем версию " + info.latest_version + "; LuCI может кратковременно потерять связь";
     write_state(UPDATE_STATE_FILE, state);
 
-    let installed = capture_args([ "sh", installer_path ], true);
+    let installer_args = [ "sh", installer_path ];
+    push(installer_args, state.install_missing ? "--install-missing" : "--skip-missing");
+    let installed = capture_args(installer_args, true);
     run_quiet([ "rm", "-rf", tmp_dir ]);
     if (installed.status != 0)
         return update_state_finish(state, false, "установщик завершился с ошибкой", installed.output);
@@ -173,7 +196,7 @@ function update_worker() {
     return update_state_finish(state, true, "версия " + info.latest_version + " установлена", installed.output);
 }
 
-function update_start() {
+function update_start(install_mode) {
     if (!command_exists("sha256sum")) {
         write_json({ success: false, message: "для безопасного обновления нужен sha256sum" });
         return 1;
@@ -204,6 +227,8 @@ function update_start() {
         installed_version: info.installed_version,
         latest_version: info.latest_version,
         release_url: info.release_url,
+        install_missing: as_string(install_mode) == "install-missing",
+        missing_packages: array_or_empty(info.missing_packages),
         message: "подготавливаем обновление до " + info.latest_version
     };
     if (!write_state(UPDATE_STATE_FILE, state)) {

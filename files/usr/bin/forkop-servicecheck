@@ -29,7 +29,8 @@ Available commands:
     history                 Показать до 10 последних результатов из tmpfs
     history-clear           Очистить историю результатов
     update-check            Проверить последнюю версию в GitHub Releases
-    update-start            Безопасно установить доступное обновление в фоне
+    update-start [--install-missing|--skip-missing]
+                            Безопасно установить доступное обновление в фоне
     update-status           Показать состояние обновления
     gemini_key_set KEY      Сохранить API-ключ для геопроверки Gemini
     gemini_key_reset        Удалить сохранённый API-ключ Gemini
@@ -40,6 +41,10 @@ Available commands:
     profiles-save JSON      Проверить и сохранить пользовательский список
     profiles-validate JSON  Проверить список без сохранения
     profiles-reset          Вернуться к встроенному списку
+    vpn-packages            Показать готовность WireGuard и AmneziaWG
+    vpn-install PROTOCOL    Установить компоненты wireguard или amneziawg
+    vpn-create NAME PROTOCOL CONFIG
+                            Создать VPN-интерфейс и проверить handshake
     netns_teardown          Снести временный network namespace
 
 IDS  - список id сервисов через запятую либо 'all'
@@ -70,8 +75,45 @@ command -v ucode >/dev/null 2>&1 || {
 }
 
 case "$COMMAND" in
-    list|capabilities|fixes|cleanup|doctor|repair|history|history-clear|profiles-get|profiles-reset|update-check|update-start|update-status)
+    list|capabilities|fixes|cleanup|doctor|repair|history|history-clear|profiles-get|profiles-reset|vpn-packages|update-check|update-status)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND"
+        ;;
+    update-start)
+        UPDATE_MODE="${2:-}"
+        case "$UPDATE_MODE" in
+            --install-missing|install-missing) UPDATE_MODE="install-missing" ;;
+            --skip-missing|skip-missing) UPDATE_MODE="skip-missing" ;;
+            "")
+                MISSING_PACKAGES=""
+                if ! command -v dig >/dev/null 2>&1; then
+                    MISSING_PACKAGES="bind-dig"
+                elif ! dig -v >/dev/null 2>&1; then
+                    MISSING_PACKAGES="bind-libs bind-dig"
+                fi
+
+                if [ -n "$MISSING_PACKAGES" ]; then
+                    printf 'Для полной работы обновления нужны пакеты: %s\n' "$MISSING_PACKAGES" >&2
+                    if [ -t 0 ]; then
+                        printf 'Установить их вместе с обновлением? [Y/n] ' >&2
+                        IFS= read -r UPDATE_ANSWER || UPDATE_ANSWER="n"
+                        case "$UPDATE_ANSWER" in
+                            n|N|no|NO|нет|Нет|НЕТ) UPDATE_MODE="skip-missing" ;;
+                            *) UPDATE_MODE="install-missing" ;;
+                        esac
+                    else
+                        printf 'Интерактивный ввод недоступен; используйте update-start --install-missing для установки пакетов.\n' >&2
+                        UPDATE_MODE="skip-missing"
+                    fi
+                else
+                    UPDATE_MODE="skip-missing"
+                fi
+                ;;
+            *)
+                echo "Error: update-start accepts only --install-missing or --skip-missing" >&2
+                exit 1
+                ;;
+        esac
+        exec ucode -L "$LIB_DIR" "$ENGINE" update-start "$UPDATE_MODE"
         ;;
     gemini_key_reset)
         exec ucode -L "$LIB_DIR" "$ENGINE" gemini-key-reset
@@ -84,6 +126,12 @@ case "$COMMAND" in
         ;;
     fix|status|cancel|profiles-save|profiles-validate)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}"
+        ;;
+    vpn-install)
+        exec ucode -L "$LIB_DIR" "$ENGINE" vpn-install "${2:-}"
+        ;;
+    vpn-create)
+        exec ucode -L "$LIB_DIR" "$ENGINE" vpn-create "${2:-}" "${3:-}" "${4:-}"
         ;;
     custom)
         exec ucode -L "$LIB_DIR" "$ENGINE" custom "${2:-}" "${3:-}" "${4:-}" "${5:-}"

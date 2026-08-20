@@ -32,6 +32,13 @@ def main():
     assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
+    assert "offer_update_dependencies()" in script
+    assert "install_update_dependencies()" in script
+    assert 'Установить недостающие пакеты сейчас? [Y/n]' in script
+    assert '--install-missing' in script and '--skip-missing' in script
+    assert 'opkg install --force-reinstall bind-libs bind-dig' in script
+    assert 'apk fix --upgrade bind-libs bind-dig' in script
+    assert 'command -v dig >/dev/null 2>&1 && dig -v >/dev/null 2>&1' in script
     assert "sed -n '/^__PAYLOAD_BELOW__$/,$p' \"$0\"" not in script
 
     chunks = script.split(MARKER)
@@ -148,6 +155,11 @@ def main():
     assert 'recovery.sha256' in script
     assert 'status == 28 && connect_ms <= 0 && remote_ip == ""' in engine
     assert 'else if (mode == "profiles-save")' in engine
+    assert 'function vpn_create(name, protocol, payload)' in engine
+    assert 'else if (mode == "vpn-packages")' in engine
+    assert 'vpn-install PROTOCOL' in cli
+    assert 'callBin(["vpn-create", name, protocol, config])' in view
+    assert 'AmneziaWG (авто: AWG 2.0/3.0)' in view
     assert 'callBin(["profiles-save", JSON.stringify(profilesDraft)])' in view
     assert 'function renderProfilesCards()' in view
     assert 'Добавить категорию' in view
@@ -182,12 +194,14 @@ def main():
     assert 'backend_running: running' in engine
     assert 'backendId === "tachyon" ? "Tachyon"' in view
     assert 'var showForkopFixes = backendId === "forkop"' in view
-    assert 'showForkopFixes ? [checkTab, dnsTab, fixTab, listsTab] : [checkTab, dnsTab, listsTab]' in view
+    assert 'showForkopFixes ? [checkTab, dnsTab, vpnTab, fixTab, listsTab] : [checkTab, dnsTab, vpnTab, listsTab]' in view
     assert '[ -x /usr/bin/tachyon ]' in script
     assert '[ -x /usr/bin/podkop ]' in script
     assert script.index('[ -x /usr/bin/tachyon ]') < script.index('[ -x /usr/bin/forkop ]') < script.index('[ -x /usr/bin/podkop ]')
     assert engine.index('if (fs.stat(TACHYON_BIN) != null)') < engine.index('if (fs.stat(FORKOP_BIN) != null)') < engine.index('if (fs.stat(PODKOP_BIN) != null)')
-    assert 'update-check|update-start|update-status)' in cli
+    assert 'update-check|update-status)' in cli
+    assert 'update-start)' in cli
+    assert 'update-start [--install-missing|--skip-missing]' in cli
     assert 'function latest_release_info()' in engine
     assert 'function update_worker()' in engine
     assert 'function update_temp_dir_valid(path)' in engine
@@ -198,10 +212,13 @@ def main():
     assert 'actual_digest != expected_digest' in engine
     assert 'version_marker == null || as_string(version_marker[1]) != info.latest_version' in engine
     assert 'callBin(["update-check"])' in view
-    assert 'callBin(["update-start"])' in view
+    assert 'callBin(["update-start", installMode])' in view
     assert 'callBin(["update-status"])' in view
     assert 'Обновление модуля' in view
     assert 'Перед установкой будет проверен SHA-256' in view
+    assert 'Будет предложено установить недостающие пакеты' in view
+    assert 'missing_packages: dependencies.packages' in engine
+    assert 'state.install_missing ? "--install-missing" : "--skip-missing"' in engine
     assert "GEMINI_API_KEY_DEFAULT" not in engine
     assert "AIza" not in engine
     assert '"path": "/v1beta/models"' in profiles

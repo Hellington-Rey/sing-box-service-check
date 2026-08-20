@@ -1,24 +1,29 @@
     function showPage(name) {
       var showDns = name === "dns";
+      var showVpn = name === "vpn";
       var showFix = name === "fix";
       var showLists = name === "lists";
-      var showCheck = !showDns && !showFix && !showLists;
+      var showCheck = !showDns && !showVpn && !showFix && !showLists;
       checkTab.classList.toggle("active", showCheck);
       dnsTab.classList.toggle("active", showDns);
+      vpnTab.classList.toggle("active", showVpn);
       fixTab.classList.toggle("active", showFix);
       listsTab.classList.toggle("active", showLists);
       checkTab.setAttribute("aria-selected", showCheck ? "true" : "false");
       dnsTab.setAttribute("aria-selected", showDns ? "true" : "false");
+      vpnTab.setAttribute("aria-selected", showVpn ? "true" : "false");
       fixTab.setAttribute("aria-selected", showFix ? "true" : "false");
       listsTab.setAttribute("aria-selected", showLists ? "true" : "false");
       checkPage.classList.toggle("active", showCheck);
       dnsPage.classList.toggle("active", showDns);
+      vpnPage.classList.toggle("active", showVpn);
       fixPage.classList.toggle("active", showFix);
       listsPage.classList.toggle("active", showLists);
     }
 
     checkTab.addEventListener("click", function () { showPage("check"); });
     dnsTab.addEventListener("click", function () { showPage("dns"); });
+    vpnTab.addEventListener("click", function () { showPage("vpn"); });
     if (showForkopFixes) {
       fixTab.addEventListener("click", function () { showPage("fix"); });
     }
@@ -154,9 +159,10 @@
           E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
         ]),
       ]),
-      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, dnsTab, fixTab, listsTab] : [checkTab, dnsTab, listsTab]),
+      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, dnsTab, vpnTab, fixTab, listsTab] : [checkTab, dnsTab, vpnTab, listsTab]),
       checkPage,
       dnsPage,
+      vpnPage,
       showForkopFixes ? fixPage : "",
       listsPage,
     ]);

@@ -186,6 +186,8 @@ function injectStyles() {
     ".fkpsc-custom-pill.ok { color:var(--ok); background:rgba(47,158,68,.13); }",
     ".fkpsc-custom-pill.warn { color:#9a6500; background:rgba(232,163,61,.16); }",
     ".fkpsc-custom-pill.err { color:var(--err); background:rgba(224,49,49,.13); }",
+    ".fkpsc-vpn-grid { display:grid; grid-template-columns:minmax(11em,.4fr) minmax(12em,.5fr) 1fr; gap:.75em; margin:.7em 0; }",
+    ".fkpsc-vpn-config { box-sizing:border-box; width:100%; min-height:18em; resize:vertical; font-family:monospace; font-size:.88em; line-height:1.4; }",
     ".fkpsc-dns-form { display:flex; flex-wrap:wrap; align-items:center; gap:.6em; margin:.8em 0; }",
     ".fkpsc-dns-domain { flex:1 1 280px; min-width:190px; }",
     ".fkpsc-dns-groups { display:grid; gap:1em; }",
@@ -301,6 +303,7 @@ function injectStyles() {
     "  .fkpsc-theme-switch { width:100%; box-sizing:border-box; }",
     "  .fkpsc-theme-button { flex:1 1 30%; }",
     "  .fkpsc-dns-row { grid-template-columns:1fr auto; gap:.3em .6em; }",
+    "  .fkpsc-vpn-grid { grid-template-columns:1fr; }",
     "  .fkpsc-dns-host, .fkpsc-dns-answer { grid-column:1/-1; }",
     "  .fkpsc-tabs { position:sticky; top:0; z-index:20; }",
     "  .fkpsc-tab { flex:1 1 30%; padding:.65em .35em; }",
@@ -1028,6 +1031,9 @@ return view.extend({
       callBin(["history"]).catch(function () {
         return { success: false, entries: [] };
       }),
+      callBin(["vpn-packages"]).catch(function () {
+        return { wireguard: {}, amneziawg: {} };
+      }),
     ]);
   },
 
@@ -1039,6 +1045,7 @@ return view.extend({
     var fixes = (data[2] && data[2].fixes) || [];
     var profilesData = data[3];
     var historyData = data[4] || { entries: [] };
+    var vpnPackages = data[5] || { wireguard: {}, amneziawg: {} };
     var profilesDraft = profilesData && profilesData.config ?
       JSON.parse(JSON.stringify(profilesData.config)) : { version: 2, profiles: [] };
     if (!Array.isArray(profilesDraft.profiles)) {
@@ -1571,6 +1578,10 @@ return view.extend({
     var updateTimer = null;
     var availableUpdate = null;
 
+    function updateMissingPackages(info) {
+      return info && Array.isArray(info.missing_packages) ? info.missing_packages.filter(Boolean) : [];
+    }
+
     function updateStatusContent(title, message, releaseUrl) {
       var children = [E("b", {}, title)];
       if (message) {
@@ -1599,10 +1610,15 @@ return view.extend({
       var latest = info.latest_version || current;
       if (info.update_available) {
         availableUpdate = info;
+        var missingPackages = updateMissingPackages(info);
+        var updateMessage = "Сейчас установлена " + current + ". Перед установкой будет проверен SHA-256.";
+        if (missingPackages.length) {
+          updateMessage += " Будет предложено установить недостающие пакеты: " + missingPackages.join(", ") + ".";
+        }
         installUpdateButton.textContent = "Обновить до " + latest;
         installUpdateButton.style.display = "";
         installUpdateButton.disabled = false;
-        updateStatusContent("Доступна версия " + latest, "Сейчас установлена " + current + ". Перед установкой будет проверен SHA-256.", info.release_url);
+        updateStatusContent("Доступна версия " + latest, updateMessage, info.release_url);
       } else {
         availableUpdate = null;
         installUpdateButton.style.display = "none";
@@ -1662,13 +1678,22 @@ return view.extend({
       if (!availableUpdate) {
         return;
       }
-      if (!window.confirm("Установить Sing-box Service Check " + availableUpdate.latest_version + "? Во время обновления LuCI кратковременно потеряет связь.")) {
+      var missingPackages = updateMissingPackages(availableUpdate);
+      var installMode = missingPackages.length ? "install-missing" : "skip-missing";
+      var confirmation = "Установить Sing-box Service Check " + availableUpdate.latest_version + "?";
+      if (missingPackages.length) {
+        confirmation += "\n\nВместе с обновлением будут установлены" +
+          (availableUpdate.dependency_repair ? " или переустановлены" : "") +
+          " недостающие пакеты: " + missingPackages.join(", ") + ".";
+      }
+      confirmation += "\n\nВо время обновления LuCI кратковременно потеряет связь.";
+      if (!window.confirm(confirmation)) {
         return;
       }
       checkUpdateButton.disabled = true;
       installUpdateButton.disabled = true;
       updateStatusContent("Запускаем обновление", "Backend повторно проверит релиз, адрес файла и SHA-256.", availableUpdate.release_url);
-      callBin(["update-start"]).then(function (state) {
+      callBin(["update-start", installMode]).then(function (state) {
         if (!state.success) {
           throw new Error(state.message || "не удалось запустить обновление");
         }
@@ -1940,8 +1965,62 @@ return view.extend({
       dnsSummaryNode,
       dnsResultsNode,
     ]);
+    var vpnNameInput = E("input", { type:"text", class:"cbi-input-text", value:"vpn0", maxlength:"15", autocomplete:"off", spellcheck:"false" });
+    var vpnProtocol = E("select", { class:"cbi-input-select" }, [
+      E("option", { value:"wireguard", selected:"" }, "WireGuard"),
+      E("option", { value:"amneziawg" }, "AmneziaWG (авто: AWG 2.0/3.0)"),
+    ]);
+    var vpnConfig = E("textarea", { class:"cbi-input-text fkpsc-vpn-config", spellcheck:"false",
+      placeholder:"[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nAllowedIPs = 0.0.0.0/0\nEndpoint = host:port\nPersistentKeepalive = 25\n\nДля AmneziaWG добавьте Jc, Jmin, Jmax, S1, S2, H1-H4. I1-I5 включают AWG 3.0." });
+    var vpnAction = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "Создать и проверить");
+    var vpnInstall = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "Установить компоненты");
+    var vpnNotice = E("div", { class:"fkpsc-custom-result", style:"display:none" });
+    var vpnPackageNote = E("div", {});
+
+    function vpnCurrentStatus() { return vpnPackages[vpnProtocol.value] || {}; }
+    function showVpnNotice(state, title, message) {
+      vpnNotice.style.display = "";
+      vpnNotice.className = "fkpsc-custom-result state-" + (state === "ok" ? "success" : state === "err" ? "error" : "warning");
+      vpnNotice.replaceChildren(E("div", { class:"fkpsc-custom-head" }, [E("span", { class:"fkpsc-custom-title" }, title), E("span", { class:"fkpsc-custom-pill " + state }, state === "ok" ? "готово" : state === "err" ? "ошибка" : "выполняется")]), E("div", {}, message));
+    }
+    function renderVpnPackages() {
+      var status = vpnCurrentStatus(), ready = !!status.ready;
+      vpnAction.disabled = !ready; vpnInstall.disabled = ready || !status.install_available;
+      if (ready) {
+        if (vpnProtocol.value === "amneziawg" && status.awg3_ready === false) {
+          vpnPackageNote.replaceChildren(E("div", { class:"fkpsc-note" }, "Установленный AmneziaWG поддерживает AWG 2.0, но не AWG 3.0: в netifd-протоколе нет параметров I1-I5. Обновите пакет AmneziaWG перед импортом AWG 3.0."));
+        } else vpnPackageNote.replaceChildren();
+        return;
+      }
+      var names = Array.isArray(status.missing) && status.missing.length ? status.missing.join(", ") : "компоненты протокола";
+      vpnPackageNote.replaceChildren(E("div", { class:"fkpsc-note" }, [E("span", {}, "Для " + (vpnProtocol.value === "wireguard" ? "WireGuard" : "AmneziaWG") + " отсутствуют: " + names + ". "), status.install_available ? vpnInstall : E("span", {}, "Поддерживаемый пакетный менеджер не найден.")]));
+    }
+    vpnProtocol.addEventListener("change", renderVpnPackages);
+    vpnInstall.addEventListener("click", function () {
+      var protocol = vpnProtocol.value;
+      if (vpnInstall.disabled || !window.confirm("Обновить индекс пакетов и установить компоненты " + (protocol === "wireguard" ? "WireGuard" : "AmneziaWG") + "?")) return;
+      vpnInstall.disabled = true; vpnInstall.textContent = "Устанавливаю..."; showVpnNotice("wait", "Установка компонентов", "Обновляем индекс пакетов и устанавливаем зависимости.");
+      callBin(["vpn-install", protocol]).then(function (result) { vpnPackages[protocol] = result; renderVpnPackages(); showVpnNotice(result.ready ? "ok" : "err", result.ready ? "Компоненты готовы" : "Компоненты не установлены", result.message || "Проверьте пакетный менеджер.");
+      }).catch(function (error) { showVpnNotice("err", "Установка не выполнена", error.message || "Не удалось установить пакеты.");
+      }).finally(function () { vpnInstall.textContent = "Установить компоненты"; renderVpnPackages(); });
+    });
+    vpnAction.addEventListener("click", function () {
+      if (vpnAction.disabled) return;
+      var name = vpnNameInput.value.trim(), config = vpnConfig.value.trim(), protocol = vpnProtocol.value;
+      if (!name || !config) { showVpnNotice("err", "Конфигурация не отправлена", "Укажите имя интерфейса и вставьте конфигурацию."); return; }
+      vpnAction.disabled = true; vpnAction.textContent = "Создаю и проверяю..."; showVpnNotice("wait", "Создание интерфейса", "Проверяем конфигурацию, записываем UCI и ждём handshake.");
+      callBin(["vpn-create", name, protocol, config]).then(function (result) {
+        if (!result.success) { showVpnNotice("err", "Интерфейс не создан", result.message || "Проверка не прошла."); return; }
+        var title = protocol === "amneziawg" ? "AmneziaWG " + (result.awg_version || "") : "WireGuard";
+        showVpnNotice(result.handshake && result.link_up ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + (result.link_up ? " Link поднят." : " Link не поднят.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
+      }).catch(function (error) { showVpnNotice("err", "Ошибка выполнения", error.message || "Не удалось создать интерфейс.");
+      }).finally(function () { vpnAction.textContent = "Создать и проверить"; renderVpnPackages(); });
+    });
+    renderVpnPackages();
+
     var checkTab = E("button", { class: "fkpsc-tab active", type: "button", role: "tab", "aria-selected": "true" }, "Проверка сервисов");
     var dnsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Тест DNS");
+    var vpnTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "VPN");
     var fixTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Фикс Forkop");
     var listsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Списки");
     var checkPage = E("div", { class: "fkpsc-page active" }, [
@@ -1995,6 +2074,11 @@ return view.extend({
       reportPanel,
     ]);
     var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
+    var vpnPage = E("div", { class:"fkpsc-page" }, [E("div", { class:"fkpsc-card" }, [
+      E("h3", {}, "Создание VPN-интерфейса"),
+      E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
+      E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]), vpnPackageNote, vpnNotice,
+    ])]);
     var profilesCardsNode = E("div", {});
     var saveProfilesButton = E("button", { class: "cbi-button cbi-button-action important", type: "button" }, "Сохранить список");
     var resetProfilesButton = E("button", { class: "cbi-button cbi-button-negative", type: "button" }, "Вернуть встроенный");
@@ -2302,25 +2386,30 @@ return view.extend({
 
     function showPage(name) {
       var showDns = name === "dns";
+      var showVpn = name === "vpn";
       var showFix = name === "fix";
       var showLists = name === "lists";
-      var showCheck = !showDns && !showFix && !showLists;
+      var showCheck = !showDns && !showVpn && !showFix && !showLists;
       checkTab.classList.toggle("active", showCheck);
       dnsTab.classList.toggle("active", showDns);
+      vpnTab.classList.toggle("active", showVpn);
       fixTab.classList.toggle("active", showFix);
       listsTab.classList.toggle("active", showLists);
       checkTab.setAttribute("aria-selected", showCheck ? "true" : "false");
       dnsTab.setAttribute("aria-selected", showDns ? "true" : "false");
+      vpnTab.setAttribute("aria-selected", showVpn ? "true" : "false");
       fixTab.setAttribute("aria-selected", showFix ? "true" : "false");
       listsTab.setAttribute("aria-selected", showLists ? "true" : "false");
       checkPage.classList.toggle("active", showCheck);
       dnsPage.classList.toggle("active", showDns);
+      vpnPage.classList.toggle("active", showVpn);
       fixPage.classList.toggle("active", showFix);
       listsPage.classList.toggle("active", showLists);
     }
 
     checkTab.addEventListener("click", function () { showPage("check"); });
     dnsTab.addEventListener("click", function () { showPage("dns"); });
+    vpnTab.addEventListener("click", function () { showPage("vpn"); });
     if (showForkopFixes) {
       fixTab.addEventListener("click", function () { showPage("fix"); });
     }
@@ -2456,9 +2545,10 @@ return view.extend({
           E("span", { class: "fkpsc-badge" }, capabilities.netns ? "netns доступен" : "только роутер"),
         ]),
       ]),
-      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, dnsTab, fixTab, listsTab] : [checkTab, dnsTab, listsTab]),
+      E("div", { class: "fkpsc-tabs", role: "tablist" }, showForkopFixes ? [checkTab, dnsTab, vpnTab, fixTab, listsTab] : [checkTab, dnsTab, vpnTab, listsTab]),
       checkPage,
       dnsPage,
+      vpnPage,
       showForkopFixes ? fixPage : "",
       listsPage,
     ]);

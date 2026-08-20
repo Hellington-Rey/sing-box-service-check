@@ -29,6 +29,7 @@ MENU_FILE="/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json"
 ACL_FILE="/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json"
 STATE_DIR="/var/run/forkop-servicecheck"
 NETNS_DIR="/etc/netns/fkpsc"
+DEPENDENCY_MODE="prompt"
 
 log() {
     printf '\033[0;36m[servicecheck]\033[0m %s\n' "$1"
@@ -73,6 +74,12 @@ case "$1" in
     --uninstall|uninstall|-u)
         do_uninstall
         ;;
+    --install-missing)
+        DEPENDENCY_MODE="install"
+        ;;
+    --skip-missing)
+        DEPENDENCY_MODE="skip"
+        ;;
 esac
 
 log "Sing-box Service Check $VERSION (собран $BUILT_AT)"
@@ -103,6 +110,102 @@ detect_installed_version() {
     fi
 }
 
+detect_update_dependencies() {
+    BIND_DEPENDENCY_STATE="ok"
+    BIND_DEPENDENCY_PACKAGES=""
+
+    if ! command -v dig >/dev/null 2>&1; then
+        BIND_DEPENDENCY_STATE="missing"
+        BIND_DEPENDENCY_PACKAGES="bind-dig"
+    elif ! dig -v >/dev/null 2>&1; then
+        BIND_DEPENDENCY_STATE="repair"
+        BIND_DEPENDENCY_PACKAGES="bind-libs bind-dig"
+    fi
+}
+
+dependency_install_hint() {
+    if command -v opkg >/dev/null 2>&1; then
+        if [ "$BIND_DEPENDENCY_STATE" = "repair" ]; then
+            printf '%s\n' "opkg update && opkg install --force-reinstall bind-libs bind-dig"
+        else
+            printf '%s\n' "opkg update && opkg install bind-dig"
+        fi
+    elif command -v apk >/dev/null 2>&1; then
+        if [ "$BIND_DEPENDENCY_STATE" = "repair" ]; then
+            printf '%s\n' "apk update && apk fix --upgrade bind-libs bind-dig"
+        else
+            printf '%s\n' "apk update && apk add bind-dig"
+        fi
+    else
+        printf '%s\n' "установите $BIND_DEPENDENCY_PACKAGES через пакетный менеджер прошивки"
+    fi
+}
+
+install_update_dependencies() {
+    log "Устанавливаю зависимости DNS-теста: $BIND_DEPENDENCY_PACKAGES"
+
+    if command -v opkg >/dev/null 2>&1; then
+        opkg update || fail "Не удалось обновить список пакетов opkg."
+        if [ "$BIND_DEPENDENCY_STATE" = "repair" ]; then
+            opkg install --force-reinstall bind-libs bind-dig || fail "Не удалось переустановить bind-libs и bind-dig."
+        else
+            opkg install bind-dig || fail "Не удалось установить bind-dig."
+        fi
+    elif command -v apk >/dev/null 2>&1; then
+        apk update || fail "Не удалось обновить список пакетов apk."
+        if [ "$BIND_DEPENDENCY_STATE" = "repair" ]; then
+            apk fix --upgrade bind-libs bind-dig || fail "Не удалось переустановить bind-libs и bind-dig."
+        else
+            apk add bind-dig || fail "Не удалось установить bind-dig."
+        fi
+    else
+        fail "Не найден поддерживаемый пакетный менеджер. $(dependency_install_hint)"
+    fi
+
+    command -v dig >/dev/null 2>&1 && dig -v >/dev/null 2>&1 ||
+        fail "Пакеты установлены, но dig не запускается. Выполните: $(dependency_install_hint)"
+    log "Зависимости DNS-теста готовы"
+}
+
+offer_update_dependencies() {
+    [ -n "$INSTALLED_VERSION" ] || return 0
+
+    detect_update_dependencies
+    [ "$BIND_DEPENDENCY_STATE" != "ok" ] || return 0
+
+    if [ "$BIND_DEPENDENCY_STATE" = "repair" ]; then
+        log "Обнаружены несовместимые пакеты BIND: $BIND_DEPENDENCY_PACKAGES"
+    else
+        log "Для вкладки «Тест DNS» не хватает пакета: $BIND_DEPENDENCY_PACKAGES"
+    fi
+
+    case "$DEPENDENCY_MODE" in
+        install)
+            install_update_dependencies
+            ;;
+        skip)
+            log "Установка зависимостей пропущена. Позже выполните: $(dependency_install_hint)"
+            ;;
+        *)
+            answer=""
+            if [ -c /dev/tty ] && printf 'Установить недостающие пакеты сейчас? [Y/n] ' >/dev/tty 2>/dev/null; then
+                IFS= read -r answer </dev/tty 2>/dev/null || answer="n"
+            else
+                answer="n"
+                log "Нет интерактивного терминала — зависимости не устанавливаю автоматически."
+            fi
+            case "$answer" in
+                n|N|no|NO|нет|Нет|НЕТ)
+                    log "Установка зависимостей пропущена. Позже выполните: $(dependency_install_hint)"
+                    ;;
+                *)
+                    install_update_dependencies
+                    ;;
+            esac
+            ;;
+    esac
+}
+
 INSTALLED_VERSION="$(detect_installed_version || true)"
 if [ -n "$INSTALLED_VERSION" ]; then
     if [ "$INSTALLED_VERSION" = "$VERSION" ]; then
@@ -118,6 +221,8 @@ fi
 # --- Проверки окружения -----------------------------------------------------
 
 [ "$(id -u)" = "0" ] || fail "Нужны права root."
+
+offer_update_dependencies
 
 command -v ucode >/dev/null 2>&1 || fail "Не найден ucode. Установите пакет ucode."
 command -v base64 >/dev/null 2>&1 || fail "Не найдена утилита base64."

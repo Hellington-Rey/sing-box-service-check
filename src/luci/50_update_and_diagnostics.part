@@ -11,6 +11,10 @@
     var updateTimer = null;
     var availableUpdate = null;
 
+    function updateMissingPackages(info) {
+      return info && Array.isArray(info.missing_packages) ? info.missing_packages.filter(Boolean) : [];
+    }
+
     function updateStatusContent(title, message, releaseUrl) {
       var children = [E("b", {}, title)];
       if (message) {
@@ -39,10 +43,15 @@
       var latest = info.latest_version || current;
       if (info.update_available) {
         availableUpdate = info;
+        var missingPackages = updateMissingPackages(info);
+        var updateMessage = "Сейчас установлена " + current + ". Перед установкой будет проверен SHA-256.";
+        if (missingPackages.length) {
+          updateMessage += " Будет предложено установить недостающие пакеты: " + missingPackages.join(", ") + ".";
+        }
         installUpdateButton.textContent = "Обновить до " + latest;
         installUpdateButton.style.display = "";
         installUpdateButton.disabled = false;
-        updateStatusContent("Доступна версия " + latest, "Сейчас установлена " + current + ". Перед установкой будет проверен SHA-256.", info.release_url);
+        updateStatusContent("Доступна версия " + latest, updateMessage, info.release_url);
       } else {
         availableUpdate = null;
         installUpdateButton.style.display = "none";
@@ -102,13 +111,22 @@
       if (!availableUpdate) {
         return;
       }
-      if (!window.confirm("Установить Sing-box Service Check " + availableUpdate.latest_version + "? Во время обновления LuCI кратковременно потеряет связь.")) {
+      var missingPackages = updateMissingPackages(availableUpdate);
+      var installMode = missingPackages.length ? "install-missing" : "skip-missing";
+      var confirmation = "Установить Sing-box Service Check " + availableUpdate.latest_version + "?";
+      if (missingPackages.length) {
+        confirmation += "\n\nВместе с обновлением будут установлены" +
+          (availableUpdate.dependency_repair ? " или переустановлены" : "") +
+          " недостающие пакеты: " + missingPackages.join(", ") + ".";
+      }
+      confirmation += "\n\nВо время обновления LuCI кратковременно потеряет связь.";
+      if (!window.confirm(confirmation)) {
         return;
       }
       checkUpdateButton.disabled = true;
       installUpdateButton.disabled = true;
       updateStatusContent("Запускаем обновление", "Backend повторно проверит релиз, адрес файла и SHA-256.", availableUpdate.release_url);
-      callBin(["update-start"]).then(function (state) {
+      callBin(["update-start", installMode]).then(function (state) {
         if (!state.success) {
           throw new Error(state.message || "не удалось запустить обновление");
         }

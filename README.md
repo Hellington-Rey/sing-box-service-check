@@ -49,6 +49,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Копирование безопасного текстового отчёта и скачивание JSON для поддержки без ключей, клиентских адресов и разрешённых IP.
 - Импорт и экспорт пользовательских списков JSON с проверкой структуры до сохранения.
 - Диагностика backend, Clash API, DNS и FakeIP, а также самопроверка и восстановление установки из локальной recovery-копии.
+- Вкладка **VPN**: импорт WireGuard, AmneziaWG/AWG 2.0 и AWG 3.0 из стандартного конфигурационного файла; проверка пакетов, установка недостающих компонентов по подтверждению, создание UCI-интерфейса и проверка link/handshake.
 
 ## Как это работает
 
@@ -68,13 +69,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.9.1-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.10.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.9.1-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.10.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -83,7 +84,7 @@ apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.9.1-r1.apk
 wget -O- https://raw.githubusercontent.com/Hellington-Rey/sing-box-service-check/main/install-sing-box-service-check.sh | sh
 ```
 
-Установщик определяет уже установленную версию и сообщает, выполняется ли чистая установка, обновление или переустановка текущей версии.
+Установщик определяет уже установленную версию и сообщает, выполняется ли чистая установка, обновление или переустановка текущей версии. При обновлении он проверяет запуск `dig` и предлагает установить недостающий `bind-dig` либо переустановить несовместимые `bind-libs` и `bind-dig`. В команде `wget | sh` вопрос читается из терминала, а не из канала с установщиком.
 
 ## Обновление из LuCI
 
@@ -97,7 +98,7 @@ wget -O- https://raw.githubusercontent.com/Hellington-Rey/sing-box-service-check
 4. повторно вычисляет SHA-256 загруженного файла;
 5. проверяет, что версия внутри установщика совпадает с тегом релиза.
 
-Установка выполняется в фоне. Во время перезапуска `rpcd` LuCI может на несколько секунд потерять связь, после чего страница обновится автоматически.
+Установка выполняется в фоне. Если для новых функций не хватает пакетов, LuCI показывает их список в карточке обновления и включает установку в действие только после подтверждения пользователя. Во время перезапуска `rpcd` LuCI может на несколько секунд потерять связь, после чего страница обновится автоматически.
 
 Те же операции из консоли:
 
@@ -105,6 +106,13 @@ wget -O- https://raw.githubusercontent.com/Hellington-Rey/sing-box-service-check
 sing-box-service-check update-check
 sing-box-service-check update-start
 sing-box-service-check update-status
+```
+
+При наличии недостающих зависимостей `update-start` задаёт вопрос в интерактивном терминале. Для сценариев без stdin выбор можно передать явно:
+
+```sh
+sing-box-service-check update-start --install-missing
+sing-box-service-check update-start --skip-missing
 ```
 
 ## Поддержка Tachyon, Forkop и Podkop

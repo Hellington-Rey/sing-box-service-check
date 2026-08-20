@@ -18,6 +18,12 @@ else if (mode == "profiles-validate")
     exit(profiles_validate(ARGV[1]));
 else if (mode == "profiles-reset")
     exit(profiles_reset());
+else if (mode == "vpn-packages")
+    exit(vpn_packages_status());
+else if (mode == "vpn-install")
+    exit(vpn_install(ARGV[1]));
+else if (mode == "vpn-create")
+    exit(vpn_create(ARGV[1], ARGV[2], ARGV[3]));
 else if (mode == "custom") {
     let result = custom_check(ARGV[1], ARGV[2], ARGV[3], ARGV[4]);
     write_json(result);
@@ -62,7 +68,7 @@ else if (mode == "history-clear")
 else if (mode == "update-check")
     exit(update_check());
 else if (mode == "update-start")
-    exit(update_start());
+    exit(update_start(ARGV[1]));
 else if (mode == "update-status")
     exit(update_status());
 else if (mode == "doctor")

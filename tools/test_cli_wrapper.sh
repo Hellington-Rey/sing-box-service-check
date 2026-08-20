@@ -48,7 +48,17 @@ DNS_START_OUTPUT="$(run_wrapper dns-start example.org)"
 [ "$(run_wrapper profiles-get | tail -n 1)" = "profiles-get" ]
 [ "$(run_wrapper profiles-reset | tail -n 1)" = "profiles-reset" ]
 [ "$(run_wrapper update-check | tail -n 1)" = "update-check" ]
-[ "$(run_wrapper update-start | tail -n 1)" = "update-start" ]
+UPDATE_START_OUTPUT="$(run_wrapper update-start --install-missing)"
+[ "$(printf '%s\n' "$UPDATE_START_OUTPUT" | tail -n 2 | head -n 1)" = "update-start" ]
+[ "$(printf '%s\n' "$UPDATE_START_OUTPUT" | tail -n 1)" = "install-missing" ]
+UPDATE_SKIP_OUTPUT="$(run_wrapper update-start --skip-missing)"
+[ "$(printf '%s\n' "$UPDATE_SKIP_OUTPUT" | tail -n 1)" = "skip-missing" ]
+UPDATE_DEFAULT_OUTPUT="$(run_wrapper update-start 2>/dev/null)"
+[ "$(printf '%s\n' "$UPDATE_DEFAULT_OUTPUT" | tail -n 1)" = "skip-missing" ]
+if run_wrapper update-start --unknown >/dev/null 2>&1; then
+    echo "ERROR: update-start must reject an unknown option" >&2
+    exit 1
+fi
 [ "$(run_wrapper update-status | tail -n 1)" = "update-status" ]
 [ "$(run_wrapper history | tail -n 1)" = "history" ]
 [ "$(run_wrapper history-clear | tail -n 1)" = "history-clear" ]
@@ -69,6 +79,16 @@ PROFILES_OUTPUT="$(run_wrapper profiles-save "$PROFILES_JSON")"
 PROFILES_VALIDATE_OUTPUT="$(run_wrapper profiles-validate "$PROFILES_JSON")"
 [ "$(printf '%s\n' "$PROFILES_VALIDATE_OUTPUT" | tail -n 2 | head -n 1)" = "profiles-validate" ]
 [ "$(printf '%s\n' "$PROFILES_VALIDATE_OUTPUT" | tail -n 1)" = "$PROFILES_JSON" ]
+VPN_CONFIG='[Interface] PrivateKey = test [Peer] PublicKey = test'
+[ "$(run_wrapper vpn-packages | tail -n 1)" = "vpn-packages" ]
+VPN_INSTALL_OUTPUT="$(run_wrapper vpn-install wireguard)"
+[ "$(printf '%s\n' "$VPN_INSTALL_OUTPUT" | tail -n 2 | head -n 1)" = "vpn-install" ]
+[ "$(printf '%s\n' "$VPN_INSTALL_OUTPUT" | tail -n 1)" = "wireguard" ]
+VPN_CREATE_OUTPUT="$(run_wrapper vpn-create vpn0 amneziawg "$VPN_CONFIG")"
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 4 | head -n 1)" = "vpn-create" ]
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 3 | head -n 1)" = "vpn0" ]
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 2 | head -n 1)" = "amneziawg" ]
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 1)" = "$VPN_CONFIG" ]
 
 if run_wrapper unknown >/dev/null 2>&1; then
     echo "ERROR: unknown command must fail" >&2
