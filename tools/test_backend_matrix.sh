@@ -278,6 +278,14 @@ assert_no_uci() {
         exit 1
     fi
 }
+assert_vpn_ping() {
+    expected="$1"
+    if ! grep -Fq -- "$expected" "$TMP/vpn-ping.log"; then
+        echo "expected VPN probe was not sent: $expected" >&2
+        [ ! -f "$TMP/vpn-ping.log" ] || sed -n '1,80p' "$TMP/vpn-ping.log" >&2
+        exit 1
+    fi
+}
 wireguard_config="[Interface]
 PrivateKey = $private_key
 Address = 10.0.0.2/8
@@ -326,7 +334,7 @@ assert_no_uci 'route_allowed_ips=1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=0.0.0.0/1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=128.0.0.0/1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=::/0'
-grep -Fq -- '-I vpn0 -c 1 -W 3 1.1.1.1' "$TMP/vpn-ping.log"
+assert_vpn_ping '-I vpn0 -c 1 -W 3 1.1.1.1'
 
 amneziawg_config="[Interface]
 PrivateKey = $private_key
@@ -375,9 +383,12 @@ assert_no_uci 'network.awg0.fwmark='
 assert_no_uci 'network.awg0.listen_port='
 assert_no_uci 'route_allowed_ips=1'
 assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>'
-grep -Fq -- '-I awg0 -c 1 -W 3 1.1.1.1' "$TMP/vpn-ping.log"
+assert_vpn_ping '-I awg0 -c 1 -W 3 1.1.1.1'
 
-output="$(run_engine vpn-check awg0 9.9.9.9)"
+if ! output="$(run_engine vpn-check awg0 9.9.9.9)"; then
+    echo "Manual AWG check failed: $output" >&2
+    exit 1
+fi
 JSON_DATA="$output" python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["JSON_DATA"])
@@ -388,7 +399,7 @@ assert data["link_up"] is True and data["packet_sent"] is True, data
 assert data["ping_ok"] is True and data["handshake"] is True, data
 assert data["tx_bytes"] > 0 and data["rx_bytes"] > 0, data
 PY
-grep -Fq -- '-I awg0 -c 1 -W 3 9.9.9.9' "$TMP/vpn-ping.log"
+assert_vpn_ping '-I awg0 -c 1 -W 3 9.9.9.9'
 
 if run_engine vpn-check unmanaged0 1.1.1.1 >"$TMP/unmanaged-vpn.json" 2>/dev/null; then
     echo "ERROR: unmanaged VPN interface must be rejected" >&2
