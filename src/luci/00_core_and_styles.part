@@ -114,6 +114,8 @@ function injectStyles() {
     ".fkpsc-card { padding:1em 1.1em; margin:0 0 1em; border-radius:12px; border:1px solid var(--border); background:var(--surface-raised); box-shadow:0 5px 18px rgba(0,0,0,.10); }",
     ".fkpsc-card h3 { margin:.05em 0 .75em; }",
     ".fkpsc-update-row { display:flex; flex-wrap:wrap; align-items:center; gap:.65em; }",
+    ".fkpsc-vpn-import { display:flex; flex-wrap:wrap; align-items:center; gap:.55em; margin:.55em 0 .2em; }",
+    ".fkpsc-vpn-filename { min-width:0; color:var(--muted) !important; font-size:.84em; overflow-wrap:anywhere; }",
     ".fkpsc-update-status { flex:1 1 260px; min-width:0; }",
     ".fkpsc-update-actions { display:flex; flex-wrap:wrap; gap:.5em; }",
     ".fkpsc-tabs { display:flex; flex-wrap:wrap; gap:.35em; margin:0 0 1em; padding:.25em; border-radius:11px; background:var(--surface-soft); border:1px solid var(--border-soft); }",

@@ -276,16 +276,19 @@ grep -Fxq 'add_list network.wireguard_vpn0_1.allowed_ips=::/0' "$TMP/uci.log"
 
 amneziawg_config="[Interface]
 PrivateKey = $private_key
-Address = 10.0.0.3
+Address = 172.16.0.2, 2606:4700:110:8b64:9e1c:6ef7:1063:2d84
+DNS = 1.1.1.1, 1.0.0.1, 2606:4700:4700::1111, 2606:4700:4700::1001
+MTU = 1280
 Jc = 5
 Jmin = 50
-Jmax = 1000
+Jmax = 90
 S1 = 0
 S2 = 0
 H1 = 1
 H2 = 2
 H3 = 3
 H4 = 4
+I1 = <b 0x0123456789abcdef0123456789abcdef>
 
 [Peer]
 PublicKey = $public_key
@@ -298,10 +301,13 @@ import json, os
 data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is True, data
 assert data["protocol"] == data["detected"] == "amneziawg", data
-assert data["awg_version"] == "2.0", data
+assert data["awg_version"] == "1.5", data
 PY
 grep -Fxq 'set network.amneziawg_awg0_1=amneziawg_awg0' "$TMP/uci.log"
-grep -Fxq 'add_list network.awg0.addresses=10.0.0.3/32' "$TMP/uci.log"
+grep -Fxq 'add_list network.awg0.addresses=172.16.0.2/32' "$TMP/uci.log"
+grep -Fxq 'add_list network.awg0.addresses=2606:4700:110:8b64:9e1c:6ef7:1063:2d84/128' "$TMP/uci.log"
+grep -Fxq 'add_list network.awg0.dns=2606:4700:4700::1111' "$TMP/uci.log"
+grep -Fxq 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>' "$TMP/uci.log"
 
 duplicate_config="[Interface]
 PrivateKey = $private_key

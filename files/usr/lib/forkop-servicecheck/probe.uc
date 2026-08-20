@@ -715,8 +715,9 @@ function vpn_split(value) {
 }
 
 function vpn_parse(payload) {
+    payload = replace(as_string(payload), /^\uFEFF/, "");
     let config = { interface: {}, peers: [] }, current = null, section = "", interface_seen = false, line_number = 0;
-    for (let source in split(as_string(payload), "\n")) {
+    for (let source in split(payload, "\n")) {
         line_number++;
         let line = trim(source);
         if (line == "" || substr(line, 0, 1) == "#" || substr(line, 0, 1) == ";") continue;
@@ -741,7 +742,7 @@ function vpn_parse(payload) {
         let label = trim(pair[1]), key = lc(label), value = trim(pair[2]);
         let target = section == "interface" ? config.interface : current;
         if (key == "" || value == "" || target == null) return { error: "строка " + line_number + ": пустой параметр" };
-        if (type(target[key]) != "undefined") {
+        if (exists(target, key)) {
             let repeatable = (section == "interface" && (key == "address" || key == "dns")) ||
                 (section == "peer" && key == "allowedips");
             if (!repeatable) return { error: "строка " + line_number + ": повторный параметр [" + (section == "interface" ? "Interface" : "Peer") + "]: " + label };

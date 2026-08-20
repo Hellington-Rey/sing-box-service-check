@@ -114,6 +114,8 @@ function injectStyles() {
     ".fkpsc-card { padding:1em 1.1em; margin:0 0 1em; border-radius:12px; border:1px solid var(--border); background:var(--surface-raised); box-shadow:0 5px 18px rgba(0,0,0,.10); }",
     ".fkpsc-card h3 { margin:.05em 0 .75em; }",
     ".fkpsc-update-row { display:flex; flex-wrap:wrap; align-items:center; gap:.65em; }",
+    ".fkpsc-vpn-import { display:flex; flex-wrap:wrap; align-items:center; gap:.55em; margin:.55em 0 .2em; }",
+    ".fkpsc-vpn-filename { min-width:0; color:var(--muted) !important; font-size:.84em; overflow-wrap:anywhere; }",
     ".fkpsc-update-status { flex:1 1 260px; min-width:0; }",
     ".fkpsc-update-actions { display:flex; flex-wrap:wrap; gap:.5em; }",
     ".fkpsc-tabs { display:flex; flex-wrap:wrap; gap:.35em; margin:0 0 1em; padding:.25em; border-radius:11px; background:var(--surface-soft); border:1px solid var(--border-soft); }",
@@ -1973,6 +1975,9 @@ return view.extend({
     ]);
     var vpnConfig = E("textarea", { class:"cbi-input-text fkpsc-vpn-config", spellcheck:"false",
       placeholder:"[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nAllowedIPs = 0.0.0.0/0\nEndpoint = host:port\nPersistentKeepalive = 25\n\nДля AmneziaWG добавьте Jc, Jmin, Jmax, S1, S2, H1-H4. I1-I5 включают AWG 3.0." });
+    var vpnFileInput = E("input", { type:"file", accept:".conf,.wg,text/plain,application/octet-stream", style:"display:none" });
+    var vpnFileButton = E("button", { class:"cbi-button", type:"button" }, "Загрузить файл конфигурации");
+    var vpnFileName = E("span", { class:"fkpsc-vpn-filename" }, "Можно выбрать файл .conf или .wg до 16 КиБ.");
     var vpnAction = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "Создать и проверить");
     var vpnInstall = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "Установить компоненты");
     var vpnNotice = E("div", { class:"fkpsc-custom-result", style:"display:none" });
@@ -1995,6 +2000,37 @@ return view.extend({
       vpnNotice.className = "fkpsc-custom-result state-" + (state === "ok" ? "success" : state === "err" ? "error" : "warning");
       vpnNotice.replaceChildren(E("div", { class:"fkpsc-custom-head" }, [E("span", { class:"fkpsc-custom-title" }, title), E("span", { class:"fkpsc-custom-pill " + state }, state === "ok" ? "готово" : state === "err" ? "ошибка" : "выполняется")]), E("div", {}, message));
     }
+    vpnFileButton.addEventListener("click", function () { vpnFileInput.click(); });
+    vpnFileInput.addEventListener("change", function () {
+      var file = vpnFileInput.files && vpnFileInput.files[0];
+      if (!file) return;
+      if (file.size > 16384) {
+        showVpnNotice("err", "Файл не загружен", "Размер конфигурации не должен превышать 16 КиБ.");
+        vpnFileInput.value = "";
+        return;
+      }
+      vpnFileButton.disabled = true;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var raw = String(reader.result || "").replace(/^\uFEFF/, "");
+        if (!raw.trim()) {
+          showVpnNotice("err", "Файл не загружен", "Выбранный файл пуст.");
+        } else {
+          vpnConfig.value = raw;
+          vpnFileName.textContent = file.name + " · " + file.size + " байт";
+          renderVpnPackages();
+          showVpnNotice("ok", "Конфигурация загружена", "Файл добавлен в поле конфигурации. Проверьте имя интерфейса и нажмите «Создать и проверить».");
+        }
+        vpnFileButton.disabled = false;
+        vpnFileInput.value = "";
+      };
+      reader.onerror = function () {
+        vpnFileButton.disabled = false;
+        vpnFileInput.value = "";
+        showVpnNotice("err", "Файл не загружен", "Не удалось прочитать выбранный файл.");
+      };
+      reader.readAsText(file, "utf-8");
+    });
     function renderVpnPackages() {
       var selectedProtocol = vpnSelectedProtocol(), status = vpnCurrentStatus(), ready = !!status.ready;
       vpnAction.disabled = !ready; vpnInstall.disabled = ready || !status.install_available || (vpnProtocol.value === "auto" && !vpnConfig.value.trim());
@@ -2090,7 +2126,8 @@ return view.extend({
     var vpnPage = E("div", { class:"fkpsc-page" }, [E("div", { class:"fkpsc-card" }, [
       E("h3", {}, "Создание VPN-интерфейса"),
       E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
-      E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]), vpnPackageNote, vpnNotice,
+      E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]),
+      E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]), vpnPackageNote, vpnNotice,
     ])]);
     var profilesCardsNode = E("div", {});
     var saveProfilesButton = E("button", { class: "cbi-button cbi-button-action important", type: "button" }, "Сохранить список");
