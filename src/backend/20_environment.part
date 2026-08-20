@@ -338,7 +338,7 @@ function vpn_parse(payload) {
             let repeatable = (section == "interface" && (key == "address" || key == "dns")) ||
                 (section == "peer" && key == "allowedips");
             if (!repeatable) return { error: "строка " + line_number + ": повторный параметр [" + (section == "interface" ? "Interface" : "Peer") + "]: " + label };
-            target[key] += ", " + value;
+            target[key] = as_string(target[key]) + ", " + value;
             continue;
         }
         target[key] = value;
