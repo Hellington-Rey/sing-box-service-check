@@ -41,12 +41,13 @@ jobs:
         run: python tools/check_feed.py
 
       - name: Validate ucode, JavaScript and JSON structure
-        run: >-
-          python tools/check_ucode.py
-          files/usr/bin/forkop-servicecheck
-          files/usr/lib/forkop-servicecheck/probe.uc
-          files/www/luci-static/resources/view/forkop/servicecheck-v112.js
-          files/usr/share/forkop-servicecheck/profiles.json
+        run: |
+          view="$(python -c 'from tools.project_version import luci_view_name; print(luci_view_name())')"
+          python tools/check_ucode.py \
+            files/usr/bin/forkop-servicecheck \
+            files/usr/lib/forkop-servicecheck/probe.uc \
+            "files/www/luci-static/resources/view/forkop/$view" \
+            files/usr/share/forkop-servicecheck/profiles.json
 
       - name: Validate POSIX shell syntax
         run: |
