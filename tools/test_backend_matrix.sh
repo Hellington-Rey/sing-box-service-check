@@ -243,6 +243,15 @@ PY
 
 private_key='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
 public_key='BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB='
+assert_uci() {
+    expected="$1"
+    if ! grep -Fxq "$expected" "$TMP/uci.log"; then
+        echo "missing UCI command: $expected" >&2
+        echo "recorded UCI commands:" >&2
+        sed 's/private_key=.*/private_key=<redacted>/' "$TMP/uci.log" >&2
+        exit 1
+    fi
+}
 wireguard_config="[Interface]
 PrivateKey = $private_key
 Address = 10.0.0.2/32
@@ -257,7 +266,10 @@ AllowedIPs = 128.0.0.0/1, ::/0
 Endpoint = 162.159.195.1:500
 PersistentKeepalive = 25"
 : > "$TMP/uci.log"
-output="$(run_engine vpn-create vpn0 auto "$wireguard_config")"
+if ! output="$(run_engine vpn-create vpn0 auto "$wireguard_config")"; then
+    echo "WireGuard VPN creation failed: $output" >&2
+    exit 1
+fi
 JSON_DATA="$output" python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["JSON_DATA"])
@@ -265,14 +277,14 @@ assert data["success"] is True, data
 assert data["protocol"] == data["detected"] == "wireguard", data
 assert data["link_up"] is True and data["handshake"] is True, data
 PY
-grep -Fxq 'set network.wireguard_vpn0_1=wireguard_vpn0' "$TMP/uci.log"
-grep -Fxq 'add_list network.vpn0.addresses=10.0.0.2/32' "$TMP/uci.log"
-grep -Fxq 'add_list network.vpn0.addresses=fd00::2/128' "$TMP/uci.log"
-grep -Fxq 'add_list network.vpn0.dns=1.1.1.1' "$TMP/uci.log"
-grep -Fxq 'add_list network.vpn0.dns=2606:4700:4700::1111' "$TMP/uci.log"
-grep -Fxq 'add_list network.wireguard_vpn0_1.allowed_ips=0.0.0.0/1' "$TMP/uci.log"
-grep -Fxq 'add_list network.wireguard_vpn0_1.allowed_ips=128.0.0.0/1' "$TMP/uci.log"
-grep -Fxq 'add_list network.wireguard_vpn0_1.allowed_ips=::/0' "$TMP/uci.log"
+assert_uci 'set network.wireguard_vpn0_1=wireguard_vpn0'
+assert_uci 'add_list network.vpn0.addresses=10.0.0.2/32'
+assert_uci 'add_list network.vpn0.addresses=fd00::2/128'
+assert_uci 'add_list network.vpn0.dns=1.1.1.1'
+assert_uci 'add_list network.vpn0.dns=2606:4700:4700::1111'
+assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=0.0.0.0/1'
+assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=128.0.0.0/1'
+assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=::/0'
 
 amneziawg_config="[Interface]
 PrivateKey = $private_key
@@ -295,7 +307,10 @@ PublicKey = $public_key
 AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = vpn.example.com:51820"
 : > "$TMP/uci.log"
-output="$(run_engine vpn-create awg0 auto "$amneziawg_config")"
+if ! output="$(run_engine vpn-create awg0 auto "$amneziawg_config")"; then
+    echo "AmneziaWG VPN creation failed: $output" >&2
+    exit 1
+fi
 JSON_DATA="$output" python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["JSON_DATA"])
@@ -303,11 +318,11 @@ assert data["success"] is True, data
 assert data["protocol"] == data["detected"] == "amneziawg", data
 assert data["awg_version"] == "1.5", data
 PY
-grep -Fxq 'set network.amneziawg_awg0_1=amneziawg_awg0' "$TMP/uci.log"
-grep -Fxq 'add_list network.awg0.addresses=172.16.0.2/32' "$TMP/uci.log"
-grep -Fxq 'add_list network.awg0.addresses=2606:4700:110:8b64:9e1c:6ef7:1063:2d84/128' "$TMP/uci.log"
-grep -Fxq 'add_list network.awg0.dns=2606:4700:4700::1111' "$TMP/uci.log"
-grep -Fxq 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>' "$TMP/uci.log"
+assert_uci 'set network.amneziawg_awg0_1=amneziawg_awg0'
+assert_uci 'add_list network.awg0.addresses=172.16.0.2/32'
+assert_uci 'add_list network.awg0.addresses=2606:4700:110:8b64:9e1c:6ef7:1063:2d84/128'
+assert_uci 'add_list network.awg0.dns=2606:4700:4700::1111'
+assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>'
 
 duplicate_config="[Interface]
 PrivateKey = $private_key
