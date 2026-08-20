@@ -98,6 +98,94 @@
     });
     renderVpnPackages();
 
+    var vlessUriInput = E("textarea", {
+      class:"cbi-input-text fkpsc-converter-text",
+      spellcheck:"false",
+      autocomplete:"off",
+      placeholder:"vless://UUID@server.example:443?encryption=none&security=reality&type=tcp&sni=example.com&fp=chrome&pbk=...&sid=...#Мой сервер",
+    });
+    var vlessJsonInput = E("textarea", {
+      class:"cbi-input-text fkpsc-converter-text",
+      spellcheck:"false",
+      autocomplete:"off",
+      placeholder:'{\n  "type": "vless",\n  "tag": "Мой сервер",\n  "server": "server.example",\n  "server_port": 443,\n  "uuid": "..."\n}',
+    });
+    var vlessToJsonButton = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "VLESS → JSON");
+    var jsonToVlessButton = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "JSON → VLESS");
+    var copyVlessButton = E("button", { class:"cbi-button", type:"button" }, "Копировать VLESS");
+    var copyVlessJsonButton = E("button", { class:"cbi-button", type:"button" }, "Копировать JSON");
+    var vlessConverterStatus = E("div", { class:"fkpsc-converter-status", role:"status", "aria-live":"polite" }, "Конвертация выполняется в браузере; данные не отправляются на роутер или во внешние сервисы.");
+
+    function showVlessConverterStatus(ok, message) {
+      vlessConverterStatus.className = "fkpsc-converter-status " + (ok ? "ok" : "err");
+      vlessConverterStatus.textContent = message;
+    }
+    vlessToJsonButton.addEventListener("click", function () {
+      try {
+        vlessJsonInput.value = JSON.stringify(vlessOutboundFromUri(vlessUriInput.value), null, 2);
+        showVlessConverterStatus(true, "VLESS-ссылка преобразована в sing-box outbound JSON.");
+      } catch (error) {
+        showVlessConverterStatus(false, error.message || "Не удалось преобразовать VLESS-ссылку.");
+      }
+    });
+    jsonToVlessButton.addEventListener("click", function () {
+      try {
+        var vlessJsonDocument;
+        try {
+          vlessJsonDocument = JSON.parse(vlessJsonInput.value);
+        } catch (parseError) {
+          throw new Error("JSON имеет неверный синтаксис: " + parseError.message);
+        }
+        vlessUriInput.value = vlessUriFromOutbound(vlessJsonDocument);
+        showVlessConverterStatus(true, "sing-box outbound JSON преобразован в VLESS-ссылку.");
+      } catch (error) {
+        showVlessConverterStatus(false, error.message || "Не удалось преобразовать JSON.");
+      }
+    });
+    copyVlessButton.addEventListener("click", function () {
+      if (!vlessUriInput.value.trim()) { showVlessConverterStatus(false, "Поле VLESS пусто."); return; }
+      copyText(vlessUriInput.value.trim()).then(function () {
+        showVlessConverterStatus(true, "VLESS-ссылка скопирована.");
+      }).catch(function () { showVlessConverterStatus(false, "Браузер не разрешил копирование."); });
+    });
+    copyVlessJsonButton.addEventListener("click", function () {
+      if (!vlessJsonInput.value.trim()) { showVlessConverterStatus(false, "Поле JSON пусто."); return; }
+      copyText(vlessJsonInput.value.trim()).then(function () {
+        showVlessConverterStatus(true, "JSON скопирован.");
+      }).catch(function () { showVlessConverterStatus(false, "Браузер не разрешил копирование."); });
+    });
+
+    var vlessVpnTab = E("button", { class:"fkpsc-vpn-tab active", type:"button", role:"tab", "aria-selected":"true" }, "VLESS ↔ JSON");
+    var tunnelVpnTab = E("button", { class:"fkpsc-vpn-tab", type:"button", role:"tab", "aria-selected":"false" }, "WireGuard / AWG");
+    var vlessVpnPanel = E("div", { class:"fkpsc-card fkpsc-vpn-panel active", role:"tabpanel" }, [
+      E("h3", {}, "Конвертер VLESS ↔ sing-box JSON"),
+      E("p", { class:"fkpsc-dim" }, "Преобразует одну VLESS-ссылку в готовый outbound sing-box и обратно. Можно вставить полный конфиг с одним VLESS outbound; dial- и route-поля, которых нет в URI, в ссылку не переносятся."),
+      E("div", { class:"fkpsc-converter-grid" }, [
+        E("label", { class:"fkpsc-converter-pane" }, [E("span", {}, "VLESS-ссылка"), vlessUriInput]),
+        E("label", { class:"fkpsc-converter-pane" }, [E("span", {}, "sing-box outbound JSON"), vlessJsonInput]),
+      ]),
+      E("div", { class:"fkpsc-converter-actions" }, [vlessToJsonButton, jsonToVlessButton, copyVlessButton, copyVlessJsonButton]),
+      vlessConverterStatus,
+    ]);
+    var tunnelVpnPanel = E("div", { class:"fkpsc-card fkpsc-vpn-panel", role:"tabpanel" }, [
+      E("h3", {}, "Создание VPN-интерфейса"),
+      E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
+      E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]),
+      E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]),
+      E("div", { class:"fkpsc-note" }, "Безопасный режим: DNS из конфигурации не применяется, автоматические маршруты AllowedIPs не создаются. Туннель поднимается только для проверки link и handshake."), vpnPackageNote, vpnNotice,
+    ]);
+    function showVpnTool(name) {
+      var showVless = name === "vless";
+      vlessVpnTab.classList.toggle("active", showVless);
+      tunnelVpnTab.classList.toggle("active", !showVless);
+      vlessVpnTab.setAttribute("aria-selected", showVless ? "true" : "false");
+      tunnelVpnTab.setAttribute("aria-selected", showVless ? "false" : "true");
+      vlessVpnPanel.classList.toggle("active", showVless);
+      tunnelVpnPanel.classList.toggle("active", !showVless);
+    }
+    vlessVpnTab.addEventListener("click", function () { showVpnTool("vless"); });
+    tunnelVpnTab.addEventListener("click", function () { showVpnTool("tunnel"); });
+
     var checkTab = E("button", { class: "fkpsc-tab active", type: "button", role: "tab", "aria-selected": "true" }, "Проверка сервисов");
     var dnsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Тест DNS");
     var vpnTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "VPN");
@@ -154,10 +242,8 @@
       reportPanel,
     ]);
     var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
-    var vpnPage = E("div", { class:"fkpsc-page" }, [E("div", { class:"fkpsc-card" }, [
-      E("h3", {}, "Создание VPN-интерфейса"),
-      E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
-      E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]),
-      E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]),
-      E("div", { class:"fkpsc-note" }, "Безопасный режим: DNS из конфигурации не применяется, автоматические маршруты AllowedIPs не создаются. Туннель поднимается только для проверки link и handshake."), vpnPackageNote, vpnNotice,
-    ])]);
+    var vpnPage = E("div", { class:"fkpsc-page" }, [
+      E("div", { class:"fkpsc-vpn-tabs", role:"tablist", "aria-label":"Инструменты VPN" }, [vlessVpnTab, tunnelVpnTab]),
+      vlessVpnPanel,
+      tunnelVpnPanel,
+    ]);

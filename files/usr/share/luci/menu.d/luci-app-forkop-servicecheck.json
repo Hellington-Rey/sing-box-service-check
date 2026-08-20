@@ -4,7 +4,7 @@
     "order": 43,
     "action": {
       "type": "view",
-      "path": "forkop/servicecheck-v1106"
+      "path": "forkop/servicecheck-v1110"
     },
     "depends": {
       "acl": [ "luci-app-forkop-servicecheck" ]

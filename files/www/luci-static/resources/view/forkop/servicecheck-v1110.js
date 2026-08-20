@@ -122,6 +122,12 @@ function injectStyles() {
     ".fkpsc-tab { flex:0 1 auto; padding:.55em .9em; border:0; border-radius:8px; background:transparent; color:inherit; cursor:pointer; font-weight:600; }",
     ".fkpsc-tab.active { color:#fff; background:var(--accent); box-shadow:0 2px 8px rgba(0,0,0,.18); }",
     ".fkpsc-page { display:none; } .fkpsc-page.active { display:block; }",
+    ".fkpsc-vpn-tabs { display:flex; flex-wrap:wrap; gap:.45em; margin:0 0 .8em; }",
+    ".fkpsc-vpn-tab { padding:.55em .9em; border:1px solid var(--border); border-radius:8px; background:var(--surface-raised); color:inherit; cursor:pointer; font-weight:600; }",
+    ".fkpsc-vpn-tab:hover { border-color:var(--border-strong); background:var(--surface-soft); }",
+    ".fkpsc-vpn-tab.active { border-color:var(--accent-border); color:#fff; background:var(--accent); box-shadow:0 2px 8px rgba(0,0,0,.16); }",
+    ".fkpsc-vpn-panel { display:none; }",
+    ".fkpsc-vpn-panel.active { display:block; }",
     ".fkpsc-list-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:.55em; margin:.8em 0 1em; }",
     ".fkpsc-list-toolbar .fkpsc-source { margin-right:auto; padding:.3em .7em; border-radius:999px; background:var(--surface-soft); }",
     ".fkpsc-profile-edit { padding:1em; margin:0 0 1em; border:1px solid var(--border); border-radius:12px; background:var(--surface-soft); box-shadow:0 3px 12px rgba(0,0,0,.08); }",
@@ -190,6 +196,14 @@ function injectStyles() {
     ".fkpsc-custom-pill.err { color:var(--err); background:rgba(224,49,49,.13); }",
     ".fkpsc-vpn-grid { display:grid; grid-template-columns:minmax(11em,.4fr) minmax(12em,.5fr) 1fr; gap:.75em; margin:.7em 0; }",
     ".fkpsc-vpn-config { box-sizing:border-box; width:100%; min-height:18em; resize:vertical; font-family:monospace; font-size:.88em; line-height:1.4; }",
+    ".fkpsc-converter-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.8em; margin:.75em 0; }",
+    ".fkpsc-converter-pane { display:flex; flex-direction:column; gap:.35em; min-width:0; }",
+    ".fkpsc-converter-pane > span { font-size:.82em; font-weight:600; opacity:.72; }",
+    ".fkpsc-converter-text { box-sizing:border-box; width:100%; min-height:13em; resize:vertical; font-family:monospace; font-size:.86em; line-height:1.4; overflow-wrap:anywhere; }",
+    ".fkpsc-converter-actions { display:flex; flex-wrap:wrap; gap:.55em; align-items:center; margin:.4em 0; }",
+    ".fkpsc-converter-status { min-height:1.4em; margin:.45em 0 0; color:var(--muted) !important; font-size:.88em; }",
+    ".fkpsc-converter-status.ok { color:var(--ok) !important; }",
+    ".fkpsc-converter-status.err { color:var(--err) !important; }",
     ".fkpsc-dns-form { display:flex; flex-wrap:wrap; align-items:center; gap:.6em; margin:.8em 0; }",
     ".fkpsc-dns-domain { flex:1 1 280px; min-width:190px; }",
     ".fkpsc-dns-groups { display:grid; gap:1em; }",
@@ -306,6 +320,8 @@ function injectStyles() {
     "  .fkpsc-theme-button { flex:1 1 30%; }",
     "  .fkpsc-dns-row { grid-template-columns:1fr auto; gap:.3em .6em; }",
     "  .fkpsc-vpn-grid { grid-template-columns:1fr; }",
+    "  .fkpsc-vpn-tab { flex:1 1 45%; }",
+    "  .fkpsc-converter-grid { grid-template-columns:1fr; }",
     "  .fkpsc-dns-host, .fkpsc-dns-answer { grid-column:1/-1; }",
     "  .fkpsc-tabs { position:sticky; top:0; z-index:20; }",
     "  .fkpsc-tab { flex:1 1 30%; padding:.65em .35em; }",
@@ -1967,6 +1983,249 @@ return view.extend({
       dnsSummaryNode,
       dnsResultsNode,
     ]);
+function vlessDecodeComponent(value, field) {
+  try {
+    return decodeURIComponent(value || "");
+  } catch (error) {
+    throw new Error("Некорректное кодирование поля " + field + ".");
+  }
+}
+
+function vlessNonEmptyList(value) {
+  return String(value || "").split(",").map(function (item) {
+    return item.trim();
+  }).filter(function (item) {
+    return item !== "";
+  });
+}
+
+function vlessHeader(headers, wanted) {
+  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return "";
+  var wantedLower = wanted.toLowerCase();
+  var names = Object.keys(headers);
+  for (var i = 0; i < names.length; i++) {
+    if (names[i].toLowerCase() === wantedLower) return String(headers[names[i]] || "");
+  }
+  return "";
+}
+
+function vlessUriHost(server) {
+  return server.indexOf(":") >= 0 && server.charAt(0) !== "[" ? "[" + server + "]" : server;
+}
+
+function vlessQueryPair(name, value) {
+  return encodeURIComponent(name) + "=" + encodeURIComponent(String(value));
+}
+
+function vlessOutboundFromUri(input) {
+  var raw = String(input || "").trim();
+  if (!/^vless:\/\//i.test(raw)) throw new Error("Ссылка должна начинаться с vless://.");
+
+  var link;
+  try {
+    link = new URL(raw);
+  } catch (error) {
+    throw new Error("Не удалось разобрать VLESS-ссылку.");
+  }
+
+  if (link.password) throw new Error("В VLESS-ссылке не должно быть пароля после UUID.");
+  var uuid = vlessDecodeComponent(link.username, "UUID");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) {
+    throw new Error("UUID в VLESS-ссылке имеет неверный формат.");
+  }
+
+  var server = link.hostname || "";
+  if (server.charAt(0) === "[" && server.charAt(server.length - 1) === "]") server = server.slice(1, -1);
+  var serverPort = parseInt(link.port, 10);
+  if (!server || !serverPort || serverPort < 1 || serverPort > 65535) {
+    throw new Error("Укажите сервер и порт от 1 до 65535.");
+  }
+
+  var query = link.searchParams;
+  var encryption = (query.get("encryption") || "none").toLowerCase();
+  if (encryption !== "none") throw new Error("sing-box поддерживает VLESS только с encryption=none.");
+
+  var security = (query.get("security") || (query.get("pbk") ? "reality" : "none")).toLowerCase();
+  if (security !== "none" && security !== "tls" && security !== "reality") {
+    throw new Error("Поддерживаются security=none, tls и reality.");
+  }
+
+  var transportType = (query.get("type") || "tcp").toLowerCase();
+  if (transportType === "raw") transportType = "tcp";
+  if (transportType === "websocket") transportType = "ws";
+  if (transportType === "h2") transportType = "http";
+  if (["tcp", "ws", "grpc", "http", "httpupgrade", "quic"].indexOf(transportType) < 0) {
+    throw new Error("Транспорт " + transportType + " не поддерживается sing-box.");
+  }
+  var headerType = (query.get("headerType") || "none").toLowerCase();
+  if (transportType === "tcp" && headerType !== "none") {
+    throw new Error("TCP headerType=" + headerType + " нельзя перенести в sing-box без потери настроек.");
+  }
+
+  var tag = link.hash ? vlessDecodeComponent(link.hash.slice(1), "имени") : "vless-out";
+  var outbound = {
+    type: "vless",
+    tag: tag || "vless-out",
+    server: server,
+    server_port: serverPort,
+    uuid: uuid,
+  };
+
+  var flow = query.get("flow") || "";
+  if (flow) outbound.flow = flow;
+  var network = query.get("network") || "";
+  if (network) {
+    if (network !== "tcp" && network !== "udp") throw new Error("network должен быть tcp или udp.");
+    outbound.network = network;
+  }
+  var packetEncoding = query.get("packetEncoding") || query.get("packet_encoding") || "";
+  if (packetEncoding) {
+    if (packetEncoding !== "packetaddr" && packetEncoding !== "xudp") {
+      throw new Error("packetEncoding должен быть packetaddr или xudp.");
+    }
+    outbound.packet_encoding = packetEncoding;
+  }
+
+  if (security !== "none") {
+    var tls = { enabled: true };
+    var serverName = query.get("sni") || "";
+    if (serverName) tls.server_name = serverName;
+    var alpn = vlessNonEmptyList(query.get("alpn") || "");
+    if (alpn.length) tls.alpn = alpn;
+    var insecure = (query.get("allowInsecure") || query.get("insecure") || "").toLowerCase();
+    if (insecure === "1" || insecure === "true") tls.insecure = true;
+    var fingerprint = query.get("fp") || "";
+    if (fingerprint) tls.utls = { enabled: true, fingerprint: fingerprint };
+    if (security === "reality") {
+      var publicKey = query.get("pbk") || "";
+      if (!publicKey) throw new Error("Для REALITY нужен публичный ключ pbk.");
+      tls.reality = { enabled: true, public_key: publicKey };
+      var shortId = query.get("sid") || "";
+      if (shortId) tls.reality.short_id = shortId;
+    }
+    outbound.tls = tls;
+  }
+
+  var path = query.get("path") || "";
+  var host = query.get("host") || "";
+  if (transportType === "ws") {
+    outbound.transport = { type: "ws" };
+    if (path) outbound.transport.path = path;
+    if (host) outbound.transport.headers = { Host: host };
+    var earlyData = parseInt(query.get("ed") || "", 10);
+    if (earlyData > 0) outbound.transport.max_early_data = earlyData;
+    var earlyHeader = query.get("eh") || "";
+    if (earlyHeader) outbound.transport.early_data_header_name = earlyHeader;
+  } else if (transportType === "grpc") {
+    outbound.transport = { type: "grpc" };
+    var serviceName = query.get("serviceName") || query.get("service_name") || "";
+    if (serviceName) outbound.transport.service_name = serviceName;
+  } else if (transportType === "http") {
+    outbound.transport = { type: "http" };
+    if (host) outbound.transport.host = vlessNonEmptyList(host);
+    if (path) outbound.transport.path = path;
+    var method = query.get("method") || "";
+    if (method) outbound.transport.method = method;
+  } else if (transportType === "httpupgrade") {
+    outbound.transport = { type: "httpupgrade" };
+    if (host) outbound.transport.host = host;
+    if (path) outbound.transport.path = path;
+  } else if (transportType === "quic") {
+    outbound.transport = { type: "quic" };
+  }
+
+  return outbound;
+}
+
+function vlessOutboundFromJson(document) {
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new Error("JSON должен содержать объект VLESS outbound.");
+  }
+  if (document.type === "vless") return document;
+  if (!Array.isArray(document.outbounds)) {
+    throw new Error("Нужен outbound type=vless или объект с массивом outbounds.");
+  }
+  var candidates = document.outbounds.filter(function (outbound) {
+    return outbound && outbound.type === "vless";
+  });
+  if (candidates.length !== 1) {
+    throw new Error("В массиве outbounds должен быть ровно один VLESS outbound.");
+  }
+  return candidates[0];
+}
+
+function vlessUriFromOutbound(document) {
+  var outbound = vlessOutboundFromJson(document);
+  var server = String(outbound.server || "").trim();
+  var serverPort = parseInt(outbound.server_port, 10);
+  var uuid = String(outbound.uuid || "").trim();
+  if (!server || /[\s\/\[\]]/.test(server)) throw new Error("Поле server отсутствует или содержит недопустимый адрес.");
+  if (!serverPort || serverPort < 1 || serverPort > 65535 || serverPort !== Number(outbound.server_port)) {
+    throw new Error("Поле server_port должно быть целым числом от 1 до 65535.");
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) {
+    throw new Error("Поле uuid имеет неверный формат.");
+  }
+
+  var query = [vlessQueryPair("encryption", "none")];
+  var tls = outbound.tls && typeof outbound.tls === "object" && outbound.tls.enabled === true ? outbound.tls : null;
+  var security = tls && tls.reality && tls.reality.enabled === true ? "reality" : (tls ? "tls" : "none");
+  query.push(vlessQueryPair("security", security));
+
+  var transport = outbound.transport;
+  var transportType = transport && typeof transport === "object" ? String(transport.type || "tcp").toLowerCase() : "tcp";
+  if (["tcp", "ws", "grpc", "http", "httpupgrade", "quic"].indexOf(transportType) < 0) {
+    throw new Error("Транспорт " + transportType + " нельзя представить VLESS-ссылкой для sing-box.");
+  }
+  query.push(vlessQueryPair("type", transportType));
+
+  if (outbound.flow) query.push(vlessQueryPair("flow", outbound.flow));
+  if (outbound.network) {
+    if (outbound.network !== "tcp" && outbound.network !== "udp") throw new Error("network должен быть tcp или udp.");
+    query.push(vlessQueryPair("network", outbound.network));
+  }
+  if (outbound.packet_encoding) {
+    if (outbound.packet_encoding !== "packetaddr" && outbound.packet_encoding !== "xudp") {
+      throw new Error("packet_encoding должен быть packetaddr или xudp.");
+    }
+    query.push(vlessQueryPair("packetEncoding", outbound.packet_encoding));
+  }
+
+  if (tls) {
+    if (tls.server_name) query.push(vlessQueryPair("sni", tls.server_name));
+    if (tls.utls && tls.utls.enabled === true && tls.utls.fingerprint) query.push(vlessQueryPair("fp", tls.utls.fingerprint));
+    if (security === "reality") {
+      if (!tls.reality.public_key) throw new Error("Для REALITY в tls.reality нужен public_key.");
+      query.push(vlessQueryPair("pbk", tls.reality.public_key));
+      if (tls.reality.short_id) query.push(vlessQueryPair("sid", tls.reality.short_id));
+    }
+    if (Array.isArray(tls.alpn) && tls.alpn.length) query.push(vlessQueryPair("alpn", tls.alpn.join(",")));
+    if (tls.insecure === true) query.push(vlessQueryPair("allowInsecure", "1"));
+  }
+
+  if (transportType === "ws") {
+    var wsHost = vlessHeader(transport.headers, "Host");
+    if (wsHost) query.push(vlessQueryPair("host", wsHost));
+    if (transport.path) query.push(vlessQueryPair("path", transport.path));
+    if (parseInt(transport.max_early_data, 10) > 0) query.push(vlessQueryPair("ed", parseInt(transport.max_early_data, 10)));
+    if (transport.early_data_header_name) query.push(vlessQueryPair("eh", transport.early_data_header_name));
+  } else if (transportType === "grpc") {
+    if (transport.service_name) query.push(vlessQueryPair("serviceName", transport.service_name));
+  } else if (transportType === "http") {
+    var httpHosts = Array.isArray(transport.host) ? transport.host.join(",") : String(transport.host || "");
+    if (httpHosts) query.push(vlessQueryPair("host", httpHosts));
+    if (transport.path) query.push(vlessQueryPair("path", transport.path));
+    if (transport.method) query.push(vlessQueryPair("method", transport.method));
+  } else if (transportType === "httpupgrade") {
+    if (transport.host) query.push(vlessQueryPair("host", transport.host));
+    if (transport.path) query.push(vlessQueryPair("path", transport.path));
+  }
+
+  var tag = String(outbound.tag || "").trim();
+  return "vless://" + encodeURIComponent(uuid) + "@" + vlessUriHost(server) + ":" + serverPort + "?" + query.join("&") +
+    (tag ? "#" + encodeURIComponent(tag) : "");
+}
+
     var vpnNameInput = E("input", { type:"text", class:"cbi-input-text", value:"vpn0", maxlength:"15", autocomplete:"off", spellcheck:"false" });
     var vpnProtocol = E("select", { class:"cbi-input-select" }, [
       E("option", { value:"auto", selected:"" }, "Автоопределение по конфигурации"),
@@ -2067,6 +2326,94 @@ return view.extend({
     });
     renderVpnPackages();
 
+    var vlessUriInput = E("textarea", {
+      class:"cbi-input-text fkpsc-converter-text",
+      spellcheck:"false",
+      autocomplete:"off",
+      placeholder:"vless://UUID@server.example:443?encryption=none&security=reality&type=tcp&sni=example.com&fp=chrome&pbk=...&sid=...#Мой сервер",
+    });
+    var vlessJsonInput = E("textarea", {
+      class:"cbi-input-text fkpsc-converter-text",
+      spellcheck:"false",
+      autocomplete:"off",
+      placeholder:'{\n  "type": "vless",\n  "tag": "Мой сервер",\n  "server": "server.example",\n  "server_port": 443,\n  "uuid": "..."\n}',
+    });
+    var vlessToJsonButton = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "VLESS → JSON");
+    var jsonToVlessButton = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "JSON → VLESS");
+    var copyVlessButton = E("button", { class:"cbi-button", type:"button" }, "Копировать VLESS");
+    var copyVlessJsonButton = E("button", { class:"cbi-button", type:"button" }, "Копировать JSON");
+    var vlessConverterStatus = E("div", { class:"fkpsc-converter-status", role:"status", "aria-live":"polite" }, "Конвертация выполняется в браузере; данные не отправляются на роутер или во внешние сервисы.");
+
+    function showVlessConverterStatus(ok, message) {
+      vlessConverterStatus.className = "fkpsc-converter-status " + (ok ? "ok" : "err");
+      vlessConverterStatus.textContent = message;
+    }
+    vlessToJsonButton.addEventListener("click", function () {
+      try {
+        vlessJsonInput.value = JSON.stringify(vlessOutboundFromUri(vlessUriInput.value), null, 2);
+        showVlessConverterStatus(true, "VLESS-ссылка преобразована в sing-box outbound JSON.");
+      } catch (error) {
+        showVlessConverterStatus(false, error.message || "Не удалось преобразовать VLESS-ссылку.");
+      }
+    });
+    jsonToVlessButton.addEventListener("click", function () {
+      try {
+        var vlessJsonDocument;
+        try {
+          vlessJsonDocument = JSON.parse(vlessJsonInput.value);
+        } catch (parseError) {
+          throw new Error("JSON имеет неверный синтаксис: " + parseError.message);
+        }
+        vlessUriInput.value = vlessUriFromOutbound(vlessJsonDocument);
+        showVlessConverterStatus(true, "sing-box outbound JSON преобразован в VLESS-ссылку.");
+      } catch (error) {
+        showVlessConverterStatus(false, error.message || "Не удалось преобразовать JSON.");
+      }
+    });
+    copyVlessButton.addEventListener("click", function () {
+      if (!vlessUriInput.value.trim()) { showVlessConverterStatus(false, "Поле VLESS пусто."); return; }
+      copyText(vlessUriInput.value.trim()).then(function () {
+        showVlessConverterStatus(true, "VLESS-ссылка скопирована.");
+      }).catch(function () { showVlessConverterStatus(false, "Браузер не разрешил копирование."); });
+    });
+    copyVlessJsonButton.addEventListener("click", function () {
+      if (!vlessJsonInput.value.trim()) { showVlessConverterStatus(false, "Поле JSON пусто."); return; }
+      copyText(vlessJsonInput.value.trim()).then(function () {
+        showVlessConverterStatus(true, "JSON скопирован.");
+      }).catch(function () { showVlessConverterStatus(false, "Браузер не разрешил копирование."); });
+    });
+
+    var vlessVpnTab = E("button", { class:"fkpsc-vpn-tab active", type:"button", role:"tab", "aria-selected":"true" }, "VLESS ↔ JSON");
+    var tunnelVpnTab = E("button", { class:"fkpsc-vpn-tab", type:"button", role:"tab", "aria-selected":"false" }, "WireGuard / AWG");
+    var vlessVpnPanel = E("div", { class:"fkpsc-card fkpsc-vpn-panel active", role:"tabpanel" }, [
+      E("h3", {}, "Конвертер VLESS ↔ sing-box JSON"),
+      E("p", { class:"fkpsc-dim" }, "Преобразует одну VLESS-ссылку в готовый outbound sing-box и обратно. Можно вставить полный конфиг с одним VLESS outbound; dial- и route-поля, которых нет в URI, в ссылку не переносятся."),
+      E("div", { class:"fkpsc-converter-grid" }, [
+        E("label", { class:"fkpsc-converter-pane" }, [E("span", {}, "VLESS-ссылка"), vlessUriInput]),
+        E("label", { class:"fkpsc-converter-pane" }, [E("span", {}, "sing-box outbound JSON"), vlessJsonInput]),
+      ]),
+      E("div", { class:"fkpsc-converter-actions" }, [vlessToJsonButton, jsonToVlessButton, copyVlessButton, copyVlessJsonButton]),
+      vlessConverterStatus,
+    ]);
+    var tunnelVpnPanel = E("div", { class:"fkpsc-card fkpsc-vpn-panel", role:"tabpanel" }, [
+      E("h3", {}, "Создание VPN-интерфейса"),
+      E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
+      E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]),
+      E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]),
+      E("div", { class:"fkpsc-note" }, "Безопасный режим: DNS из конфигурации не применяется, автоматические маршруты AllowedIPs не создаются. Туннель поднимается только для проверки link и handshake."), vpnPackageNote, vpnNotice,
+    ]);
+    function showVpnTool(name) {
+      var showVless = name === "vless";
+      vlessVpnTab.classList.toggle("active", showVless);
+      tunnelVpnTab.classList.toggle("active", !showVless);
+      vlessVpnTab.setAttribute("aria-selected", showVless ? "true" : "false");
+      tunnelVpnTab.setAttribute("aria-selected", showVless ? "false" : "true");
+      vlessVpnPanel.classList.toggle("active", showVless);
+      tunnelVpnPanel.classList.toggle("active", !showVless);
+    }
+    vlessVpnTab.addEventListener("click", function () { showVpnTool("vless"); });
+    tunnelVpnTab.addEventListener("click", function () { showVpnTool("tunnel"); });
+
     var checkTab = E("button", { class: "fkpsc-tab active", type: "button", role: "tab", "aria-selected": "true" }, "Проверка сервисов");
     var dnsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Тест DNS");
     var vpnTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "VPN");
@@ -2123,13 +2470,11 @@ return view.extend({
       reportPanel,
     ]);
     var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
-    var vpnPage = E("div", { class:"fkpsc-page" }, [E("div", { class:"fkpsc-card" }, [
-      E("h3", {}, "Создание VPN-интерфейса"),
-      E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
-      E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]),
-      E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]),
-      E("div", { class:"fkpsc-note" }, "Безопасный режим: DNS из конфигурации не применяется, автоматические маршруты AllowedIPs не создаются. Туннель поднимается только для проверки link и handshake."), vpnPackageNote, vpnNotice,
-    ])]);
+    var vpnPage = E("div", { class:"fkpsc-page" }, [
+      E("div", { class:"fkpsc-vpn-tabs", role:"tablist", "aria-label":"Инструменты VPN" }, [vlessVpnTab, tunnelVpnTab]),
+      vlessVpnPanel,
+      tunnelVpnPanel,
+    ]);
     var profilesCardsNode = E("div", {});
     var saveProfilesButton = E("button", { class: "cbi-button cbi-button-action important", type: "button" }, "Сохранить список");
     var resetProfilesButton = E("button", { class: "cbi-button cbi-button-negative", type: "button" }, "Вернуть встроенный");

@@ -39,6 +39,7 @@ TARGETS = [
             ("30_view_setup.part", "return view.extend({"),
             ("40_jobs.part", "    var runButton = E(\"button\", { class: \"cbi-button cbi-button-action important\" }, \"Проверить сервис\");"),
             ("50_update_and_diagnostics.part", "    var updateStatusNode = E(\"div\", { class: \"fkpsc-update-status\" }, ["),
+            ("55_vless_converter.part", "function vlessDecodeComponent(value, field)"),
             ("60_tabs.part", "    var checkTab = E(\"button\", { class: \"fkpsc-tab active\""),
             ("70_profiles.part", "    var profilesCardsNode = E(\"div\", {});"),
             ("80_theme_and_layout.part", "    function showPage(name)"),

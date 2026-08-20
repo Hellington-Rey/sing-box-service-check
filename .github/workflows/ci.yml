@@ -49,6 +49,9 @@ jobs:
             "files/www/luci-static/resources/view/forkop/$view" \
             files/usr/share/forkop-servicecheck/profiles.json
 
+      - name: Test VLESS converter
+        run: node tools/test_vless_converter.js
+
       - name: Validate POSIX shell syntax
         run: |
           sh -n installer-template.sh

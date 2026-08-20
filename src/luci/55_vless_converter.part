@@ -1,0 +1,243 @@
+function vlessDecodeComponent(value, field) {
+  try {
+    return decodeURIComponent(value || "");
+  } catch (error) {
+    throw new Error("Некорректное кодирование поля " + field + ".");
+  }
+}
+
+function vlessNonEmptyList(value) {
+  return String(value || "").split(",").map(function (item) {
+    return item.trim();
+  }).filter(function (item) {
+    return item !== "";
+  });
+}
+
+function vlessHeader(headers, wanted) {
+  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return "";
+  var wantedLower = wanted.toLowerCase();
+  var names = Object.keys(headers);
+  for (var i = 0; i < names.length; i++) {
+    if (names[i].toLowerCase() === wantedLower) return String(headers[names[i]] || "");
+  }
+  return "";
+}
+
+function vlessUriHost(server) {
+  return server.indexOf(":") >= 0 && server.charAt(0) !== "[" ? "[" + server + "]" : server;
+}
+
+function vlessQueryPair(name, value) {
+  return encodeURIComponent(name) + "=" + encodeURIComponent(String(value));
+}
+
+function vlessOutboundFromUri(input) {
+  var raw = String(input || "").trim();
+  if (!/^vless:\/\//i.test(raw)) throw new Error("Ссылка должна начинаться с vless://.");
+
+  var link;
+  try {
+    link = new URL(raw);
+  } catch (error) {
+    throw new Error("Не удалось разобрать VLESS-ссылку.");
+  }
+
+  if (link.password) throw new Error("В VLESS-ссылке не должно быть пароля после UUID.");
+  var uuid = vlessDecodeComponent(link.username, "UUID");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) {
+    throw new Error("UUID в VLESS-ссылке имеет неверный формат.");
+  }
+
+  var server = link.hostname || "";
+  if (server.charAt(0) === "[" && server.charAt(server.length - 1) === "]") server = server.slice(1, -1);
+  var serverPort = parseInt(link.port, 10);
+  if (!server || !serverPort || serverPort < 1 || serverPort > 65535) {
+    throw new Error("Укажите сервер и порт от 1 до 65535.");
+  }
+
+  var query = link.searchParams;
+  var encryption = (query.get("encryption") || "none").toLowerCase();
+  if (encryption !== "none") throw new Error("sing-box поддерживает VLESS только с encryption=none.");
+
+  var security = (query.get("security") || (query.get("pbk") ? "reality" : "none")).toLowerCase();
+  if (security !== "none" && security !== "tls" && security !== "reality") {
+    throw new Error("Поддерживаются security=none, tls и reality.");
+  }
+
+  var transportType = (query.get("type") || "tcp").toLowerCase();
+  if (transportType === "raw") transportType = "tcp";
+  if (transportType === "websocket") transportType = "ws";
+  if (transportType === "h2") transportType = "http";
+  if (["tcp", "ws", "grpc", "http", "httpupgrade", "quic"].indexOf(transportType) < 0) {
+    throw new Error("Транспорт " + transportType + " не поддерживается sing-box.");
+  }
+  var headerType = (query.get("headerType") || "none").toLowerCase();
+  if (transportType === "tcp" && headerType !== "none") {
+    throw new Error("TCP headerType=" + headerType + " нельзя перенести в sing-box без потери настроек.");
+  }
+
+  var tag = link.hash ? vlessDecodeComponent(link.hash.slice(1), "имени") : "vless-out";
+  var outbound = {
+    type: "vless",
+    tag: tag || "vless-out",
+    server: server,
+    server_port: serverPort,
+    uuid: uuid,
+  };
+
+  var flow = query.get("flow") || "";
+  if (flow) outbound.flow = flow;
+  var network = query.get("network") || "";
+  if (network) {
+    if (network !== "tcp" && network !== "udp") throw new Error("network должен быть tcp или udp.");
+    outbound.network = network;
+  }
+  var packetEncoding = query.get("packetEncoding") || query.get("packet_encoding") || "";
+  if (packetEncoding) {
+    if (packetEncoding !== "packetaddr" && packetEncoding !== "xudp") {
+      throw new Error("packetEncoding должен быть packetaddr или xudp.");
+    }
+    outbound.packet_encoding = packetEncoding;
+  }
+
+  if (security !== "none") {
+    var tls = { enabled: true };
+    var serverName = query.get("sni") || "";
+    if (serverName) tls.server_name = serverName;
+    var alpn = vlessNonEmptyList(query.get("alpn") || "");
+    if (alpn.length) tls.alpn = alpn;
+    var insecure = (query.get("allowInsecure") || query.get("insecure") || "").toLowerCase();
+    if (insecure === "1" || insecure === "true") tls.insecure = true;
+    var fingerprint = query.get("fp") || "";
+    if (fingerprint) tls.utls = { enabled: true, fingerprint: fingerprint };
+    if (security === "reality") {
+      var publicKey = query.get("pbk") || "";
+      if (!publicKey) throw new Error("Для REALITY нужен публичный ключ pbk.");
+      tls.reality = { enabled: true, public_key: publicKey };
+      var shortId = query.get("sid") || "";
+      if (shortId) tls.reality.short_id = shortId;
+    }
+    outbound.tls = tls;
+  }
+
+  var path = query.get("path") || "";
+  var host = query.get("host") || "";
+  if (transportType === "ws") {
+    outbound.transport = { type: "ws" };
+    if (path) outbound.transport.path = path;
+    if (host) outbound.transport.headers = { Host: host };
+    var earlyData = parseInt(query.get("ed") || "", 10);
+    if (earlyData > 0) outbound.transport.max_early_data = earlyData;
+    var earlyHeader = query.get("eh") || "";
+    if (earlyHeader) outbound.transport.early_data_header_name = earlyHeader;
+  } else if (transportType === "grpc") {
+    outbound.transport = { type: "grpc" };
+    var serviceName = query.get("serviceName") || query.get("service_name") || "";
+    if (serviceName) outbound.transport.service_name = serviceName;
+  } else if (transportType === "http") {
+    outbound.transport = { type: "http" };
+    if (host) outbound.transport.host = vlessNonEmptyList(host);
+    if (path) outbound.transport.path = path;
+    var method = query.get("method") || "";
+    if (method) outbound.transport.method = method;
+  } else if (transportType === "httpupgrade") {
+    outbound.transport = { type: "httpupgrade" };
+    if (host) outbound.transport.host = host;
+    if (path) outbound.transport.path = path;
+  } else if (transportType === "quic") {
+    outbound.transport = { type: "quic" };
+  }
+
+  return outbound;
+}
+
+function vlessOutboundFromJson(document) {
+  if (!document || typeof document !== "object" || Array.isArray(document)) {
+    throw new Error("JSON должен содержать объект VLESS outbound.");
+  }
+  if (document.type === "vless") return document;
+  if (!Array.isArray(document.outbounds)) {
+    throw new Error("Нужен outbound type=vless или объект с массивом outbounds.");
+  }
+  var candidates = document.outbounds.filter(function (outbound) {
+    return outbound && outbound.type === "vless";
+  });
+  if (candidates.length !== 1) {
+    throw new Error("В массиве outbounds должен быть ровно один VLESS outbound.");
+  }
+  return candidates[0];
+}
+
+function vlessUriFromOutbound(document) {
+  var outbound = vlessOutboundFromJson(document);
+  var server = String(outbound.server || "").trim();
+  var serverPort = parseInt(outbound.server_port, 10);
+  var uuid = String(outbound.uuid || "").trim();
+  if (!server || /[\s\/\[\]]/.test(server)) throw new Error("Поле server отсутствует или содержит недопустимый адрес.");
+  if (!serverPort || serverPort < 1 || serverPort > 65535 || serverPort !== Number(outbound.server_port)) {
+    throw new Error("Поле server_port должно быть целым числом от 1 до 65535.");
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)) {
+    throw new Error("Поле uuid имеет неверный формат.");
+  }
+
+  var query = [vlessQueryPair("encryption", "none")];
+  var tls = outbound.tls && typeof outbound.tls === "object" && outbound.tls.enabled === true ? outbound.tls : null;
+  var security = tls && tls.reality && tls.reality.enabled === true ? "reality" : (tls ? "tls" : "none");
+  query.push(vlessQueryPair("security", security));
+
+  var transport = outbound.transport;
+  var transportType = transport && typeof transport === "object" ? String(transport.type || "tcp").toLowerCase() : "tcp";
+  if (["tcp", "ws", "grpc", "http", "httpupgrade", "quic"].indexOf(transportType) < 0) {
+    throw new Error("Транспорт " + transportType + " нельзя представить VLESS-ссылкой для sing-box.");
+  }
+  query.push(vlessQueryPair("type", transportType));
+
+  if (outbound.flow) query.push(vlessQueryPair("flow", outbound.flow));
+  if (outbound.network) {
+    if (outbound.network !== "tcp" && outbound.network !== "udp") throw new Error("network должен быть tcp или udp.");
+    query.push(vlessQueryPair("network", outbound.network));
+  }
+  if (outbound.packet_encoding) {
+    if (outbound.packet_encoding !== "packetaddr" && outbound.packet_encoding !== "xudp") {
+      throw new Error("packet_encoding должен быть packetaddr или xudp.");
+    }
+    query.push(vlessQueryPair("packetEncoding", outbound.packet_encoding));
+  }
+
+  if (tls) {
+    if (tls.server_name) query.push(vlessQueryPair("sni", tls.server_name));
+    if (tls.utls && tls.utls.enabled === true && tls.utls.fingerprint) query.push(vlessQueryPair("fp", tls.utls.fingerprint));
+    if (security === "reality") {
+      if (!tls.reality.public_key) throw new Error("Для REALITY в tls.reality нужен public_key.");
+      query.push(vlessQueryPair("pbk", tls.reality.public_key));
+      if (tls.reality.short_id) query.push(vlessQueryPair("sid", tls.reality.short_id));
+    }
+    if (Array.isArray(tls.alpn) && tls.alpn.length) query.push(vlessQueryPair("alpn", tls.alpn.join(",")));
+    if (tls.insecure === true) query.push(vlessQueryPair("allowInsecure", "1"));
+  }
+
+  if (transportType === "ws") {
+    var wsHost = vlessHeader(transport.headers, "Host");
+    if (wsHost) query.push(vlessQueryPair("host", wsHost));
+    if (transport.path) query.push(vlessQueryPair("path", transport.path));
+    if (parseInt(transport.max_early_data, 10) > 0) query.push(vlessQueryPair("ed", parseInt(transport.max_early_data, 10)));
+    if (transport.early_data_header_name) query.push(vlessQueryPair("eh", transport.early_data_header_name));
+  } else if (transportType === "grpc") {
+    if (transport.service_name) query.push(vlessQueryPair("serviceName", transport.service_name));
+  } else if (transportType === "http") {
+    var httpHosts = Array.isArray(transport.host) ? transport.host.join(",") : String(transport.host || "");
+    if (httpHosts) query.push(vlessQueryPair("host", httpHosts));
+    if (transport.path) query.push(vlessQueryPair("path", transport.path));
+    if (transport.method) query.push(vlessQueryPair("method", transport.method));
+  } else if (transportType === "httpupgrade") {
+    if (transport.host) query.push(vlessQueryPair("host", transport.host));
+    if (transport.path) query.push(vlessQueryPair("path", transport.path));
+  }
+
+  var tag = String(outbound.tag || "").trim();
+  return "vless://" + encodeURIComponent(uuid) + "@" + vlessUriHost(server) + ":" + serverPort + "?" + query.join("&") +
+    (tag ? "#" + encodeURIComponent(tag) : "");
+}
+

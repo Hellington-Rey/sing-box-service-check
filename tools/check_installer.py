@@ -34,7 +34,9 @@ def main():
     assert f'VERSION="{VERSION}"' in script
     assert f'VIEW_NAME="{LUCI_VIEW_NAME}"' in script
     assert "@@LUCI_VIEW_NAME@@" not in script
-    assert 'PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v112.js"' in script
+    assert 'PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1106.js"' in script
+    assert 'OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v112.js"' in script
+    assert 'ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v111.js"' in script
     assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
@@ -82,7 +84,7 @@ def main():
     }
     missing = required - names
     assert not missing, f"missing payload files: {sorted(missing)}"
-    assert "www/luci-static/resources/view/forkop/servicecheck-v112.js" not in names
+    assert "www/luci-static/resources/view/forkop/servicecheck-v1106.js" not in names
     assert menu["admin/services/forkop_servicecheck"]["action"]["path"] == f"forkop/{LUCI_VIEW_NAME[:-3]}"
     assert_shell("installer CLI", cli_raw)
     assert_shell("installer xHTTP fix", xhttp_fix)
@@ -97,7 +99,7 @@ def main():
         recovery_names = set(recovery_tar.getnames())
         assert "usr/bin/forkop-servicecheck" in recovery_names or "./usr/bin/forkop-servicecheck" in recovery_names
         assert LUCI_VIEW_PATH in recovery_names or f"./{LUCI_VIEW_PATH}" in recovery_names
-        assert not any(name.endswith("/servicecheck-v112.js") for name in recovery_names)
+        assert not any(name.endswith("/servicecheck-v1106.js") for name in recovery_names)
         assert not any(name.startswith("/") or "../" in name for name in recovery_names)
     assert payload_modes["usr/lib/forkop-servicecheck/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
@@ -247,6 +249,9 @@ def main():
     assert 'tile.addEventListener("click", toggle)' not in view
     assert version_marker == VERSION
     assert 'capabilities.module_version || "unknown"' in view
+    assert '"VLESS ↔ JSON"' in view
+    assert '"WireGuard / AWG"' in view
+    assert 'function showVpnTool(name)' in view
     with tarfile.open(PACKAGE, mode="r:gz") as outer:
         control_archive = outer.extractfile("./control.tar.gz").read()
         data_archive = outer.extractfile("./data.tar.gz").read()
@@ -257,11 +262,11 @@ def main():
         assert f"Version: {VERSION}-r1" in control
         assert "для Tachyon, Forkop и оригинального Podkop" in control
         assert "оригинального Podkop" in control
-        assert "rm -f /www/luci-static/resources/view/forkop/servicecheck-v112.js" in postinst
+        assert "rm -f /www/luci-static/resources/view/forkop/servicecheck-v1106.js" in postinst
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
         data_names = set(data_tar.getnames())
         assert f"./{LUCI_VIEW_PATH}" in data_names
-        assert "./www/luci-static/resources/view/forkop/servicecheck-v112.js" not in data_names
+        assert "./www/luci-static/resources/view/forkop/servicecheck-v1106.js" not in data_names
         assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
         assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
         assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())
