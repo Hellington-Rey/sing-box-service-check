@@ -50,7 +50,7 @@
           vpnConfig.value = raw;
           vpnFileName.textContent = file.name + " · " + file.size + " байт";
           renderVpnPackages();
-          showVpnNotice("ok", "Конфигурация загружена", "Файл добавлен в поле конфигурации. Проверьте имя интерфейса и нажмите «Создать и проверить».");
+          showVpnNotice("ok", "Конфигурация загружена", "Файл добавлен в поле конфигурации. Проверьте имя интерфейса и нажмите «Создать безопасно и проверить».");
         }
         vpnFileButton.disabled = false;
         vpnFileInput.value = "";
@@ -88,11 +88,11 @@
       if (vpnAction.disabled) return;
       var name = vpnNameInput.value.trim(), config = vpnConfig.value.trim(), protocol = vpnProtocol.value;
       if (!name || !config) { showVpnNotice("err", "Конфигурация не отправлена", "Укажите имя интерфейса и вставьте конфигурацию."); return; }
-      vpnAction.disabled = true; vpnAction.textContent = "Создаю и проверяю..."; showVpnNotice("wait", "Создание интерфейса", "Проверяем конфигурацию, не применяя DNS и системные маршруты, затем ждём handshake.");
+      vpnAction.disabled = true; vpnAction.textContent = "Создаю и проверяю..."; showVpnNotice("wait", "Создание интерфейса", "Проверяем конфигурацию. DNS, FwMark, фиксированный ListenPort и системные маршруты не применяются; адреса ограничиваются /32 и /128. Затем ждём handshake.");
       callBin(["vpn-create", name, protocol, config]).then(function (result) {
         if (!result.success) { showVpnNotice("err", "Интерфейс не создан", result.message || "Проверка не прошла."); return; }
         var title = result.protocol === "amneziawg" ? "AWG Tools " + (result.awg_version || "") : "WireGuard";
-        showVpnNotice(result.handshake && result.link_up ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + " DNS из файла не применён. Автоматические маршруты отключены." + (result.link_up ? " Link поднят." : " Link не поднят.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
+        showVpnNotice(result.handshake && result.link_up ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + " DNS, FwMark и фиксированный ListenPort из файла не применены. Автоматические маршруты отключены, адреса записаны только как /32 и /128." + (result.link_up ? " Link поднят." : " Link не поднят.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
       }).catch(function (error) { showVpnNotice("err", "Ошибка выполнения", error.message || "Не удалось создать интерфейс.");
       }).finally(function () { vpnAction.textContent = "Создать безопасно и проверить"; renderVpnPackages(); });
     });

@@ -163,6 +163,12 @@ def main():
     assert 'function vpnDetectedProtocol()' in view
     assert 'function vpn_awg_i(value)' in engine
     assert 'function vpn_address(value)' in engine
+    assert 'function vpn_safe_address(value)' in engine
+    assert 'vpn_set(section,"route_allowed_ips","0")' in engine
+    assert 'vpn_set(name,"dns"' not in engine
+    assert 'vpn_set(name,"fwmark"' not in engine
+    assert 'vpn_set(name,"listen_port"' not in engine
+    assert 'addresses_host_only:true' in engine
     assert 'callBin(["profiles-save", JSON.stringify(profilesDraft)])' in view
     assert 'function renderProfilesCards()' in view
     assert 'Добавить категорию' in view

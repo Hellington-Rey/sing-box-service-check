@@ -262,10 +262,12 @@ assert_no_uci() {
 }
 wireguard_config="[Interface]
 PrivateKey = $private_key
-Address = 10.0.0.2/32
-Address = fd00::2/128
+Address = 10.0.0.2/8
+Address = fd00::2/64
 DNS = 1.1.1.1
 DNS = 2606:4700:4700::1111
+ListenPort = 51820
+FwMark = 0xca6c
 
 [Peer]
 PublicKey = $public_key
@@ -287,12 +289,19 @@ assert data["link_up"] is True and data["handshake"] is True, data
 assert data["safe_mode"] is True, data
 assert data["dns_applied"] is False and data["ignored_dns"] == 2, data
 assert data["routes_enabled"] is False, data
+assert data["fwmark_applied"] is False and data["ignored_fwmark"] is True, data
+assert data["listen_port_applied"] is False and data["ignored_listen_port"] is True, data
+assert data["addresses_host_only"] is True, data
 PY
 assert_uci 'set network.wireguard_vpn0_1=wireguard_vpn0'
 assert_uci 'set network.wireguard_vpn0_1.route_allowed_ips=0'
 assert_uci 'add_list network.vpn0.addresses=10.0.0.2/32'
 assert_uci 'add_list network.vpn0.addresses=fd00::2/128'
 assert_no_uci 'network.vpn0.dns='
+assert_no_uci 'network.vpn0.fwmark='
+assert_no_uci 'network.vpn0.listen_port='
+assert_no_uci 'network.vpn0.addresses=10.0.0.2/8'
+assert_no_uci 'network.vpn0.addresses=fd00::2/64'
 assert_no_uci 'route_allowed_ips=1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=0.0.0.0/1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=128.0.0.0/1'
@@ -332,12 +341,17 @@ assert data["awg_version"] == "1.5", data
 assert data["safe_mode"] is True, data
 assert data["dns_applied"] is False and data["ignored_dns"] == 4, data
 assert data["routes_enabled"] is False, data
+assert data["fwmark_applied"] is False and data["ignored_fwmark"] is False, data
+assert data["listen_port_applied"] is False and data["ignored_listen_port"] is False, data
+assert data["addresses_host_only"] is True, data
 PY
 assert_uci 'set network.amneziawg_awg0_1=amneziawg_awg0'
 assert_uci 'set network.amneziawg_awg0_1.route_allowed_ips=0'
 assert_uci 'add_list network.awg0.addresses=172.16.0.2/32'
 assert_uci 'add_list network.awg0.addresses=2606:4700:110:8b64:9e1c:6ef7:1063:2d84/128'
 assert_no_uci 'network.awg0.dns='
+assert_no_uci 'network.awg0.fwmark='
+assert_no_uci 'network.awg0.listen_port='
 assert_no_uci 'route_allowed_ips=1'
 assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>'
 
@@ -376,6 +390,44 @@ import json, os
 data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is False, data
 assert data["message"] == "некорректный Address", data
+PY
+
+invalid_mtu_config="[Interface]
+PrivateKey = $private_key
+Address = 10.0.0.5/32
+MTU = 70000
+
+[Peer]
+PublicKey = $public_key
+AllowedIPs = 0.0.0.0/0"
+if run_engine vpn-create invalidmtu0 auto "$invalid_mtu_config" >"$TMP/invalid-mtu.json" 2>/dev/null; then
+    echo "out-of-range VPN MTU was accepted" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/invalid-mtu.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False, data
+assert data["message"] == "MTU должен быть от 576 до 65535", data
+PY
+
+invalid_port_config="[Interface]
+PrivateKey = $private_key
+Address = 10.0.0.6/32
+ListenPort = 65536
+
+[Peer]
+PublicKey = $public_key
+AllowedIPs = 0.0.0.0/0"
+if run_engine vpn-create invalidport0 auto "$invalid_port_config" >"$TMP/invalid-port.json" 2>/dev/null; then
+    echo "out-of-range VPN ListenPort was accepted" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/invalid-port.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False, data
+assert data["message"] == "некорректный ListenPort", data
 PY
 
 echo "backend runtime matrix: OK"
