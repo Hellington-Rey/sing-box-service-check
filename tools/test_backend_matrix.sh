@@ -35,7 +35,10 @@ EOF
 cat > "$TMP/bin/uci" <<'EOF'
 #!/bin/sh
 case "${1:-}" in
-    -q) exit 1 ;;
+    -q)
+        [ "${2:-}" = "get" ] || exit 1
+        awk -v key="set ${3:-}=" 'index($0,key)==1 { value=substr($0,length(key)+1) } END { if (value != "") print value; else exit 1 }' "${UCI_LOG:-/dev/null}"
+        ;;
     set|add_list|commit|delete)
         [ -z "${UCI_LOG:-}" ] || printf '%s\n' "$*" >> "$UCI_LOG"
         exit 0
@@ -50,7 +53,11 @@ EOF
 cat > "$TMP/bin/wg" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = "show" ] && [ "${3:-}" = "latest-handshakes" ]; then
-    printf '%s\t%s\n' 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' '1234567890'
+    count="$(cat "${VPN_PROBE_STATE:-/dev/null}" 2>/dev/null || echo 0)"
+    [ "$count" -gt 0 ] && printf '%s\t%s\n' 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' '1234567890'
+elif [ "${1:-}" = "show" ] && [ "${3:-}" = "transfer" ]; then
+    count="$(cat "${VPN_PROBE_STATE:-/dev/null}" 2>/dev/null || echo 0)"
+    printf '%s\t%s\t%s\n' 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' "$((count * 32))" "$((count * 64))"
 fi
 exit 0
 EOF
@@ -66,6 +73,15 @@ if [ "${1:-}" = "-4" ]; then
 fi
 exit 0
 EOF
+cat > "$TMP/bin/ping" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "${VPN_PING_LOG:-/dev/null}"
+count="$(cat "${VPN_PROBE_STATE:-/dev/null}" 2>/dev/null || echo 0)"
+printf '%s\n' "$((count + 1))" > "${VPN_PROBE_STATE:-/dev/null}"
+echo '1 packets transmitted, 1 packets received'
+exit 0
+EOF
+cp "$TMP/bin/ping" "$TMP/bin/ping6"
 cat > "$TMP/bin/pgrep" <<'EOF'
 #!/bin/sh
 exit 0
@@ -121,6 +137,8 @@ run_engine() {
     FORKOP_SC_SING_BOX_CONFIG="$TMP/config.json" \
     FORKOP_SC_NETIFD_PROTO_DIR="$TMP/proto" \
     UCI_LOG="$TMP/uci.log" \
+    VPN_PROBE_STATE="$TMP/vpn-probe-count" \
+    VPN_PING_LOG="$TMP/vpn-ping.log" \
     TACHYON_BIN="$TMP/tachyon" \
     FORKOP_BIN="$TMP/forkop" \
     PODKOP_BIN="$TMP/podkop" \
@@ -286,6 +304,8 @@ data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is True, data
 assert data["protocol"] == data["detected"] == "wireguard", data
 assert data["link_up"] is True and data["handshake"] is True, data
+assert data["test_packet_sent"] is True and data["tunnel_ok"] is True, data
+assert data["probe_target"] == "1.1.1.1", data
 assert data["safe_mode"] is True, data
 assert data["dns_applied"] is False and data["ignored_dns"] == 2, data
 assert data["routes_enabled"] is False, data
@@ -306,6 +326,7 @@ assert_no_uci 'route_allowed_ips=1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=0.0.0.0/1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=128.0.0.0/1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=::/0'
+grep -Fq -- '-I vpn0 -c 1 -W 3 1.1.1.1' "$TMP/vpn-ping.log"
 
 amneziawg_config="[Interface]
 PrivateKey = $private_key
@@ -354,6 +375,40 @@ assert_no_uci 'network.awg0.fwmark='
 assert_no_uci 'network.awg0.listen_port='
 assert_no_uci 'route_allowed_ips=1'
 assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>'
+grep -Fq -- '-I awg0 -c 1 -W 3 1.1.1.1' "$TMP/vpn-ping.log"
+
+output="$(run_engine vpn-check awg0 9.9.9.9)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is True and data["tunnel_ok"] is True, data
+assert data["interface"] == "awg0" and data["protocol"] == "amneziawg", data
+assert data["target"] == "9.9.9.9", data
+assert data["link_up"] is True and data["packet_sent"] is True, data
+assert data["ping_ok"] is True and data["handshake"] is True, data
+assert data["tx_bytes"] > 0 and data["rx_bytes"] > 0, data
+PY
+grep -Fq -- '-I awg0 -c 1 -W 3 9.9.9.9' "$TMP/vpn-ping.log"
+
+if run_engine vpn-check unmanaged0 1.1.1.1 >"$TMP/unmanaged-vpn.json" 2>/dev/null; then
+    echo "ERROR: unmanaged VPN interface must be rejected" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/unmanaged-vpn.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False and "созданного этим модулем" in data["message"], data
+PY
+
+if run_engine vpn-check awg0 example.com >"$TMP/invalid-vpn-target.json" 2>/dev/null; then
+    echo "ERROR: VPN check must reject a domain target" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/invalid-vpn-target.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False and "IP" in data["message"], data
+PY
 
 duplicate_config="[Interface]
 PrivateKey = $private_key

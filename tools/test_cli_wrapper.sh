@@ -85,10 +85,15 @@ VPN_INSTALL_OUTPUT="$(run_wrapper vpn-install wireguard)"
 [ "$(printf '%s\n' "$VPN_INSTALL_OUTPUT" | tail -n 2 | head -n 1)" = "vpn-install" ]
 [ "$(printf '%s\n' "$VPN_INSTALL_OUTPUT" | tail -n 1)" = "wireguard" ]
 VPN_CREATE_OUTPUT="$(run_wrapper vpn-create vpn0 amneziawg "$VPN_CONFIG")"
-[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 4 | head -n 1)" = "vpn-create" ]
-[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 3 | head -n 1)" = "vpn0" ]
-[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 2 | head -n 1)" = "amneziawg" ]
-[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 1)" = "$VPN_CONFIG" ]
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 5 | head -n 1)" = "vpn-create" ]
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 4 | head -n 1)" = "vpn0" ]
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 3 | head -n 1)" = "amneziawg" ]
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 2 | head -n 1)" = "$VPN_CONFIG" ]
+[ "$(printf '%s\n' "$VPN_CREATE_OUTPUT" | tail -n 1)" = "1.1.1.1" ]
+VPN_CHECK_OUTPUT="$(run_wrapper vpn-check vpn0 9.9.9.9)"
+[ "$(printf '%s\n' "$VPN_CHECK_OUTPUT" | tail -n 3 | head -n 1)" = "vpn-check" ]
+[ "$(printf '%s\n' "$VPN_CHECK_OUTPUT" | tail -n 2 | head -n 1)" = "vpn0" ]
+[ "$(printf '%s\n' "$VPN_CHECK_OUTPUT" | tail -n 1)" = "9.9.9.9" ]
 
 if run_wrapper unknown >/dev/null 2>&1; then
     echo "ERROR: unknown command must fail" >&2

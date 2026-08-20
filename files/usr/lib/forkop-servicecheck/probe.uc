@@ -805,9 +805,93 @@ function vpn_host(endpoint) { let host = match(endpoint,/^(\[[0-9A-Fa-f:.]+\]|[A
 function vpn_port(endpoint) { return match(endpoint,/:([0-9]+)$/)[1]; }
 function vpn_peer_type(protocol, name) { return protocol + "_" + name; }
 
-function vpn_create(name, protocol, payload) {
+function vpn_latest_handshake(tool, name) {
+    let latest = 0;
+    let output = capture_args([ tool, "show", name, "latest-handshakes" ], false).output;
+    for (let line in split(as_string(output), "\n")) {
+        let hit = match(line, /\s([0-9]+)\s*$/);
+        if (hit != null && int(hit[1]) > latest) latest = int(hit[1]);
+    }
+    return latest;
+}
+
+function vpn_transfer(tool, name) {
+    let received = 0, sent = 0;
+    let output = capture_args([ tool, "show", name, "transfer" ], false).output;
+    for (let line in split(as_string(output), "\n")) {
+        let fields = vpn_split(replace(line, /\t/g, " "));
+        if (length(fields) >= 3) {
+            received += int(fields[length(fields) - 2]);
+            sent += int(fields[length(fields) - 1]);
+        }
+    }
+    return { received, sent };
+}
+
+function vpn_probe(name, protocol, target) {
+    target = trim(as_string(target));
+    if (!vpn_ip(target)) return { success:false, tunnel_ok:false, interface:name, protocol, target, message:"цель проверки должна быть IPv4- или IPv6-адресом" };
+    let tool = vpn_tool(protocol);
+    if (tool == "") return { success:false, tunnel_ok:false, interface:name, protocol, target, message:"не найдена утилита управления туннелем" };
+    let link_up = run_quiet([ "ip", "link", "show", "dev", name ]);
+    if (!link_up) {
+        run_quiet([ "ifup", name ]);
+        capture_args([ "sleep", "1" ], false);
+        link_up = run_quiet([ "ip", "link", "show", "dev", name ]);
+    }
+    if (!link_up) return { success:false, tunnel_ok:false, interface:name, protocol, target, link_up:false, message:"интерфейс не поднят" };
+
+    let handshake_before = vpn_latest_handshake(tool, name);
+    let transfer_before = vpn_transfer(tool, name);
+    let ping_tool = index(target, ":") >= 0 && command_exists("ping6") ? "ping6" : "ping";
+    let ping = capture_args([ ping_tool, "-I", name, "-c", "1", "-W", "3", target ], true);
+    let handshake_after = 0;
+    for (let i = 0; i < 5; i++) {
+        handshake_after = vpn_latest_handshake(tool, name);
+        if (handshake_after > 0) break;
+        capture_args([ "sleep", "1" ], false);
+    }
+    let transfer_after = vpn_transfer(tool, name);
+    let packet_sent = transfer_after.sent > transfer_before.sent;
+    let packet_received = transfer_after.received > transfer_before.received;
+    let ping_ok = ping.status == 0;
+    let handshake = handshake_after > 0;
+    let handshake_changed = handshake_after > handshake_before;
+    let tunnel_ok = link_up && handshake && (ping_ok || packet_received);
+    let message = !packet_sent
+        ? "тестовый пакет не появился в счётчике передачи; проверьте, входит ли цель в AllowedIPs"
+        : (!handshake
+            ? "пакет отправлен, но peer не ответил handshake"
+            : (ping_ok
+                ? "туннель работает: пакет отправлен, handshake и ответ ping получены"
+                : (packet_received
+                    ? "peer ответил через туннель, но выбранная цель не ответила на ping"
+                    : "пакет отправлен и handshake есть, но ответ через туннель не получен")));
+    let output = trim(as_string(ping.output));
+    if (length(output) > 800) output = substr(output, 0, 800);
+    return { success:tunnel_ok, tunnel_ok, interface:name, protocol, target, link_up, packet_sent, packet_received,
+        ping_ok, handshake, handshake_changed, latest_handshake:handshake_after,
+        rx_bytes:transfer_after.received, tx_bytes:transfer_after.sent, message, output };
+}
+
+function vpn_check(name, target) {
+    name = trim(as_string(name));
+    if (match(name, /^[A-Za-z][A-Za-z0-9_-]{0,14}$/) == null) { write_json({success:false,tunnel_ok:false,message:"некорректное имя интерфейса"}); return 1; }
+    if (uci_get("network." + name + ".fkpsc_managed") != "1") { write_json({success:false,tunnel_ok:false,message:"ручная проверка разрешена только для интерфейса, созданного этим модулем"}); return 1; }
+    let protocol = uci_get("network." + name + ".proto");
+    if (protocol != "wireguard" && protocol != "amneziawg") { write_json({success:false,tunnel_ok:false,message:"интерфейс не является WireGuard или AmneziaWG"}); return 1; }
+    let status = vpn_status(protocol);
+    if (!status.ready) { write_json({success:false,tunnel_ok:false,message:"не установлены компоненты VPN",status}); return 1; }
+    let result = vpn_probe(name, protocol, target);
+    write_json(result);
+    return result.tunnel_ok ? 0 : 1;
+}
+
+function vpn_create(name, protocol, payload, probe_target) {
     payload = as_string(payload);
+    probe_target = trim(as_string(probe_target)) || "1.1.1.1";
     if (length(payload) < 20 || length(payload) > 16384) { write_json({ success:false, message:"размер конфигурации должен быть от 20 байт до 16 КиБ" }); return 1; }
+    if (!vpn_ip(probe_target)) { write_json({ success:false, message:"цель проверки должна быть IPv4- или IPv6-адресом" }); return 1; }
     if (protocol != "auto" && protocol != "wireguard" && protocol != "amneziawg") { write_json({ success:false, message:"неизвестный VPN-протокол" }); return 1; }
     let parsed = vpn_parse(payload);
     if (parsed.error != "") { write_json({ success:false, message:parsed.error }); return 1; }
@@ -845,10 +929,8 @@ function vpn_create(name, protocol, payload) {
     }
     if (!created || !run_quiet(["uci","commit","network"])) { for (let section in peer_sections) run_quiet(["uci","delete","network."+section]); run_quiet(["uci","delete","network."+name]); run_quiet(["uci","commit","network"]); write_json({success:false,message:"ошибка UCI, изменения отменены"}); return 1; }
     run_quiet(["ifup",name]);
-    let tool = vpn_tool(protocol), handshake = 0;
-    for (let i=0;i<8;i++) { let output = capture_args([tool,"show",name,"latest-handshakes"],false).output; for (let line in split(as_string(output),"\n")) { let hit = match(line,/\s([0-9]+)\s*$/); if (hit != null && int(hit[1]) > handshake) handshake=int(hit[1]); } if (handshake > 0) break; capture_args(["sleep","1"],false); }
-    let link_up = run_quiet(["ip","link","show","dev",name]);
-    write_json({success:true,interface:name,protocol,detected,awg_version:protocol == "amneziawg" ? vpn_awg_version(parsed.config) : "",safe_mode:true,dns_applied:false,ignored_dns:length(imported_dns),routes_enabled:false,fwmark_applied:false,ignored_fwmark,listen_port_applied:false,ignored_listen_port,addresses_host_only:true,link_up,handshake:handshake>0,latest_handshake:handshake,message:handshake>0 ? "интерфейс создан в безопасном режиме, handshake получен" : (link_up ? "интерфейс поднят в безопасном режиме, handshake за 8 секунд не получен" : "UCI-конфигурация создана в безопасном режиме, интерфейс не поднялся")});
+    let probe = vpn_probe(name, protocol, probe_target);
+    write_json({success:true,interface:name,protocol,detected,awg_version:protocol == "amneziawg" ? vpn_awg_version(parsed.config) : "",safe_mode:true,dns_applied:false,ignored_dns:length(imported_dns),routes_enabled:false,fwmark_applied:false,ignored_fwmark,listen_port_applied:false,ignored_listen_port,addresses_host_only:true,link_up:probe.link_up,handshake:probe.handshake,latest_handshake:probe.latest_handshake,test_packet_sent:probe.packet_sent,tunnel_ok:probe.tunnel_ok,probe_target:probe.target,probe,message:"интерфейс создан в безопасном режиме; " + probe.message});
     return 0;
 }
 
@@ -2729,7 +2811,7 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1110.js" ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1111.js" ],
         [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
         [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
     ];
@@ -3127,7 +3209,9 @@ else if (mode == "vpn-packages")
 else if (mode == "vpn-install")
     exit(vpn_install(ARGV[1]));
 else if (mode == "vpn-create")
-    exit(vpn_create(ARGV[1], ARGV[2], ARGV[3]));
+    exit(vpn_create(ARGV[1], ARGV[2], ARGV[3], ARGV[4]));
+else if (mode == "vpn-check")
+    exit(vpn_check(ARGV[1], ARGV[2]));
 else if (mode == "custom") {
     let result = custom_check(ARGV[1], ARGV[2], ARGV[3], ARGV[4]);
     write_json(result);

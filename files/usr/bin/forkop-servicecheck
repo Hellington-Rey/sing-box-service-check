@@ -43,8 +43,9 @@ Available commands:
     profiles-reset          Вернуться к встроенному списку
     vpn-packages            Показать готовность WireGuard и AmneziaWG
     vpn-install PROTOCOL    Установить компоненты wireguard или amneziawg
-    vpn-create NAME PROTOCOL CONFIG
-                            Создать VPN-интерфейс и проверить handshake
+    vpn-create NAME PROTOCOL CONFIG [TARGET]
+                            Создать VPN-интерфейс, отправить пакет и проверить туннель
+    vpn-check NAME [TARGET] Проверить созданный модулем туннель; TARGET по умолчанию 1.1.1.1
     netns_teardown          Снести временный network namespace
 
 IDS  - список id сервисов через запятую либо 'all'
@@ -131,7 +132,10 @@ case "$COMMAND" in
         exec ucode -L "$LIB_DIR" "$ENGINE" vpn-install "${2:-}"
         ;;
     vpn-create)
-        exec ucode -L "$LIB_DIR" "$ENGINE" vpn-create "${2:-}" "${3:-}" "${4:-}"
+        exec ucode -L "$LIB_DIR" "$ENGINE" vpn-create "${2:-}" "${3:-}" "${4:-}" "${5:-1.1.1.1}"
+        ;;
+    vpn-check)
+        exec ucode -L "$LIB_DIR" "$ENGINE" vpn-check "${2:-}" "${3:-1.1.1.1}"
         ;;
     custom)
         exec ucode -L "$LIB_DIR" "$ENGINE" custom "${2:-}" "${3:-}" "${4:-}" "${5:-}"

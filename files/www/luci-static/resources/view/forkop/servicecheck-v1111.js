@@ -196,6 +196,9 @@ function injectStyles() {
     ".fkpsc-custom-pill.err { color:var(--err); background:rgba(224,49,49,.13); }",
     ".fkpsc-vpn-grid { display:grid; grid-template-columns:minmax(11em,.4fr) minmax(12em,.5fr) 1fr; gap:.75em; margin:.7em 0; }",
     ".fkpsc-vpn-config { box-sizing:border-box; width:100%; min-height:18em; resize:vertical; font-family:monospace; font-size:.88em; line-height:1.4; }",
+    ".fkpsc-vpn-manual { display:flex; flex-wrap:wrap; align-items:flex-end; gap:.65em; margin:.9em 0; padding:.8em; border:1px solid var(--border-soft); border-radius:9px; background:var(--surface-soft); }",
+    ".fkpsc-vpn-manual .fkpsc-editor-field { flex:1 1 220px; }",
+    ".fkpsc-vpn-manual .cbi-button { min-height:2.35em; }",
     ".fkpsc-converter-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.8em; margin:.75em 0; }",
     ".fkpsc-converter-pane { display:flex; flex-direction:column; gap:.35em; min-width:0; }",
     ".fkpsc-converter-pane > span { font-size:.82em; font-weight:600; opacity:.72; }",
@@ -321,6 +324,7 @@ function injectStyles() {
     "  .fkpsc-dns-row { grid-template-columns:1fr auto; gap:.3em .6em; }",
     "  .fkpsc-vpn-grid { grid-template-columns:1fr; }",
     "  .fkpsc-vpn-tab { flex:1 1 45%; }",
+    "  .fkpsc-vpn-manual .cbi-button { flex:1 1 100%; }",
     "  .fkpsc-converter-grid { grid-template-columns:1fr; }",
     "  .fkpsc-dns-host, .fkpsc-dns-answer { grid-column:1/-1; }",
     "  .fkpsc-tabs { position:sticky; top:0; z-index:20; }",
@@ -2238,6 +2242,8 @@ function vlessUriFromOutbound(document) {
     var vpnFileButton = E("button", { class:"cbi-button", type:"button" }, "Загрузить файл конфигурации");
     var vpnFileName = E("span", { class:"fkpsc-vpn-filename" }, "Можно выбрать файл .conf или .wg до 16 КиБ.");
     var vpnAction = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "Создать безопасно и проверить");
+    var vpnProbeTarget = E("input", { type:"text", class:"cbi-input-text", value:"1.1.1.1", autocomplete:"off", spellcheck:"false", placeholder:"1.1.1.1" });
+    var vpnManualCheck = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "Проверить туннель вручную");
     var vpnInstall = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "Установить компоненты");
     var vpnNotice = E("div", { class:"fkpsc-custom-result", style:"display:none" });
     var vpnPackageNote = E("div", {});
@@ -2314,15 +2320,33 @@ function vlessUriFromOutbound(document) {
     });
     vpnAction.addEventListener("click", function () {
       if (vpnAction.disabled) return;
-      var name = vpnNameInput.value.trim(), config = vpnConfig.value.trim(), protocol = vpnProtocol.value;
+      var name = vpnNameInput.value.trim(), config = vpnConfig.value.trim(), protocol = vpnProtocol.value, probeTarget = vpnProbeTarget.value.trim();
       if (!name || !config) { showVpnNotice("err", "Конфигурация не отправлена", "Укажите имя интерфейса и вставьте конфигурацию."); return; }
-      vpnAction.disabled = true; vpnAction.textContent = "Создаю и проверяю..."; showVpnNotice("wait", "Создание интерфейса", "Проверяем конфигурацию. DNS, FwMark, фиксированный ListenPort и системные маршруты не применяются; адреса ограничиваются /32 и /128. Затем ждём handshake.");
-      callBin(["vpn-create", name, protocol, config]).then(function (result) {
+      if (!probeTarget) { showVpnNotice("err", "Проверка не запущена", "Укажите IP-адрес для тестового пакета."); return; }
+      vpnAction.disabled = true; vpnAction.textContent = "Создаю и проверяю..."; showVpnNotice("wait", "Создание интерфейса", "Проверяем конфигурацию, поднимаем интерфейс и отправляем тестовый пакет через туннель. DNS, FwMark, фиксированный ListenPort и системные маршруты не применяются.");
+      callBin(["vpn-create", name, protocol, config, probeTarget]).then(function (result) {
         if (!result.success) { showVpnNotice("err", "Интерфейс не создан", result.message || "Проверка не прошла."); return; }
         var title = result.protocol === "amneziawg" ? "AWG Tools " + (result.awg_version || "") : "WireGuard";
-        showVpnNotice(result.handshake && result.link_up ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + " DNS, FwMark и фиксированный ListenPort из файла не применены. Автоматические маршруты отключены, адреса записаны только как /32 и /128." + (result.link_up ? " Link поднят." : " Link не поднят.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
+        showVpnNotice(result.tunnel_ok ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + " DNS, FwMark и фиксированный ListenPort из файла не применены. Автоматические маршруты отключены, адреса записаны только как /32 и /128." + (result.test_packet_sent ? " Тестовый пакет отправлен." : " Тестовый пакет не отправлен.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
       }).catch(function (error) { showVpnNotice("err", "Ошибка выполнения", error.message || "Не удалось создать интерфейс.");
       }).finally(function () { vpnAction.textContent = "Создать безопасно и проверить"; renderVpnPackages(); });
+    });
+    vpnManualCheck.addEventListener("click", function () {
+      var name = vpnNameInput.value.trim(), probeTarget = vpnProbeTarget.value.trim();
+      if (!name || !probeTarget) { showVpnNotice("err", "Проверка не запущена", "Укажите имя существующего интерфейса и IP-адрес для тестового пакета."); return; }
+      vpnManualCheck.disabled = true;
+      vpnManualCheck.textContent = "Проверяю...";
+      showVpnNotice("wait", "Ручная проверка туннеля", "Поднимаем управляемый интерфейс при необходимости и отправляем один пакет строго через него.");
+      callBin(["vpn-check", name, probeTarget]).then(function (result) {
+        var facts = [];
+        facts.push(result.link_up ? "Link поднят." : "Link не поднят.");
+        facts.push(result.packet_sent ? "Пакет отправлен." : "Пакет не отправлен.");
+        facts.push(result.handshake ? "Handshake есть." : "Handshake не получен.");
+        facts.push(result.ping_ok ? "Цель ответила на ping." : "Цель не ответила на ping.");
+        if (result.rx_bytes !== undefined && result.tx_bytes !== undefined) facts.push("Счётчики: RX " + result.rx_bytes + " / TX " + result.tx_bytes + " байт.");
+        showVpnNotice(result.tunnel_ok ? "ok" : (result.packet_sent || result.handshake ? "wait" : "err"), "Проверка · " + (result.interface || name), (result.message || "Проверка завершена.") + " " + facts.join(" "));
+      }).catch(function (error) { showVpnNotice("err", "Проверка не выполнена", error.message || "Не удалось проверить туннель.");
+      }).finally(function () { vpnManualCheck.disabled = false; vpnManualCheck.textContent = "Проверить туннель вручную"; });
     });
     renderVpnPackages();
 
@@ -2400,7 +2424,11 @@ function vlessUriFromOutbound(document) {
       E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
       E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]),
       E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]),
-      E("div", { class:"fkpsc-note" }, "Безопасный режим: DNS из конфигурации не применяется, автоматические маршруты AllowedIPs не создаются. Туннель поднимается только для проверки link и handshake."), vpnPackageNote, vpnNotice,
+      E("div", { class:"fkpsc-vpn-manual" }, [
+        E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "IP для тестового пакета (должен входить в AllowedIPs)"), vpnProbeTarget]),
+        vpnManualCheck,
+      ]),
+      E("div", { class:"fkpsc-note" }, "Безопасный режим: DNS из конфигурации не применяется, автоматические маршруты AllowedIPs не создаются. Для проверки тестовый пакет привязывается к VPN-интерфейсу вручную и не меняет системный default route."), vpnPackageNote, vpnNotice,
     ]);
     function showVpnTool(name) {
       var showVless = name === "vless";
