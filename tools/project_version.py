@@ -21,6 +21,14 @@ def expected_tag() -> str:
     return f"v{project_version()}"
 
 
+def luci_view_name(version: str | None = None) -> str:
+    """Return the versioned LuCI asset name used as a browser cache buster."""
+    value = version or project_version()
+    if not VERSION_PATTERN.fullmatch(value):
+        raise ValueError(f"invalid version for LuCI view: {value!r}")
+    return f"servicecheck-v{value.replace('.', '')}.js"
+
+
 def main() -> int:
     version = project_version()
     ref_type = os.environ.get("GITHUB_REF_TYPE", "")

@@ -19,7 +19,7 @@ import io
 import tarfile
 from pathlib import Path
 
-from tools.project_version import project_version
+from tools.project_version import luci_view_name, project_version
 from tools.assemble_sources import assemble_all
 
 ROOT = Path(__file__).parent
@@ -29,6 +29,8 @@ OUT_DIR = ROOT / "dist"
 
 PACKAGE = "luci-app-forkop-servicecheck"
 VERSION = project_version()
+LUCI_VIEW_NAME = luci_view_name(VERSION)
+LUCI_VIEW_PATH = f"www/luci-static/resources/view/forkop/{LUCI_VIEW_NAME}"
 RELEASE = "r1"
 ARCH = "all"
 LICENSE = "MIT"
@@ -55,7 +57,7 @@ PAYLOAD = [
     ("./usr/lib/forkop-servicecheck/repair.sh", "usr/lib/forkop-servicecheck/repair.sh", 0o755),
     ("./usr/share/forkop-servicecheck/profiles.json", "usr/share/forkop-servicecheck/profiles.json", 0o644),
     ("./usr/share/forkop-servicecheck/version", None, 0o644),
-    ("./www/luci-static/resources/view/forkop/servicecheck-v112.js", "www/luci-static/resources/view/forkop/servicecheck-v112.js", 0o644),
+    (f"./{LUCI_VIEW_PATH}", LUCI_VIEW_PATH, 0o644),
     ("./usr/share/luci/menu.d/luci-app-forkop-servicecheck.json", "usr/share/luci/menu.d/luci-app-forkop-servicecheck.json", 0o644),
     ("./usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json", "usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json", 0o644),
 ]
@@ -82,6 +84,7 @@ POSTINST = """#!/bin/sh
 # не появится до перезагрузки.
 rm -rf /tmp/luci-modulecache 2>/dev/null
 rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -f /www/luci-static/resources/view/forkop/servicecheck-v112.js 2>/dev/null
 
 # rpcd читает acl.d только при старте.
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1

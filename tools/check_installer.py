@@ -4,16 +4,19 @@ import base64
 import gzip
 import hashlib
 import io
+import json
 import tarfile
 from pathlib import Path
 
-from project_version import project_version
+from project_version import luci_view_name, project_version
 
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "install-sing-box-service-check.sh"
 LEGACY_INSTALLER = ROOT / "install-forkop-servicecheck.sh"
 VERSION = project_version()
+LUCI_VIEW_NAME = luci_view_name(VERSION)
+LUCI_VIEW_PATH = f"www/luci-static/resources/view/forkop/{LUCI_VIEW_NAME}"
 PACKAGE = ROOT / "dist" / f"luci-app-forkop-servicecheck_{VERSION}-r1_all.ipk"
 APK_MAKER = ROOT / "dist" / "make-apk.sh"
 CHECKSUMS = ROOT / "dist" / "SHA256SUMS.txt"
@@ -29,6 +32,9 @@ def assert_shell(name, shell_script):
 def main():
     script = INSTALLER.read_text(encoding="utf-8")
     assert f'VERSION="{VERSION}"' in script
+    assert f'VIEW_NAME="{LUCI_VIEW_NAME}"' in script
+    assert "@@LUCI_VIEW_NAME@@" not in script
+    assert 'PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v112.js"' in script
     assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
@@ -59,7 +65,8 @@ def main():
         engine = tar.extractfile("usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8")
         profiles = tar.extractfile("usr/share/forkop-servicecheck/profiles.json").read().decode("utf-8")
         version_marker = tar.extractfile("usr/share/forkop-servicecheck/version").read().decode("utf-8").strip()
-        view = tar.extractfile("www/luci-static/resources/view/forkop/servicecheck-v112.js").read().decode("utf-8")
+        menu = json.loads(tar.extractfile("usr/share/luci/menu.d/luci-app-forkop-servicecheck.json").read())
+        view = tar.extractfile(LUCI_VIEW_PATH).read().decode("utf-8")
 
     required = {
         "usr/bin/forkop-servicecheck",
@@ -71,10 +78,12 @@ def main():
         "usr/share/forkop-servicecheck/recovery.sha256",
         "usr/share/forkop-servicecheck/profiles.json",
         "usr/share/forkop-servicecheck/version",
-        "www/luci-static/resources/view/forkop/servicecheck-v112.js",
+        LUCI_VIEW_PATH,
     }
     missing = required - names
     assert not missing, f"missing payload files: {sorted(missing)}"
+    assert "www/luci-static/resources/view/forkop/servicecheck-v112.js" not in names
+    assert menu["admin/services/forkop_servicecheck"]["action"]["path"] == f"forkop/{LUCI_VIEW_NAME[:-3]}"
     assert_shell("installer CLI", cli_raw)
     assert_shell("installer xHTTP fix", xhttp_fix)
     assert_shell("installer ICMP fix", icmp_fix)
@@ -87,6 +96,8 @@ def main():
     with tarfile.open(fileobj=io.BytesIO(recovery_archive), mode="r:gz") as recovery_tar:
         recovery_names = set(recovery_tar.getnames())
         assert "usr/bin/forkop-servicecheck" in recovery_names or "./usr/bin/forkop-servicecheck" in recovery_names
+        assert LUCI_VIEW_PATH in recovery_names or f"./{LUCI_VIEW_PATH}" in recovery_names
+        assert not any(name.endswith("/servicecheck-v112.js") for name in recovery_names)
         assert not any(name.startswith("/") or "../" in name for name in recovery_names)
     assert payload_modes["usr/lib/forkop-servicecheck/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
@@ -241,17 +252,22 @@ def main():
         data_archive = outer.extractfile("./data.tar.gz").read()
     with tarfile.open(fileobj=io.BytesIO(control_archive), mode="r:gz") as control_tar:
         control = control_tar.extractfile("./control").read().decode("utf-8")
+        postinst = control_tar.extractfile("./postinst").read().decode("utf-8")
         assert "Depends: luci-base, ucode" in control
         assert f"Version: {VERSION}-r1" in control
         assert "для Tachyon, Forkop и оригинального Podkop" in control
         assert "оригинального Podkop" in control
+        assert "rm -f /www/luci-static/resources/view/forkop/servicecheck-v112.js" in postinst
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
+        data_names = set(data_tar.getnames())
+        assert f"./{LUCI_VIEW_PATH}" in data_names
+        assert "./www/luci-static/resources/view/forkop/servicecheck-v112.js" not in data_names
         assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
         assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
         assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())
         assert_shell("IPK ICMP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read())
         assert data_tar.extractfile("./usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8") == engine
-        assert data_tar.extractfile("./www/luci-static/resources/view/forkop/servicecheck-v112.js").read().decode("utf-8") == view
+        assert data_tar.extractfile(f"./{LUCI_VIEW_PATH}").read().decode("utf-8") == view
         assert data_tar.extractfile("./usr/share/forkop-servicecheck/version").read().decode("utf-8").strip() == version_marker
 
     feed_packages = (FEED_DIR / "Packages").read_text(encoding="utf-8")

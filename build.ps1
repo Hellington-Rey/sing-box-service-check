@@ -14,6 +14,7 @@ $staging = Join-Path $taskTemp ("forkop-servicecheck-payload-" + [Guid]::NewGuid
 
 $version = [System.IO.File]::ReadAllText((Join-Path $root 'VERSION')).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Некорректная версия в VERSION: $version" }
+$luciViewName = "servicecheck-v" + $version.Replace(".", "") + ".js"
 $builtAt = (Get-Date).ToString('yyyy-MM-dd')
 
 & python (Join-Path $root 'tools\assemble_sources.py')
@@ -69,6 +70,7 @@ for ($i = 0; $i -lt $base64.Length; $i += 76) {
 $script = [System.IO.File]::ReadAllText($template)
 $script = $script.Replace('@@VERSION@@', $version)
 $script = $script.Replace('@@BUILT_AT@@', $builtAt)
+$script = $script.Replace('@@LUCI_VIEW_NAME@@', $luciViewName)
 $script = $script.Replace("@@PAYLOAD@@`n", $wrapped.ToString())
 $script = $script.Replace('@@PAYLOAD@@', $wrapped.ToString())
 $script = $script.Replace("`r`n", "`n")

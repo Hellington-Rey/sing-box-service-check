@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from assemble_sources import assemble_all
+from project_version import luci_view_name
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -63,12 +64,28 @@ def validate_documentation(version: str) -> None:
         fail(f"CHANGELOG.md has no entry for {version}")
 
 
-def validate_luci_source() -> None:
-    source = (ROOT / "files/www/luci-static/resources/view/forkop/servicecheck-v112.js").read_text(
-        encoding="utf-8"
-    )
+def validate_luci_source(version: str) -> None:
+    view_name = luci_view_name(version)
+    view_directory = ROOT / "files/www/luci-static/resources/view/forkop"
+    view_path = view_directory / view_name
+    source = view_path.read_text(encoding="utf-8")
     if "UI_VERSION" in source:
         fail("LuCI source still references removed UI_VERSION; use capabilities.module_version")
+
+    versioned_views = sorted(path.name for path in view_directory.glob("servicecheck-v*.js"))
+    if versioned_views != [view_name]:
+        fail(f"LuCI view must use only the current cache-busting name {view_name}: {versioned_views}")
+
+    menu_path = ROOT / "files/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json"
+    menu = json.loads(menu_path.read_text(encoding="utf-8"))
+    action = menu["admin/services/forkop_servicecheck"]["action"]
+    expected_path = f"forkop/{view_name.removesuffix('.js')}"
+    if action.get("path") != expected_path:
+        fail(f"LuCI menu path {action.get('path')!r} does not match {expected_path!r}")
+
+    repair = (ROOT / "files/usr/lib/forkop-servicecheck/repair.sh").read_text(encoding="utf-8")
+    if f"www/luci-static/resources/view/forkop/{view_name}" not in repair:
+        fail("repair.sh does not contain the current versioned LuCI view")
 
 
 def main() -> int:
@@ -79,7 +96,7 @@ def main() -> int:
     assemble_all(check=True)
     validate_profiles()
     validate_documentation(version)
-    validate_luci_source()
+    validate_luci_source(version)
 
     required = [
         ".github/workflows/ci.yml",

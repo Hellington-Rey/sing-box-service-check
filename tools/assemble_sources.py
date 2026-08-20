@@ -3,6 +3,11 @@
 import argparse
 from pathlib import Path
 
+try:
+    from .project_version import luci_view_name
+except ImportError:  # Direct execution: python tools/assemble_sources.py
+    from project_version import luci_view_name
+
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -25,7 +30,7 @@ TARGETS = [
         ],
     },
     {
-        "target": ROOT / "files/www/luci-static/resources/view/forkop/servicecheck-v112.js",
+        "target": ROOT / "files/www/luci-static/resources/view/forkop" / luci_view_name(),
         "parts": ROOT / "src/luci",
         "boundaries": [
             ("00_core_and_styles.part", None),
