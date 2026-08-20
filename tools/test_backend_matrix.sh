@@ -37,10 +37,15 @@ cat > "$TMP/bin/uci" <<'EOF'
 case "${1:-}" in
     -q)
         [ "${2:-}" = "get" ] || exit 1
-        awk -v key="set ${3:-}=" 'index($0,key)==1 { value=substr($0,length(key)+1) } END { if (value != "") print value; else exit 1 }' "${UCI_LOG:-/dev/null}"
+        awk -F '\t' -v wanted="${3:-}" '$1==wanted { value=$2 } END { if (value != "") print value; else exit 1 }' "${UCI_STATE:-/dev/null}"
         ;;
     set|add_list|commit|delete)
         [ -z "${UCI_LOG:-}" ] || printf '%s\n' "$*" >> "$UCI_LOG"
+        if [ "${1:-}" = "set" ] && [ -n "${UCI_STATE:-}" ]; then
+            key="${2%%=*}"
+            value="${2#*=}"
+            printf '%s\t%s\n' "$key" "$value" >> "$UCI_STATE"
+        fi
         exit 0
         ;;
 esac
@@ -137,6 +142,7 @@ run_engine() {
     FORKOP_SC_SING_BOX_CONFIG="$TMP/config.json" \
     FORKOP_SC_NETIFD_PROTO_DIR="$TMP/proto" \
     UCI_LOG="$TMP/uci.log" \
+    UCI_STATE="$TMP/uci-state" \
     VPN_PROBE_STATE="$TMP/vpn-probe-count" \
     VPN_PING_LOG="$TMP/vpn-ping.log" \
     TACHYON_BIN="$TMP/tachyon" \
