@@ -159,7 +159,10 @@ def main():
     assert 'else if (mode == "vpn-packages")' in engine
     assert 'vpn-install PROTOCOL' in cli
     assert 'callBin(["vpn-create", name, protocol, config])' in view
-    assert 'AmneziaWG (авто: AWG 2.0/3.0)' in view
+    assert 'AWG Tools (AWG 1.5/2.0/3.0)' in view
+    assert 'function vpnDetectedProtocol()' in view
+    assert 'function vpn_awg_i(value)' in engine
+    assert 'function vpn_address(value)' in engine
     assert 'callBin(["profiles-save", JSON.stringify(profilesDraft)])' in view
     assert 'function renderProfilesCards()' in view
     assert 'Добавить категорию' in view

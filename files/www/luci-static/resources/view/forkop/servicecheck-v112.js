@@ -1967,8 +1967,9 @@ return view.extend({
     ]);
     var vpnNameInput = E("input", { type:"text", class:"cbi-input-text", value:"vpn0", maxlength:"15", autocomplete:"off", spellcheck:"false" });
     var vpnProtocol = E("select", { class:"cbi-input-select" }, [
-      E("option", { value:"wireguard", selected:"" }, "WireGuard"),
-      E("option", { value:"amneziawg" }, "AmneziaWG (авто: AWG 2.0/3.0)"),
+      E("option", { value:"auto", selected:"" }, "Автоопределение по конфигурации"),
+      E("option", { value:"wireguard" }, "WireGuard"),
+      E("option", { value:"amneziawg" }, "AWG Tools (AWG 1.5/2.0/3.0)"),
     ]);
     var vpnConfig = E("textarea", { class:"cbi-input-text fkpsc-vpn-config", spellcheck:"false",
       placeholder:"[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nAllowedIPs = 0.0.0.0/0\nEndpoint = host:port\nPersistentKeepalive = 25\n\nДля AmneziaWG добавьте Jc, Jmin, Jmax, S1, S2, H1-H4. I1-I5 включают AWG 3.0." });
@@ -1977,30 +1978,42 @@ return view.extend({
     var vpnNotice = E("div", { class:"fkpsc-custom-result", style:"display:none" });
     var vpnPackageNote = E("div", {});
 
-    function vpnCurrentStatus() { return vpnPackages[vpnProtocol.value] || {}; }
+    function vpnDetectedProtocol() {
+      return /^\s*(?:Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I[1-5])\s*=/mi.test(vpnConfig.value) ? "amneziawg" : "wireguard";
+    }
+    function vpnSelectedProtocol() { return vpnProtocol.value === "auto" ? vpnDetectedProtocol() : vpnProtocol.value; }
+    function vpnProtocolLabel(protocol) { return protocol === "amneziawg" ? "AWG Tools" : "WireGuard"; }
+    function vpnCurrentStatus() { return vpnPackages[vpnSelectedProtocol()] || {}; }
+    function vpnInstallMessage(result) {
+      var parts = [result.message || "Проверьте пакетный менеджер."];
+      if (Array.isArray(result.issues) && result.issues.length) parts.push("Не готовы: " + result.issues.join("; "));
+      if (result.output) parts.push("Вывод пакетного менеджера:\n" + result.output);
+      return parts.join("\n\n");
+    }
     function showVpnNotice(state, title, message) {
       vpnNotice.style.display = "";
       vpnNotice.className = "fkpsc-custom-result state-" + (state === "ok" ? "success" : state === "err" ? "error" : "warning");
       vpnNotice.replaceChildren(E("div", { class:"fkpsc-custom-head" }, [E("span", { class:"fkpsc-custom-title" }, title), E("span", { class:"fkpsc-custom-pill " + state }, state === "ok" ? "готово" : state === "err" ? "ошибка" : "выполняется")]), E("div", {}, message));
     }
     function renderVpnPackages() {
-      var status = vpnCurrentStatus(), ready = !!status.ready;
-      vpnAction.disabled = !ready; vpnInstall.disabled = ready || !status.install_available;
+      var selectedProtocol = vpnSelectedProtocol(), status = vpnCurrentStatus(), ready = !!status.ready;
+      vpnAction.disabled = !ready; vpnInstall.disabled = ready || !status.install_available || (vpnProtocol.value === "auto" && !vpnConfig.value.trim());
       if (ready) {
-        if (vpnProtocol.value === "amneziawg" && status.awg3_ready === false) {
-          vpnPackageNote.replaceChildren(E("div", { class:"fkpsc-note" }, "Установленный AmneziaWG поддерживает AWG 2.0, но не AWG 3.0: в netifd-протоколе нет параметров I1-I5. Обновите пакет AmneziaWG перед импортом AWG 3.0."));
+        if (selectedProtocol === "amneziawg" && status.awg_i_ready === false) {
+          vpnPackageNote.replaceChildren(E("div", { class:"fkpsc-note" }, "Установленный AWG Tools не поддерживает параметр I1. Обновите пакет перед импортом AWG 1.5/3.0."));
         } else vpnPackageNote.replaceChildren();
         return;
       }
       var names = Array.isArray(status.missing) && status.missing.length ? status.missing.join(", ") : "компоненты протокола";
-      vpnPackageNote.replaceChildren(E("div", { class:"fkpsc-note" }, [E("span", {}, "Для " + (vpnProtocol.value === "wireguard" ? "WireGuard" : "AmneziaWG") + " отсутствуют: " + names + ". "), status.install_available ? vpnInstall : E("span", {}, "Поддерживаемый пакетный менеджер не найден.")]));
+      vpnPackageNote.replaceChildren(E("div", { class:"fkpsc-note" }, [E("span", {}, "Для " + vpnProtocolLabel(selectedProtocol) + " отсутствуют: " + names + ". "), status.install_available ? vpnInstall : E("span", {}, "Поддерживаемый пакетный менеджер не найден.")]));
     }
     vpnProtocol.addEventListener("change", renderVpnPackages);
+    vpnConfig.addEventListener("input", renderVpnPackages);
     vpnInstall.addEventListener("click", function () {
-      var protocol = vpnProtocol.value;
-      if (vpnInstall.disabled || !window.confirm("Обновить индекс пакетов и установить компоненты " + (protocol === "wireguard" ? "WireGuard" : "AmneziaWG") + "?")) return;
+      var protocol = vpnSelectedProtocol();
+      if (vpnInstall.disabled || !window.confirm("Обновить индекс пакетов и установить компоненты " + vpnProtocolLabel(protocol) + "?")) return;
       vpnInstall.disabled = true; vpnInstall.textContent = "Устанавливаю..."; showVpnNotice("wait", "Установка компонентов", "Обновляем индекс пакетов и устанавливаем зависимости.");
-      callBin(["vpn-install", protocol]).then(function (result) { vpnPackages[protocol] = result; renderVpnPackages(); showVpnNotice(result.ready ? "ok" : "err", result.ready ? "Компоненты готовы" : "Компоненты не установлены", result.message || "Проверьте пакетный менеджер.");
+      callBin(["vpn-install", protocol]).then(function (result) { vpnPackages[protocol] = result; renderVpnPackages(); showVpnNotice(result.ready ? "ok" : "err", result.ready ? "Компоненты готовы" : "Компоненты не установлены", vpnInstallMessage(result));
       }).catch(function (error) { showVpnNotice("err", "Установка не выполнена", error.message || "Не удалось установить пакеты.");
       }).finally(function () { vpnInstall.textContent = "Установить компоненты"; renderVpnPackages(); });
     });
@@ -2011,7 +2024,7 @@ return view.extend({
       vpnAction.disabled = true; vpnAction.textContent = "Создаю и проверяю..."; showVpnNotice("wait", "Создание интерфейса", "Проверяем конфигурацию, записываем UCI и ждём handshake.");
       callBin(["vpn-create", name, protocol, config]).then(function (result) {
         if (!result.success) { showVpnNotice("err", "Интерфейс не создан", result.message || "Проверка не прошла."); return; }
-        var title = protocol === "amneziawg" ? "AmneziaWG " + (result.awg_version || "") : "WireGuard";
+        var title = result.protocol === "amneziawg" ? "AWG Tools " + (result.awg_version || "") : "WireGuard";
         showVpnNotice(result.handshake && result.link_up ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + (result.link_up ? " Link поднят." : " Link не поднят.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
       }).catch(function (error) { showVpnNotice("err", "Ошибка выполнения", error.message || "Не удалось создать интерфейс.");
       }).finally(function () { vpnAction.textContent = "Создать и проверить"; renderVpnPackages(); });

@@ -49,7 +49,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Копирование безопасного текстового отчёта и скачивание JSON для поддержки без ключей, клиентских адресов и разрешённых IP.
 - Импорт и экспорт пользовательских списков JSON с проверкой структуры до сохранения.
 - Диагностика backend, Clash API, DNS и FakeIP, а также самопроверка и восстановление установки из локальной recovery-копии.
-- Вкладка **VPN**: импорт WireGuard, AmneziaWG/AWG 2.0 и AWG 3.0 из стандартного конфигурационного файла; проверка пакетов, установка недостающих компонентов по подтверждению, создание UCI-интерфейса и проверка link/handshake.
+- Вкладка **VPN**: автоопределение и импорт WireGuard или AWG Tools (AWG 1.5/2.0/3.0) из стандартного конфигурационного файла; проверка пакетов, установка недостающих компонентов по подтверждению с выводом лога, создание UCI-интерфейса и проверка link/handshake.
 
 ## Как это работает
 
@@ -69,13 +69,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.10.0-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.10.1-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.10.0-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.10.1-r1.apk
 ```
 
 Установка без пакетного менеджера:
