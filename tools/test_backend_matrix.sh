@@ -34,7 +34,30 @@ EOF
 
 cat > "$TMP/bin/uci" <<'EOF'
 #!/bin/sh
+case "${1:-}" in
+    -q) exit 1 ;;
+    set|add_list|commit|delete)
+        [ -z "${UCI_LOG:-}" ] || printf '%s\n' "$*" >> "$UCI_LOG"
+        exit 0
+        ;;
+esac
 exit 1
+EOF
+cat > "$TMP/bin/opkg" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat > "$TMP/bin/wg" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "show" ] && [ "${3:-}" = "latest-handshakes" ]; then
+    printf '%s\t%s\n' 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=' '1234567890'
+fi
+exit 0
+EOF
+cp "$TMP/bin/wg" "$TMP/bin/awg"
+cat > "$TMP/bin/ifup" <<'EOF'
+#!/bin/sh
+exit 0
 EOF
 cat > "$TMP/bin/ip" <<'EOF'
 #!/bin/sh
@@ -87,12 +110,17 @@ printf '%s.\t60\tIN\tA\t93.184.216.34\n' "$6"
 echo ";; Query time: $query_us usec"
 EOF
 chmod +x "$TMP/backend" "$TMP/bin/"*
+mkdir -p "$TMP/proto"
+: > "$TMP/proto/wireguard.sh"
+echo 'proto_config_add_string "awg_i1"' > "$TMP/proto/amneziawg.sh"
 
 run_engine() {
     PATH="$TMP/bin:/usr/bin:/bin" \
     FORKOP_SC_LIB="$LIB" \
     FORKOP_SC_STATE_DIR="$TMP/state" \
     FORKOP_SC_SING_BOX_CONFIG="$TMP/config.json" \
+    FORKOP_SC_NETIFD_PROTO_DIR="$TMP/proto" \
+    UCI_LOG="$TMP/uci.log" \
     TACHYON_BIN="$TMP/tachyon" \
     FORKOP_BIN="$TMP/forkop" \
     PODKOP_BIN="$TMP/podkop" \
@@ -211,6 +239,105 @@ fi
 JSON_DATA="$(cat "$TMP/ipv6.json")" python3 - <<'PY'
 import json, os
 assert json.loads(os.environ["JSON_DATA"])["success"] is False
+PY
+
+private_key='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+public_key='BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB='
+wireguard_config="[Interface]
+PrivateKey = $private_key
+Address = 10.0.0.2/32
+Address = fd00::2/128
+DNS = 1.1.1.1
+DNS = 2606:4700:4700::1111
+
+[Peer]
+PublicKey = $public_key
+AllowedIPs = 0.0.0.0/1
+AllowedIPs = 128.0.0.0/1, ::/0
+Endpoint = 162.159.195.1:500
+PersistentKeepalive = 25"
+: > "$TMP/uci.log"
+output="$(run_engine vpn-create vpn0 auto "$wireguard_config")"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is True, data
+assert data["protocol"] == data["detected"] == "wireguard", data
+assert data["link_up"] is True and data["handshake"] is True, data
+PY
+grep -Fxq 'set network.wireguard_vpn0_1=wireguard_vpn0' "$TMP/uci.log"
+grep -Fxq 'add_list network.vpn0.addresses=10.0.0.2/32' "$TMP/uci.log"
+grep -Fxq 'add_list network.vpn0.addresses=fd00::2/128' "$TMP/uci.log"
+grep -Fxq 'add_list network.vpn0.dns=1.1.1.1' "$TMP/uci.log"
+grep -Fxq 'add_list network.vpn0.dns=2606:4700:4700::1111' "$TMP/uci.log"
+grep -Fxq 'add_list network.wireguard_vpn0_1.allowed_ips=0.0.0.0/1' "$TMP/uci.log"
+grep -Fxq 'add_list network.wireguard_vpn0_1.allowed_ips=128.0.0.0/1' "$TMP/uci.log"
+grep -Fxq 'add_list network.wireguard_vpn0_1.allowed_ips=::/0' "$TMP/uci.log"
+
+amneziawg_config="[Interface]
+PrivateKey = $private_key
+Address = 10.0.0.3
+Jc = 5
+Jmin = 50
+Jmax = 1000
+S1 = 0
+S2 = 0
+H1 = 1
+H2 = 2
+H3 = 3
+H4 = 4
+
+[Peer]
+PublicKey = $public_key
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = vpn.example.com:51820"
+: > "$TMP/uci.log"
+output="$(run_engine vpn-create awg0 auto "$amneziawg_config")"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is True, data
+assert data["protocol"] == data["detected"] == "amneziawg", data
+assert data["awg_version"] == "2.0", data
+PY
+grep -Fxq 'set network.amneziawg_awg0_1=amneziawg_awg0' "$TMP/uci.log"
+grep -Fxq 'add_list network.awg0.addresses=10.0.0.3/32' "$TMP/uci.log"
+
+duplicate_config="[Interface]
+PrivateKey = $private_key
+PrivateKey = $private_key
+Address = 10.0.0.4/32
+
+[Peer]
+PublicKey = $public_key
+AllowedIPs = 0.0.0.0/0"
+if run_engine vpn-create duplicate0 auto "$duplicate_config" >"$TMP/duplicate.json" 2>/dev/null; then
+    echo "duplicate scalar VPN parameter was accepted" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/duplicate.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False, data
+assert "повторный параметр [Interface]: PrivateKey" in data["message"], data
+PY
+
+invalid_address_config="[Interface]
+PrivateKey = $private_key
+Address = 999.1.1.1/99
+
+[Peer]
+PublicKey = $public_key
+AllowedIPs = 0.0.0.0/0"
+if run_engine vpn-create invalid0 auto "$invalid_address_config" >"$TMP/invalid-address.json" 2>/dev/null; then
+    echo "invalid VPN address was accepted" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/invalid-address.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False, data
+assert data["message"] == "некорректный Address", data
 PY
 
 echo "backend runtime matrix: OK"
