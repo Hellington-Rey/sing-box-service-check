@@ -351,7 +351,7 @@ function vpn_number(value) { return match(as_string(value), /^[0-9]{1,10}$/) != 
 function vpn_ip(value) { return iptoarr(trim(as_string(value))) != null; }
 function vpn_cidr(value) { let parts = match(trim(as_string(value)), /^(.+)\/([0-9]{1,3})$/); if (parts == null) return false; let address = iptoarr(parts[1]); return address != null && int(parts[2]) <= (length(address) == 4 ? 32 : 128); }
 function vpn_address(value) { value = trim(as_string(value)); return vpn_cidr(value) ? value : (vpn_ip(value) ? value + (index(value, ":") >= 0 ? "/128" : "/32") : ""); }
-function vpn_awg_i(value) { return match(trim(as_string(value)), /^(?:[0-9]{1,10}|<b 0x[0-9A-Fa-f]+>)$/) != null; }
+function vpn_awg_i(value) { return match(trim(as_string(value)), /^([0-9]{1,10}|<b 0x[0-9A-Fa-f]+>)$/) != null; }
 function vpn_endpoint(value) { let p = match(as_string(value), /^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+):([0-9]{1,5})$/); return p != null && int(p[2]) > 0 && int(p[2]) <= 65535; }
 function vpn_value(config, section, key) { return as_string(object_or_empty(config[section])[lc(key)]); }
 function vpn_peer_value(peer, key) { return as_string(object_or_empty(peer)[lc(key)]); }
