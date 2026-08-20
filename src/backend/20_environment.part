@@ -300,9 +300,9 @@ function vpn_install(protocol) {
     return status.success ? 0 : 1;
 }
 
-function vpn_split(value) {
+function vpn_split(input) {
     let result = [];
-    for (let value in split(as_string(value), /[ ,]+/)) if (trim(value) != "") push(result, trim(value));
+    for (let item in split(as_string(input), /[ ,]+/)) if (trim(item) != "") push(result, trim(item));
     return result;
 }
 
