@@ -1978,7 +1978,7 @@ return view.extend({
     var vpnFileInput = E("input", { type:"file", accept:".conf,.wg,text/plain,application/octet-stream", style:"display:none" });
     var vpnFileButton = E("button", { class:"cbi-button", type:"button" }, "Загрузить файл конфигурации");
     var vpnFileName = E("span", { class:"fkpsc-vpn-filename" }, "Можно выбрать файл .conf или .wg до 16 КиБ.");
-    var vpnAction = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "Создать и проверить");
+    var vpnAction = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "Создать безопасно и проверить");
     var vpnInstall = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "Установить компоненты");
     var vpnNotice = E("div", { class:"fkpsc-custom-result", style:"display:none" });
     var vpnPackageNote = E("div", {});
@@ -2057,13 +2057,13 @@ return view.extend({
       if (vpnAction.disabled) return;
       var name = vpnNameInput.value.trim(), config = vpnConfig.value.trim(), protocol = vpnProtocol.value;
       if (!name || !config) { showVpnNotice("err", "Конфигурация не отправлена", "Укажите имя интерфейса и вставьте конфигурацию."); return; }
-      vpnAction.disabled = true; vpnAction.textContent = "Создаю и проверяю..."; showVpnNotice("wait", "Создание интерфейса", "Проверяем конфигурацию, записываем UCI и ждём handshake.");
+      vpnAction.disabled = true; vpnAction.textContent = "Создаю и проверяю..."; showVpnNotice("wait", "Создание интерфейса", "Проверяем конфигурацию, не применяя DNS и системные маршруты, затем ждём handshake.");
       callBin(["vpn-create", name, protocol, config]).then(function (result) {
         if (!result.success) { showVpnNotice("err", "Интерфейс не создан", result.message || "Проверка не прошла."); return; }
         var title = result.protocol === "amneziawg" ? "AWG Tools " + (result.awg_version || "") : "WireGuard";
-        showVpnNotice(result.handshake && result.link_up ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + (result.link_up ? " Link поднят." : " Link не поднят.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
+        showVpnNotice(result.handshake && result.link_up ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + " DNS из файла не применён. Автоматические маршруты отключены." + (result.link_up ? " Link поднят." : " Link не поднят.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
       }).catch(function (error) { showVpnNotice("err", "Ошибка выполнения", error.message || "Не удалось создать интерфейс.");
-      }).finally(function () { vpnAction.textContent = "Создать и проверить"; renderVpnPackages(); });
+      }).finally(function () { vpnAction.textContent = "Создать безопасно и проверить"; renderVpnPackages(); });
     });
     renderVpnPackages();
 
@@ -2127,7 +2127,8 @@ return view.extend({
       E("h3", {}, "Создание VPN-интерфейса"),
       E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
       E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]),
-      E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]), vpnPackageNote, vpnNotice,
+      E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]),
+      E("div", { class:"fkpsc-note" }, "Безопасный режим: DNS из конфигурации не применяется, автоматические маршруты AllowedIPs не создаются. Туннель поднимается только для проверки link и handshake."), vpnPackageNote, vpnNotice,
     ])]);
     var profilesCardsNode = E("div", {});
     var saveProfilesButton = E("button", { class: "cbi-button cbi-button-action important", type: "button" }, "Сохранить список");

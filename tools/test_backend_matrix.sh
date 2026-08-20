@@ -252,6 +252,14 @@ assert_uci() {
         exit 1
     fi
 }
+assert_no_uci() {
+    forbidden="$1"
+    if grep -Fq "$forbidden" "$TMP/uci.log"; then
+        echo "unsafe UCI command detected: $forbidden" >&2
+        sed 's/private_key=.*/private_key=<redacted>/' "$TMP/uci.log" >&2
+        exit 1
+    fi
+}
 wireguard_config="[Interface]
 PrivateKey = $private_key
 Address = 10.0.0.2/32
@@ -276,12 +284,16 @@ data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is True, data
 assert data["protocol"] == data["detected"] == "wireguard", data
 assert data["link_up"] is True and data["handshake"] is True, data
+assert data["safe_mode"] is True, data
+assert data["dns_applied"] is False and data["ignored_dns"] == 2, data
+assert data["routes_enabled"] is False, data
 PY
 assert_uci 'set network.wireguard_vpn0_1=wireguard_vpn0'
+assert_uci 'set network.wireguard_vpn0_1.route_allowed_ips=0'
 assert_uci 'add_list network.vpn0.addresses=10.0.0.2/32'
 assert_uci 'add_list network.vpn0.addresses=fd00::2/128'
-assert_uci 'add_list network.vpn0.dns=1.1.1.1'
-assert_uci 'add_list network.vpn0.dns=2606:4700:4700::1111'
+assert_no_uci 'network.vpn0.dns='
+assert_no_uci 'route_allowed_ips=1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=0.0.0.0/1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=128.0.0.0/1'
 assert_uci 'add_list network.wireguard_vpn0_1.allowed_ips=::/0'
@@ -317,11 +329,16 @@ data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is True, data
 assert data["protocol"] == data["detected"] == "amneziawg", data
 assert data["awg_version"] == "1.5", data
+assert data["safe_mode"] is True, data
+assert data["dns_applied"] is False and data["ignored_dns"] == 4, data
+assert data["routes_enabled"] is False, data
 PY
 assert_uci 'set network.amneziawg_awg0_1=amneziawg_awg0'
+assert_uci 'set network.amneziawg_awg0_1.route_allowed_ips=0'
 assert_uci 'add_list network.awg0.addresses=172.16.0.2/32'
 assert_uci 'add_list network.awg0.addresses=2606:4700:110:8b64:9e1c:6ef7:1063:2d84/128'
-assert_uci 'add_list network.awg0.dns=2606:4700:4700::1111'
+assert_no_uci 'network.awg0.dns='
+assert_no_uci 'route_allowed_ips=1'
 assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>'
 
 duplicate_config="[Interface]

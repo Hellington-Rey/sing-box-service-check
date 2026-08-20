@@ -822,15 +822,15 @@ function vpn_create(name, protocol, payload) {
         if (uci_get("network." + section) != "") { write_json({success:false,message:"секция peer уже существует: " + section}); return 1; }
         push(peer_sections, section);
     }
-    let created = run_quiet(["uci","set","network." + name + "=interface"]) && vpn_set(name,"proto",protocol) && vpn_set(name,"private_key",vpn_value(parsed.config,"interface","PrivateKey"));
+    let imported_dns = vpn_split(vpn_value(parsed.config,"interface","DNS"));
+    let created = run_quiet(["uci","set","network." + name + "=interface"]) && vpn_set(name,"proto",protocol) && vpn_set(name,"private_key",vpn_value(parsed.config,"interface","PrivateKey")) && vpn_set(name,"fkpsc_managed","1");
     for (let field in [["ListenPort","listen_port"],["MTU","mtu"],["FwMark","fwmark"]]) { let value = vpn_value(parsed.config,"interface",field[0]); if (value != "") created = created && vpn_set(name,field[1],value); }
     for (let value in vpn_split(vpn_value(parsed.config,"interface","Address"))) created = created && vpn_list(name,"addresses",vpn_address(value));
-    for (let value in vpn_split(vpn_value(parsed.config,"interface","DNS"))) created = created && vpn_list(name,"dns",value);
     if (protocol == "amneziawg") { for (let field in ["jc","jmin","jmax","s1","s2","s3","s4","h1","h2","h3","h4"]) { let value=vpn_value(parsed.config,"interface",field); if (value != "") created = created && vpn_set(name,"awg_" + field,value); } for (let i=1;i<=5;i++) { let value=vpn_value(parsed.config,"interface","i"+i); if (value != "") created = created && vpn_set(name,"awg_i"+i,value); } }
     for (let index=0; index<length(peers); index++) {
         let peer = peers[index], section = peer_sections[index];
         let endpoint = vpn_peer_value(peer,"Endpoint"), preshared = vpn_peer_value(peer,"PresharedKey"), keepalive = vpn_peer_value(peer,"PersistentKeepalive");
-        created = created && run_quiet(["uci","set","network." + section + "=" + peer_type]) && vpn_set(section,"public_key",vpn_peer_value(peer,"PublicKey")) && vpn_set(section,"route_allowed_ips","1");
+        created = created && run_quiet(["uci","set","network." + section + "=" + peer_type]) && vpn_set(section,"public_key",vpn_peer_value(peer,"PublicKey")) && vpn_set(section,"route_allowed_ips","0") && vpn_set(section,"fkpsc_managed","1");
         if (endpoint != "") created = created && vpn_set(section,"endpoint_host",vpn_host(endpoint)) && vpn_set(section,"endpoint_port",vpn_port(endpoint));
         if (preshared != "") created = created && vpn_set(section,"preshared_key",preshared);
         if (keepalive != "") created = created && vpn_set(section,"persistent_keepalive",keepalive);
@@ -841,7 +841,7 @@ function vpn_create(name, protocol, payload) {
     let tool = vpn_tool(protocol), handshake = 0;
     for (let i=0;i<8;i++) { let output = capture_args([tool,"show",name,"latest-handshakes"],false).output; for (let line in split(as_string(output),"\n")) { let hit = match(line,/\s([0-9]+)\s*$/); if (hit != null && int(hit[1]) > handshake) handshake=int(hit[1]); } if (handshake > 0) break; capture_args(["sleep","1"],false); }
     let link_up = run_quiet(["ip","link","show","dev",name]);
-    write_json({success:true,interface:name,protocol,detected,awg_version:protocol == "amneziawg" ? vpn_awg_version(parsed.config) : "",link_up,handshake:handshake>0,latest_handshake:handshake,message:handshake>0 ? "интерфейс создан, handshake получен" : (link_up ? "интерфейс поднят, handshake за 8 секунд не получен" : "UCI-конфигурация создана, интерфейс не поднялся")});
+    write_json({success:true,interface:name,protocol,detected,awg_version:protocol == "amneziawg" ? vpn_awg_version(parsed.config) : "",safe_mode:true,dns_applied:false,ignored_dns:length(imported_dns),routes_enabled:false,link_up,handshake:handshake>0,latest_handshake:handshake,message:handshake>0 ? "интерфейс создан в безопасном режиме, handshake получен" : (link_up ? "интерфейс поднят в безопасном режиме, handshake за 8 секунд не получен" : "UCI-конфигурация создана в безопасном режиме, интерфейс не поднялся")});
     return 0;
 }
 
