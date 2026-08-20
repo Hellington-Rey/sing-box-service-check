@@ -37,6 +37,8 @@ cat > "$TMP/bin/uci" <<'EOF'
 case "${1:-}" in
     -q)
         if [ "${2:-}" = "show" ] && [ "${3:-}" = "network" ]; then
+            printf '%s\n' "network.vpn0.fkpsc_managed='1'" "network.vpn0.proto='wireguard'"
+            printf '%s\n' "network.awg0.fkpsc_managed='1'" "network.awg0.proto='amneziawg'"
             printf '%s\n' "network.unmanaged0.proto='wireguard'"
             while IFS="$(printf '\t')" read -r key value; do
                 [ -z "$key" ] || printf "%s='%s'\n" "$key" "$value"
@@ -45,6 +47,8 @@ case "${1:-}" in
         fi
         [ "${2:-}" = "get" ] || exit 1
         case "${3:-}" in
+            network.vpn0.fkpsc_managed) echo 1; exit 0 ;;
+            network.vpn0.proto) echo wireguard; exit 0 ;;
             network.awg0.fkpsc_managed) echo 1; exit 0 ;;
             network.awg0.proto) echo amneziawg; exit 0 ;;
         esac
