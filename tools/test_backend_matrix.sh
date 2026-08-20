@@ -37,7 +37,13 @@ cat > "$TMP/bin/uci" <<'EOF'
 case "${1:-}" in
     -q)
         [ "${2:-}" = "get" ] || exit 1
-        awk -F '\t' -v wanted="${3:-}" '$1==wanted { value=$2 } END { if (value != "") print value; else exit 1 }' "${UCI_STATE:-/dev/null}"
+        wanted="${3:-}"
+        found=""
+        while IFS="$(printf '\t')" read -r key value; do
+            [ "$key" != "$wanted" ] || found="$value"
+        done < "${UCI_STATE:-/dev/null}"
+        [ -n "$found" ] || exit 1
+        printf '%s\n' "$found"
         ;;
     set|add_list|commit|delete)
         [ -z "${UCI_LOG:-}" ] || printf '%s\n' "$*" >> "$UCI_LOG"
