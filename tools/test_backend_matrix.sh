@@ -36,6 +36,13 @@ cat > "$TMP/bin/uci" <<'EOF'
 #!/bin/sh
 case "${1:-}" in
     -q)
+        if [ "${2:-}" = "show" ] && [ "${3:-}" = "network" ]; then
+            printf '%s\n' "network.unmanaged0.proto='wireguard'"
+            while IFS="$(printf '\t')" read -r key value; do
+                [ -z "$key" ] || printf "%s='%s'\n" "$key" "$value"
+            done < "${UCI_STATE:-/dev/null}"
+            exit 0
+        fi
         [ "${2:-}" = "get" ] || exit 1
         case "${3:-}" in
             network.awg0.fkpsc_managed) echo 1; exit 0 ;;
@@ -400,6 +407,20 @@ assert_no_uci 'network.awg0.listen_port='
 assert_no_uci 'route_allowed_ips=1'
 assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>'
 assert_vpn_ping '-I awg0 -c 1 -W 3 1.1.1.1'
+
+if ! output="$(run_engine vpn-interfaces)"; then
+    echo "Managed VPN interface list failed: $output" >&2
+    exit 1
+fi
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+items = data["interfaces"]
+assert [item["name"] for item in items] == ["awg0", "vpn0"], data
+assert {item["protocol"] for item in items} == {"wireguard", "amneziawg"}, data
+assert all(item["link_up"] and item["handshake"] for item in items), data
+assert "unmanaged0" not in {item["name"] for item in items}, data
+PY
 
 if ! output="$(run_engine vpn-check awg0 9.9.9.9)"; then
     echo "Manual AWG check failed: $output" >&2

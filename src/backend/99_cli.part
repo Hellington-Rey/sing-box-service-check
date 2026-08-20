@@ -20,6 +20,8 @@ else if (mode == "profiles-reset")
     exit(profiles_reset());
 else if (mode == "vpn-packages")
     exit(vpn_packages_status());
+else if (mode == "vpn-interfaces")
+    exit(vpn_interfaces_status());
 else if (mode == "vpn-install")
     exit(vpn_install(ARGV[1]));
 else if (mode == "vpn-create")

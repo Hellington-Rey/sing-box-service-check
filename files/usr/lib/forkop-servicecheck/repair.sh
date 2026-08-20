@@ -17,7 +17,7 @@ usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh
 usr/lib/forkop-servicecheck/repair.sh
 usr/share/forkop-servicecheck/profiles.json
 usr/share/forkop-servicecheck/version
-www/luci-static/resources/view/forkop/servicecheck-v1111.js
+www/luci-static/resources/view/forkop/servicecheck-v1112.js
 usr/share/luci/menu.d/luci-app-forkop-servicecheck.json
 usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json
 "

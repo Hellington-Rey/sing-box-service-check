@@ -23,6 +23,9 @@ return view.extend({
       callBin(["vpn-packages"]).catch(function () {
         return { wireguard: {}, amneziawg: {} };
       }),
+      callBin(["vpn-interfaces"]).catch(function () {
+        return { success: false, interfaces: [] };
+      }),
     ]);
   },
 
@@ -35,6 +38,7 @@ return view.extend({
     var profilesData = data[3];
     var historyData = data[4] || { entries: [] };
     var vpnPackages = data[5] || { wireguard: {}, amneziawg: {} };
+    var vpnInterfacesData = data[6] || { success: false, interfaces: [] };
     var profilesDraft = profilesData && profilesData.config ?
       JSON.parse(JSON.stringify(profilesData.config)) : { version: 2, profiles: [] };
     if (!Array.isArray(profilesDraft.profiles)) {

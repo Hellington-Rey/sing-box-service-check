@@ -828,6 +828,38 @@ function vpn_transfer(tool, name) {
     return { received, sent };
 }
 
+function vpn_managed_interfaces() {
+    let managed = {}, interfaces = [];
+    let output = capture_args([ "uci", "-q", "show", "network" ], false).output;
+    for (let line in split(as_string(output), "\n")) {
+        let hit = match(trim(as_string(line)), /^network\.([A-Za-z][A-Za-z0-9_-]{0,14})\.fkpsc_managed=['\"]?1['\"]?$/);
+        if (hit != null)
+            managed[hit[1]] = true;
+    }
+
+    let names = sort(keys(managed));
+    for (let name in names) {
+        let protocol = uci_get("network." + name + ".proto");
+        if (protocol != "wireguard" && protocol != "amneziawg")
+            continue;
+        let tool = vpn_tool(protocol);
+        let latest_handshake = tool != "" ? vpn_latest_handshake(tool, name) : 0;
+        push(interfaces, {
+            name,
+            protocol,
+            link_up: run_quiet([ "ip", "link", "show", "dev", name ]),
+            handshake: latest_handshake > 0,
+            latest_handshake
+        });
+    }
+    return interfaces;
+}
+
+function vpn_interfaces_status() {
+    write_json({ success: true, interfaces: vpn_managed_interfaces() });
+    return 0;
+}
+
 function vpn_probe(name, protocol, target) {
     target = trim(as_string(target));
     if (!vpn_ip(target)) return { success:false, tunnel_ok:false, interface:name, protocol, target, message:"цель проверки должна быть IPv4- или IPv6-адресом" };
@@ -2811,7 +2843,7 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1111.js" ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1112.js" ],
         [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
         [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
     ];
@@ -3206,6 +3238,8 @@ else if (mode == "profiles-reset")
     exit(profiles_reset());
 else if (mode == "vpn-packages")
     exit(vpn_packages_status());
+else if (mode == "vpn-interfaces")
+    exit(vpn_interfaces_status());
 else if (mode == "vpn-install")
     exit(vpn_install(ARGV[1]));
 else if (mode == "vpn-create")

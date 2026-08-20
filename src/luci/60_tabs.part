@@ -10,8 +10,10 @@
     var vpnFileButton = E("button", { class:"cbi-button", type:"button" }, "Загрузить файл конфигурации");
     var vpnFileName = E("span", { class:"fkpsc-vpn-filename" }, "Можно выбрать файл .conf или .wg до 16 КиБ.");
     var vpnAction = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "Создать безопасно и проверить");
+    var vpnManagedSelect = E("select", { class:"cbi-input-select", "aria-label":"Управляемый VPN-туннель" });
     var vpnProbeTarget = E("input", { type:"text", class:"cbi-input-text", value:"1.1.1.1", autocomplete:"off", spellcheck:"false", placeholder:"1.1.1.1" });
     var vpnManualCheck = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "Проверить туннель вручную");
+    var vpnRefreshInterfaces = E("button", { class:"cbi-button", type:"button" }, "Обновить список");
     var vpnInstall = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "Установить компоненты");
     var vpnNotice = E("div", { class:"fkpsc-custom-result", style:"display:none" });
     var vpnPackageNote = E("div", {});
@@ -32,6 +34,42 @@
       vpnNotice.style.display = "";
       vpnNotice.className = "fkpsc-custom-result state-" + (state === "ok" ? "success" : state === "err" ? "error" : "warning");
       vpnNotice.replaceChildren(E("div", { class:"fkpsc-custom-head" }, [E("span", { class:"fkpsc-custom-title" }, title), E("span", { class:"fkpsc-custom-pill " + state }, state === "ok" ? "готово" : state === "err" ? "ошибка" : "выполняется")]), E("div", {}, message));
+    }
+    function renderVpnManagedInterfaces(items, selectedName) {
+      items = Array.isArray(items) ? items : [];
+      var previous = selectedName || vpnManagedSelect.value;
+      vpnManagedSelect.replaceChildren();
+      if (!items.length) {
+        vpnManagedSelect.appendChild(E("option", { value:"" }, "Управляемые туннели не найдены"));
+        vpnManagedSelect.disabled = true;
+        vpnManualCheck.disabled = true;
+        return;
+      }
+      items.forEach(function (item) {
+        var label = item.name + " · " + vpnProtocolLabel(item.protocol) + " · " +
+          (item.link_up ? "link поднят" : "link не поднят") + " · " +
+          (item.handshake ? "handshake есть" : "handshake нет");
+        vpnManagedSelect.appendChild(E("option", { value:item.name, selected:item.name === previous ? "" : null }, label));
+      });
+      vpnManagedSelect.disabled = false;
+      if (previous && items.some(function (item) { return item.name === previous; })) vpnManagedSelect.value = previous;
+      vpnManualCheck.disabled = false;
+    }
+    function reloadVpnManagedInterfaces(selectedName, reportError) {
+      vpnRefreshInterfaces.disabled = true;
+      vpnRefreshInterfaces.textContent = "Обновляю...";
+      return callBin(["vpn-interfaces"]).then(function (result) {
+        vpnInterfacesData = result || { interfaces:[] };
+        renderVpnManagedInterfaces(vpnInterfacesData.interfaces, selectedName);
+        if (reportError && !(vpnInterfacesData.interfaces || []).length)
+          showVpnNotice("wait", "Список туннелей пуст", "Сначала создайте WireGuard/AWG-интерфейс через этот модуль.");
+      }).catch(function (error) {
+        renderVpnManagedInterfaces([], "");
+        if (reportError) showVpnNotice("err", "Список не обновлён", error.message || "Не удалось получить список туннелей.");
+      }).finally(function () {
+        vpnRefreshInterfaces.disabled = false;
+        vpnRefreshInterfaces.textContent = "Обновить список";
+      });
     }
     vpnFileButton.addEventListener("click", function () { vpnFileInput.click(); });
     vpnFileInput.addEventListener("change", function () {
@@ -96,12 +134,13 @@
         if (!result.success) { showVpnNotice("err", "Интерфейс не создан", result.message || "Проверка не прошла."); return; }
         var title = result.protocol === "amneziawg" ? "AWG Tools " + (result.awg_version || "") : "WireGuard";
         showVpnNotice(result.tunnel_ok ? "ok" : "wait", title + " · " + result.interface, (result.message || "Интерфейс создан.") + " DNS, FwMark и фиксированный ListenPort из файла не применены. Автоматические маршруты отключены, адреса записаны только как /32 и /128." + (result.test_packet_sent ? " Тестовый пакет отправлен." : " Тестовый пакет не отправлен.") + (result.handshake ? " Handshake подтверждён." : " Handshake не подтверждён."));
+        reloadVpnManagedInterfaces(result.interface, false);
       }).catch(function (error) { showVpnNotice("err", "Ошибка выполнения", error.message || "Не удалось создать интерфейс.");
       }).finally(function () { vpnAction.textContent = "Создать безопасно и проверить"; renderVpnPackages(); });
     });
     vpnManualCheck.addEventListener("click", function () {
-      var name = vpnNameInput.value.trim(), probeTarget = vpnProbeTarget.value.trim();
-      if (!name || !probeTarget) { showVpnNotice("err", "Проверка не запущена", "Укажите имя существующего интерфейса и IP-адрес для тестового пакета."); return; }
+      var name = vpnManagedSelect.value, probeTarget = vpnProbeTarget.value.trim();
+      if (!name || !probeTarget) { showVpnNotice("err", "Проверка не запущена", "Выберите туннель из списка и укажите IP-адрес для тестового пакета."); return; }
       vpnManualCheck.disabled = true;
       vpnManualCheck.textContent = "Проверяю...";
       showVpnNotice("wait", "Ручная проверка туннеля", "Поднимаем управляемый интерфейс при необходимости и отправляем один пакет строго через него.");
@@ -114,9 +153,11 @@
         if (result.rx_bytes !== undefined && result.tx_bytes !== undefined) facts.push("Счётчики: RX " + result.rx_bytes + " / TX " + result.tx_bytes + " байт.");
         showVpnNotice(result.tunnel_ok ? "ok" : (result.packet_sent || result.handshake ? "wait" : "err"), "Проверка · " + (result.interface || name), (result.message || "Проверка завершена.") + " " + facts.join(" "));
       }).catch(function (error) { showVpnNotice("err", "Проверка не выполнена", error.message || "Не удалось проверить туннель.");
-      }).finally(function () { vpnManualCheck.disabled = false; vpnManualCheck.textContent = "Проверить туннель вручную"; });
+      }).finally(function () { vpnManualCheck.disabled = !vpnManagedSelect.value; vpnManualCheck.textContent = "Проверить туннель вручную"; });
     });
+    vpnRefreshInterfaces.addEventListener("click", function () { reloadVpnManagedInterfaces(vpnManagedSelect.value, true); });
     renderVpnPackages();
+    renderVpnManagedInterfaces(vpnInterfacesData.interfaces, "");
 
     var vlessUriInput = E("textarea", {
       class:"cbi-input-text fkpsc-converter-text",
@@ -192,8 +233,11 @@
       E("div", { class:"fkpsc-vpn-grid" }, [E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Имя интерфейса"), vpnNameInput]), E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Протокол"), vpnProtocol]), E("div", { class:"fkpsc-editor-field" }, [E("span", {}, "Действие"), vpnAction])]),
       E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Конфигурация"), vpnConfig]),
       E("div", { class:"fkpsc-vpn-import" }, [vpnFileButton, vpnFileInput, vpnFileName]),
+      E("h3", { style:"margin-top:1em" }, "Ручная проверка туннеля"),
       E("div", { class:"fkpsc-vpn-manual" }, [
+        E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Туннель, созданный модулем"), vpnManagedSelect]),
         E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "IP для тестового пакета (должен входить в AllowedIPs)"), vpnProbeTarget]),
+        vpnRefreshInterfaces,
         vpnManualCheck,
       ]),
       E("div", { class:"fkpsc-note" }, "Безопасный режим: DNS из конфигурации не применяется, автоматические маршруты AllowedIPs не создаются. Для проверки тестовый пакет привязывается к VPN-интерфейсу вручную и не меняет системный default route."), vpnPackageNote, vpnNotice,

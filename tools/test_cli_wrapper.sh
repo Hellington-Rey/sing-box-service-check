@@ -81,6 +81,7 @@ PROFILES_VALIDATE_OUTPUT="$(run_wrapper profiles-validate "$PROFILES_JSON")"
 [ "$(printf '%s\n' "$PROFILES_VALIDATE_OUTPUT" | tail -n 1)" = "$PROFILES_JSON" ]
 VPN_CONFIG='[Interface] PrivateKey = test [Peer] PublicKey = test'
 [ "$(run_wrapper vpn-packages | tail -n 1)" = "vpn-packages" ]
+[ "$(run_wrapper vpn-interfaces | tail -n 1)" = "vpn-interfaces" ]
 VPN_INSTALL_OUTPUT="$(run_wrapper vpn-install wireguard)"
 [ "$(printf '%s\n' "$VPN_INSTALL_OUTPUT" | tail -n 2 | head -n 1)" = "vpn-install" ]
 [ "$(printf '%s\n' "$VPN_INSTALL_OUTPUT" | tail -n 1)" = "wireguard" ]

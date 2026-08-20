@@ -70,13 +70,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.11.1-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.11.2-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.11.1-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.11.2-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -187,7 +187,7 @@ sing-box-service-check dns example.com
 
 После создания интерфейса модуль отправляет один ICMP-пакет с привязкой к VPN-устройству через `ping -I`. Это инициирует обмен с peer даже при отключённом `route_allowed_ips`, не создавая default route и не меняя маршрутизацию роутера. IP проверки должен входить в `AllowedIPs`; по умолчанию используется `1.1.1.1`.
 
-Кнопка **«Проверить туннель вручную»** повторяет проверку для существующего интерфейса и показывает link, отправку и получение байтов, handshake и ответ ping. Из соображений безопасности команда принимает только интерфейсы с маркером `fkpsc_managed=1`, которые создал этот модуль.
+Кнопка **«Проверить туннель вручную»** повторяет проверку для выбранного из списка интерфейса и показывает link, отправку и получение байтов, handshake и ответ ping. В списке доступны только интерфейсы с маркером `fkpsc_managed=1`, которые создал этот модуль; рядом сразу видны протокол, link и handshake.
 
 Та же проверка из консоли:
 
