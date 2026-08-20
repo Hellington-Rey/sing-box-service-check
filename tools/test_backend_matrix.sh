@@ -37,6 +37,10 @@ cat > "$TMP/bin/uci" <<'EOF'
 case "${1:-}" in
     -q)
         [ "${2:-}" = "get" ] || exit 1
+        case "${3:-}" in
+            network.awg0.fkpsc_managed) echo 1; exit 0 ;;
+            network.awg0.proto) echo amneziawg; exit 0 ;;
+        esac
         wanted="${3:-}"
         found=""
         while IFS="$(printf '\t')" read -r key value; do
