@@ -393,6 +393,8 @@ assert_vpn_ping '-I awg0 -c 1 -W 3 1.1.1.1'
 
 if ! output="$(run_engine vpn-check awg0 9.9.9.9)"; then
     echo "Manual AWG check failed: $output" >&2
+    echo "Mock UCI state:" >&2
+    [ ! -f "$TMP/uci-state" ] || sed -n '1,120p' "$TMP/uci-state" >&2
     exit 1
 fi
 JSON_DATA="$output" python3 - <<'PY'
