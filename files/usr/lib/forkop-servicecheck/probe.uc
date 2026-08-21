@@ -2860,7 +2860,7 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1120.js" ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1121.js" ],
         [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
         [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
     ];
@@ -3298,10 +3298,11 @@ function zapret_service_running(id) {
 
 function zapret_stop_service(id) {
     let init = "/etc/init.d/" + id;
-    if (fs.stat(init) != null)
-        return run_quiet([ init, "stop" ]);
+    let stopped = fs.stat(init) != null && run_quiet([ init, "stop" ]);
     let binary = zapret_backend_binary(id);
-    return binary != "" && fs.stat(binary) != null && run_quiet([ binary, "stop" ]);
+    if (!stopped && binary != "" && fs.stat(binary) != null)
+        stopped = run_quiet([ binary, "stop" ]);
+    return stopped;
 }
 
 function zapret_start_service(id) {
@@ -3399,39 +3400,88 @@ function zapret_strategy_hosts() {
     return join(" ", result);
 }
 
+function zapret_remaining_services() {
+    let result = zapret_running_backends();
+    for (let provider in [ "zapret", "zapret2" ])
+        if (zapret_service_running(provider))
+            push(result, provider + "-service");
+    return result;
+}
+
+function zapret_stop_timeout() {
+    let value = int(getenv("FORKOP_SC_ZAPRET_STOP_TIMEOUT") || 20);
+    if (value < 2) return 2;
+    if (value > 60) return 60;
+    return value;
+}
+
 function zapret_stop_for_test() {
     let restore = [];
     let running = zapret_running_backends();
-    for (let id in running) {
-        if (!zapret_stop_service(id)) {
-            zapret_restore_services(restore);
-            return { success: false, restore, message: "Не удалось остановить " + backend_name(id) };
-        }
+    for (let id in running)
         push(restore, id);
-    }
 
     for (let provider in [ "zapret", "zapret2" ]) {
         if (!zapret_service_running(provider))
             continue;
-        if (!run_quiet([ "/etc/init.d/" + provider, "stop" ])) {
-            zapret_restore_services(restore);
-            return { success: false, restore, message: "Не удалось остановить самостоятельный сервис " + provider };
-        }
         push(restore, provider + "-service");
     }
 
-    run_quiet([ "sleep", "1" ]);
-    let remaining = zapret_running_backends();
-    if (length(remaining) > 0 || zapret_service_running("zapret") || zapret_service_running("zapret2")) {
-        zapret_restore_services(restore);
+    // Forkop performs several cleanup stages and may return a non-zero code
+    // even after the runtime has started shutting down. The safety condition
+    // is the observed state, not the immediate exit code of the init script.
+    for (let id in running)
+        zapret_stop_service(id);
+    for (let provider in [ "zapret", "zapret2" ])
+        if (index(restore, provider + "-service") >= 0)
+            run_quiet([ "/etc/init.d/" + provider, "stop" ]);
+
+    let timeout = zapret_stop_timeout();
+    let remaining = zapret_remaining_services();
+    let stable_checks = 0;
+    for (let waited = 0; stable_checks < 2 && waited < timeout; waited++) {
+        if (length(remaining) == 0)
+            stable_checks++;
+        else
+            stable_checks = 0;
+        if (stable_checks >= 2)
+            break;
+
+        // A second normal stop handles an init command that returned before
+        // the ucode lifecycle reached stop_main(). No signals are forced.
+        if (waited == 3 && length(remaining) > 0) {
+            for (let id in remaining) {
+                if (id == "zapret-service" || id == "zapret2-service") {
+                    let provider = id == "zapret-service" ? "zapret" : "zapret2";
+                    run_quiet([ "/etc/init.d/" + provider, "stop" ]);
+                }
+                else {
+                    zapret_stop_service(id);
+                }
+            }
+        }
+        run_quiet([ "sleep", "1" ]);
+        remaining = zapret_remaining_services();
+    }
+
+    if (length(remaining) > 0) {
+        let restored = zapret_restore_services(restore);
         return {
             success: false,
             restore,
-            message: "Проверка остановки не пройдена: активны " + join(", ", remaining)
+            services_restored: restored,
+            remaining,
+            message: "Не удалось подтвердить остановку за " + as_string(timeout) +
+                " с: активны " + join(", ", remaining) +
+                (restored ? "; исходное состояние восстановлено" : "; восстановление выполнено не полностью")
         };
     }
 
-    return { success: true, restore, message: "Все конфликтующие сервисы остановлены" };
+    return {
+        success: true,
+        restore,
+        message: "Остановка подтверждена по фактическому состоянию сервисов"
+    };
 }
 
 function zapret_active_job() {

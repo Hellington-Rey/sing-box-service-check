@@ -33,7 +33,12 @@ case "${1:-}" in
         ;;
     stop)
         [ "${BACKEND_STOP_FAIL:-0}" != "1" ] || exit 1
-        printf '0\n' > "${BACKEND_RUNNING_STATE:?}"
+        if [ -n "${BACKEND_STOP_DELAY:-}" ]; then
+            (sleep "$BACKEND_STOP_DELAY"; printf '0\n' > "${BACKEND_RUNNING_STATE:?}") &
+        else
+            printf '0\n' > "${BACKEND_RUNNING_STATE:?}"
+        fi
+        [ "${BACKEND_STOP_NONZERO:-0}" != "1" ] || exit 1
         ;;
     start) printf '1\n' > "${BACKEND_RUNNING_STATE:?}" ;;
     clash_api)
@@ -190,6 +195,9 @@ run_engine() {
     MALFORMED_STATUS="${MALFORMED_STATUS:-0}" \
     BROKEN_DIG="${BROKEN_DIG:-0}" \
     BACKEND_STOP_FAIL="${BACKEND_STOP_FAIL:-0}" \
+    BACKEND_STOP_DELAY="${BACKEND_STOP_DELAY:-}" \
+    BACKEND_STOP_NONZERO="${BACKEND_STOP_NONZERO:-0}" \
+    FORKOP_SC_ZAPRET_STOP_TIMEOUT=3 \
     FORKOP_SC_BLOCKCHECK2="$TMP/blockcheck2.sh" \
     "$UCODE_BIN" -L "$LIB" "$ENGINE" "$@"
 }
@@ -620,7 +628,7 @@ assert "останов" in data["message"].lower(), data
 PY
 [ "$(cat "$TMP/backend-running")" = "1" ]
 
-start_json="$(run_engine zapret-start zapret2 quick)"
+start_json="$(BACKEND_STOP_DELAY=1 BACKEND_STOP_NONZERO=1 run_engine zapret-start zapret2 quick)"
 ZAPRET_JSON="$start_json" python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["ZAPRET_JSON"])

@@ -85,11 +85,11 @@ POSTINST = """#!/bin/sh
 # не появится до перезагрузки.
 rm -rf /tmp/luci-modulecache 2>/dev/null
 rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -f /www/luci-static/resources/view/forkop/servicecheck-v1120.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1112.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1111.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1110.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1106.js 2>/dev/null
-rm -f /www/luci-static/resources/view/forkop/servicecheck-v112.js 2>/dev/null
 
 # rpcd читает acl.d только при старте.
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1

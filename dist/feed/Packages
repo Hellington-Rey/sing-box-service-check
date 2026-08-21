@@ -1,12 +1,12 @@
 Package: luci-app-forkop-servicecheck
-Version: 1.12.0-r1
+Version: 1.12.1-r1
 Depends: luci-base, ucode
 License: MIT
 Section: net
 Architecture: all
-Installed-Size: 479415
-Filename: luci-app-forkop-servicecheck_1.12.0-r1_all.ipk
-Size: 176548
-SHA256sum: 99dd638e46b0ba39f62dc71972f7a54de363e2ad9dc6819a55ad8f3871755b4d
+Installed-Size: 481830
+Filename: luci-app-forkop-servicecheck_1.12.1-r1_all.ipk
+Size: 177508
+SHA256sum: ed437b78fb28f4035a08a32b11f808784d9102b52af64fe6cbaeca133ff9605c
 Description: Sing-box Service Check для Tachyon, Forkop и оригинального Podkop. Добавляет в LuCI страницу с кнопкой проверки: Telegram, YouTube, Instagram и другие сервисы проверяются тем же путём, которым идёт трафик клиента сети - через dnsmasq, sing-box и tproxy. Показывает DNS, TCP, TLS, код ответа и выбранный outbound.
 

@@ -157,6 +157,9 @@
       zapretProgressText.textContent = "Останавливаем конфликтующие сервисы и повторно проверяем их состояние.";
       zapretResultsNode.replaceChildren();
       callBin(["zapret-start", provider, depth]).then(function (result) {
+        if (!result || result.success !== true || !result.job_id) {
+          throw new Error((result && result.message) || "Backend не остановлен, подбор не запущен.");
+        }
         zapretRunState.jobId = result.job_id;
         renderZapretStatus({ running:true, message:"Blockcheck запущен; конфиги не изменяются", progress:result.progress || {done:0,total:36} });
         pollZapretJob();
