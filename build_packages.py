@@ -56,6 +56,7 @@ PAYLOAD = [
     ("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh", "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh", 0o755),
     ("./usr/lib/forkop-servicecheck/repair.sh", "usr/lib/forkop-servicecheck/repair.sh", 0o755),
     ("./usr/lib/forkop-servicecheck/zapret_strategy_worker.sh", "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh", 0o755),
+    ("./usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv", "usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv", 0o644),
     ("./usr/share/forkop-servicecheck/profiles.json", "usr/share/forkop-servicecheck/profiles.json", 0o644),
     ("./usr/share/forkop-servicecheck/version", None, 0o644),
     (f"./{LUCI_VIEW_PATH}", LUCI_VIEW_PATH, 0o644),
@@ -85,6 +86,7 @@ POSTINST = """#!/bin/sh
 # не появится до перезагрузки.
 rm -rf /tmp/luci-modulecache 2>/dev/null
 rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -f /www/luci-static/resources/view/forkop/servicecheck-v1122.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1121.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1120.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1112.js 2>/dev/null

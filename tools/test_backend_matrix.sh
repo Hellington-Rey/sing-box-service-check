@@ -92,6 +92,10 @@ cat > "$TMP/bin/opkg" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
+cat > "$TMP/bin/python3" <<'EOF'
+#!/bin/sh
+exec "${PYTHON3_BIN:-/usr/bin/python3}" "$@"
+EOF
 cat > "$TMP/bin/nft" <<'EOF'
 #!/bin/sh
 [ "${1:-}" != "list" ] || exit 0
@@ -141,6 +145,10 @@ cat > "$TMP/bin/curl" <<'EOF'
 #!/bin/sh
 [ "${MALFORMED_CLASH:-0}" = "1" ] && echo broken || echo '{"connections":[]}'
 EOF
+cat > "$TMP/bin/resolveip" <<'EOF'
+#!/bin/sh
+printf '%s\n' '203.0.113.10'
+EOF
 cat > "$TMP/bin/dig" <<'EOF'
 #!/bin/sh
 if [ "${BROKEN_DIG:-0}" = "1" ]; then
@@ -173,6 +181,16 @@ printf '%s.\t60\tIN\tA\t93.184.216.34\n' "$6"
 echo ";; Query time: $query_us usec"
 EOF
 chmod +x "$TMP/backend" "$TMP/bin/"*
+export PATH="$TMP/bin:$PATH"
+mkdir -p "$TMP/zapret2/nfq2" "$TMP/zapret2/lua"
+: > "$TMP/zapret2/lua/zapret-lib.lua"
+: > "$TMP/zapret2/lua/zapret-antidpi.lua"
+cat > "$TMP/zapret2/nfq2/nfqws2" <<'EOF'
+#!/bin/sh
+trap 'exit 0' TERM INT HUP
+while :; do sleep 1; done
+EOF
+chmod +x "$TMP/zapret2/nfq2/nfqws2"
 mkdir -p "$TMP/proto"
 : > "$TMP/proto/wireguard.sh"
 echo 'proto_config_add_string "awg_i1"' > "$TMP/proto/amneziawg.sh"
@@ -198,7 +216,8 @@ run_engine() {
     BACKEND_STOP_DELAY="${BACKEND_STOP_DELAY:-}" \
     BACKEND_STOP_NONZERO="${BACKEND_STOP_NONZERO:-0}" \
     FORKOP_SC_ZAPRET_STOP_TIMEOUT=3 \
-    FORKOP_SC_BLOCKCHECK2="$TMP/blockcheck2.sh" \
+    FORKOP_SC_ZAPRET2_ROOT="$TMP/zapret2" \
+    FORKOP_SC_ENGINE_START_DELAY=0 \
     "$UCODE_BIN" -L "$LIB" "$ENGINE" "$@"
 }
 
@@ -568,23 +587,37 @@ assert data["message"] == "некорректный ListenPort", data
 PY
 
 cat > "$TMP/zapret2.log" <<'EOF'
-- curl_test_https_tls13 ipv4 www.youtube.com : nfqws2 --qnum=999 --fwmark=0x1 --hostlist=/tmp/unsafe --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls
-UNAVAILABLE
-* SUMMARY
-curl_test_https_tls13 ipv4 www.youtube.com : nfqws2 --qnum=999 --fwmark=0x1 --hostlist=/tmp/unsafe --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 youtubei.googleapis.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 i.ytimg.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 redirector.googlevideo.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 discord.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 gateway.discord.gg : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 cdn.discordapp.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 media.discordapp.net : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 web.telegram.org : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 telegram.org : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 api.telegram.org : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_https_tls13 ipv4 t.me : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
-curl_test_http3 ipv4 www.youtube.com : nfqws2 --payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=6
-curl_test_http3 ipv4 youtubei.googleapis.com : nfqws2 --payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=6
+FKPSC	meta	zapret2	2	12	36	/opt/zapret2/nfq2/nfqws2	/opt/zapret2
+FKPSC	phase	baseline	Проверка без обхода
+FKPSC	endpoint	direct	0	direct	youtube_web	youtube	1	1	ok
+FKPSC	strategy_start	1	2	ready-full	Official ready	zapret2 documentation	1	--qnum=999 --fwmark=0x1 --hostlist=/tmp/unsafe --filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld --new --filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=6
+FKPSC	endpoint	strategy	1	ready-full	youtube_web	youtube	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	youtube_api	youtube	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	youtube_images	youtube	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	youtube_video	youtube	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	discord_web	discord	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	discord_gateway	discord	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	discord_cdn	discord	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	discord_media	discord	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	telegram_web	telegram	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	telegram_site	telegram	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	telegram_api	telegram	1	1	ok
+FKPSC	endpoint	strategy	1	ready-full	telegram_links	telegram	1	1	ok
+FKPSC	strategy_done	1	2	ready-full	12	12
+FKPSC	strategy_start	2	2	ready-failed	Failed ready	local catalog	1	--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multidisorder:pos=midsld --new --filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=send:ipfrag --lua-desync=drop
+FKPSC	endpoint	strategy	2	ready-failed	youtube_web	youtube	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	youtube_api	youtube	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	youtube_images	youtube	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	youtube_video	youtube	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	discord_web	discord	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	discord_gateway	discord	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	discord_cdn	discord	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	discord_media	discord	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	telegram_web	telegram	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	telegram_site	telegram	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	telegram_api	telegram	0	1	connect
+FKPSC	endpoint	strategy	2	ready-failed	telegram_links	telegram	0	1	connect
+FKPSC	strategy_done	2	2	ready-failed	0	12
 EOF
 ZAPRET_JSON="$(run_engine zapret-parse-log "$TMP/zapret2.log" zapret2)" python3 - <<'PY'
 import json, os
@@ -602,19 +635,22 @@ assert "--new --filter-udp=443 --filter-l7=quic --payload=quic_initial" in strat
 for forbidden in ("--qnum", "--fwmark", "--hostlist"):
     assert forbidden not in strategy, strategy
 assert data["results"]["failed"], data
+assert data["parsed"]["progress_done"] == 25, data
 PY
-
-cat > "$TMP/blockcheck2.sh" <<'EOF'
-#!/bin/sh
-sleep 1
-for host in $DOMAINS; do
-    printf '%s\n' "curl_test_https_tls13 ipv4 $host : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld"
-done
-EOF
-chmod +x "$TMP/blockcheck2.sh"
 rm -f "$TMP/tachyon" "$TMP/podkop"
 cp "$TMP/backend" "$TMP/forkop"
 printf '1\n' > "$TMP/backend-running"
+
+ZAPRET_JSON="$(run_engine zapret-capabilities)" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+provider = data["providers"]["zapret2"]
+assert data["ready"] is True and provider["ready"] is True, data
+assert provider["root"].endswith("/zapret2"), provider
+assert provider["engine"].endswith("/zapret2/nfq2/nfqws2"), provider
+assert provider["catalog_count"] == 10, provider
+assert data["running_backends"] == ["forkop"], data
+PY
 
 if failed_start="$(BACKEND_STOP_FAIL=1 run_engine zapret-start zapret2 quick)"; then
     echo "zapret start must fail when backend cannot be stopped" >&2

@@ -16,9 +16,10 @@ usr/lib/forkop-servicecheck/xhttp_hotfix.sh
 usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh
 usr/lib/forkop-servicecheck/repair.sh
 usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
+usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv
 usr/share/forkop-servicecheck/profiles.json
 usr/share/forkop-servicecheck/version
-www/luci-static/resources/view/forkop/servicecheck-v1122.js
+www/luci-static/resources/view/forkop/servicecheck-v1123.js
 usr/share/luci/menu.d/luci-app-forkop-servicecheck.json
 usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json
 "
@@ -70,6 +71,7 @@ fi
 
 chmod 0755 /usr/bin/sing-box-service-check /usr/bin/forkop-servicecheck
 chmod 0755 /usr/lib/forkop-servicecheck/xhttp_hotfix.sh /usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh /usr/lib/forkop-servicecheck/repair.sh /usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
+chmod 0644 /usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv
 rm -rf /tmp/luci-modulecache 2>/dev/null || true
 rm -f /tmp/luci-indexcache* 2>/dev/null || true
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1 || true

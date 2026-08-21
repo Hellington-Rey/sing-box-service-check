@@ -33,6 +33,7 @@ const NETNS_VETH_PEER = "fkpsc1";
 const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
 const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
 const ZAPRET_STRATEGY_WORKER = LIB_DIR + "/zapret_strategy_worker.sh";
+const ZAPRET_STRATEGY_CATALOG = LIB_DIR + "/zapret_strategy_catalog.tsv";
 const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
 const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
 const REPAIR_SCRIPT = LIB_DIR + "/repair.sh";

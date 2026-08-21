@@ -52,6 +52,40 @@ def validate_profiles() -> None:
                 fail(f"{prefix}: invalid expected_route {route!r}")
 
 
+def validate_zapret_catalog() -> None:
+    path = ROOT / "files/usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv"
+    counts = {"zapret": 0, "zapret2": 0}
+    identifiers: set[str] = set()
+    forbidden = ("--qnum", "--fwmark", "--dpi-desync-fwmark", "--hostlist", "--ipset", "pornhub")
+    for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not raw or raw.startswith("#"):
+            continue
+        fields = raw.split("\t")
+        if len(fields) != 6:
+            fail(f"Zapret catalogue line {line_number}: expected 6 TSV fields, got {len(fields)}")
+        provider, identifier, title, source, quic, strategy = fields
+        if provider not in counts:
+            fail(f"Zapret catalogue line {line_number}: unknown provider {provider!r}")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", identifier) or identifier in identifiers:
+            fail(f"Zapret catalogue line {line_number}: invalid or duplicate id {identifier!r}")
+        if not title or not source or quic not in {"0", "1"}:
+            fail(f"Zapret catalogue line {line_number}: title, source and QUIC marker are required")
+        if len(strategy.split()) < 8:
+            fail(f"Zapret catalogue line {line_number}: short generated strategy is not allowed")
+        if "--filter-tcp=443" not in strategy or "--new" not in strategy or "--filter-udp=443" not in strategy:
+            fail(f"Zapret catalogue line {line_number}: profile must contain complete TCP and UDP sections")
+        if any(token.lower() in strategy.lower() for token in forbidden):
+            fail(f"Zapret catalogue line {line_number}: runtime/conflicting option found")
+        if provider == "zapret2" and ("--payload=tls_client_hello" not in strategy or "--lua-desync=" not in strategy):
+            fail(f"Zapret catalogue line {line_number}: incomplete Zapret2 profile")
+        if provider == "zapret" and "--dpi-desync=" not in strategy:
+            fail(f"Zapret catalogue line {line_number}: incomplete Zapret profile")
+        identifiers.add(identifier)
+        counts[provider] += 1
+    if counts != {"zapret": 10, "zapret2": 10}:
+        fail(f"Zapret catalogue must contain 10 ready profiles per provider: {counts}")
+
+
 def validate_documentation(version: str) -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -95,6 +129,7 @@ def main() -> int:
 
     assemble_all(check=True)
     validate_profiles()
+    validate_zapret_catalog()
     validate_documentation(version)
     validate_luci_source(version)
 
@@ -103,6 +138,7 @@ def main() -> int:
         ".github/workflows/release.yml",
         "files/usr/lib/forkop-servicecheck/repair.sh",
         "files/usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
+        "files/usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv",
         "src/backend/95_zapret_strategy.part",
         "src/luci/58_zapret_strategy.part",
         "tools/test_installer_runtime_layout.sh",

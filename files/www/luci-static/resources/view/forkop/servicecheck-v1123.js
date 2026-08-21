@@ -136,6 +136,20 @@ function injectStyles() {
     ".fkpsc-zapret-chip.warn { color:var(--warn); border-color:color-mix(in srgb,var(--warn) 42%,var(--border)); }",
     ".fkpsc-zapret-chip.err { color:var(--bad); border-color:color-mix(in srgb,var(--bad) 42%,var(--border)); }",
     ".fkpsc-zapret-progress { margin:.8em 0; padding:.75em; border:1px solid var(--border-soft); border-radius:9px; background:var(--surface-soft); }",
+    ".fkpsc-zapret-location { display:grid; gap:.25em; margin:.45em 0 .75em; padding:.65em .75em; border:1px solid var(--border-soft); border-radius:8px; background:var(--surface-raised); font-size:.84em; }",
+    ".fkpsc-zapret-location-row { display:grid; grid-template-columns:minmax(7em,.22fr) minmax(0,1fr); gap:.65em; }",
+    ".fkpsc-zapret-location-row span { color:var(--muted); }",
+    ".fkpsc-zapret-location-row code { min-width:0; overflow-wrap:anywhere; color:inherit; }",
+    ".fkpsc-zapret-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(9.5em,1fr)); gap:.55em; margin:.7em 0; }",
+    ".fkpsc-zapret-stat { min-width:0; padding:.58em .65em; border:1px solid var(--border-soft); border-radius:8px; background:var(--surface-raised); }",
+    ".fkpsc-zapret-stat span { display:block; margin-bottom:.15em; color:var(--muted); font-size:.78em; }",
+    ".fkpsc-zapret-stat strong { display:block; overflow-wrap:anywhere; font-size:1.02em; }",
+    ".fkpsc-zapret-current { min-width:0; padding:.65em .75em; border-left:3px solid var(--accent); border-radius:6px; background:var(--surface-raised); }",
+    ".fkpsc-zapret-current-head { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.45em; margin-bottom:.25em; }",
+    ".fkpsc-zapret-current-endpoint { display:flex; flex-wrap:wrap; gap:.45em; align-items:center; color:var(--muted); font-size:.86em; }",
+    ".fkpsc-zapret-result-dot { display:inline-block; width:.55em; height:.55em; border-radius:50%; background:var(--muted); }",
+    ".fkpsc-zapret-result-dot.ok { background:var(--good); }",
+    ".fkpsc-zapret-result-dot.err { background:var(--bad); }",
     ".fkpsc-zapret-results { display:grid; gap:.75em; margin-top:.8em; }",
     ".fkpsc-zapret-group { border:1px solid var(--border-soft); border-radius:10px; background:var(--surface-raised); overflow:hidden; }",
     ".fkpsc-zapret-group > summary { cursor:pointer; padding:.75em .9em; font-weight:700; background:var(--surface-soft); }",
@@ -347,6 +361,8 @@ function injectStyles() {
     "  .fkpsc-dns-row { grid-template-columns:1fr auto; gap:.3em .6em; }",
     "  .fkpsc-vpn-grid { grid-template-columns:1fr; }",
     "  .fkpsc-zapret-toolbar { grid-template-columns:1fr; }",
+    "  .fkpsc-zapret-actions .cbi-button { flex:1 1 100%; }",
+    "  .fkpsc-zapret-location-row { grid-template-columns:1fr; gap:.15em; }",
     "  .fkpsc-vpn-tab { flex:1 1 45%; }",
     "  .fkpsc-vpn-manual .cbi-button { flex:1 1 100%; }",
     "  .fkpsc-converter-grid { grid-template-columns:1fr; }",
@@ -2262,24 +2278,29 @@ function vlessUriFromOutbound(document) {
     (tag ? "#" + encodeURIComponent(tag) : "");
 }
 
-    // Подбор стратегий использует локальный штатный blockcheck и никогда не
-    // загружает/исполняет стратегии из браузера.
+    // Проверяются только локально упакованные готовые профили. Конфигурации
+    // Forkop и установленного Zapret worker не изменяет.
     var zapretProviderSelect = E("select", { class:"cbi-input-select", "aria-label":"Версия Zapret" });
-    var zapretDepthSelect = E("select", { class:"cbi-input-select", "aria-label":"Глубина подбора" }, [
-      E("option", { value:"quick" }, "Быстро"),
-      E("option", { value:"standard", selected:"" }, "Стандартно"),
-      E("option", { value:"force" }, "Полный перебор"),
+    var zapretDepthSelect = E("select", { class:"cbi-input-select", "aria-label":"Набор готовых профилей" }, [
+      E("option", { value:"quick" }, "4 готовых профиля"),
+      E("option", { value:"standard", selected:"" }, "8 готовых профилей"),
+      E("option", { value:"force" }, "Все готовые профили"),
     ]);
     var zapretStartButton = E("button", { class:"cbi-button cbi-button-action important", type:"button" }, "Остановить backend и начать");
-    var zapretCancelButton = E("button", { class:"cbi-button cbi-button-negative", type:"button", style:"display:none" }, "Остановить подбор");
+    var zapretCancelButton = E("button", { class:"cbi-button cbi-button-negative", type:"button", style:"display:none" }, "Остановить проверку");
     var zapretRefreshButton = E("button", { class:"cbi-button", type:"button" }, "Проверить готовность");
     var zapretPreflightNode = E("div", { class:"fkpsc-zapret-preflight" });
+    var zapretLocationNode = E("div", { class:"fkpsc-zapret-location" });
     var zapretStatusNode = E("div", { class:"fkpsc-zapret-progress", style:"display:none", role:"status", "aria-live":"polite" });
     var zapretProgressBar = E("div", {});
     var zapretProgressWrap = E("div", { class:"fkpsc-progress" }, [zapretProgressBar]);
     var zapretProgressText = E("div", { class:"fkpsc-dim", style:"margin-top:.45em" }, "");
+    var zapretStatsNode = E("div", { class:"fkpsc-zapret-stats" });
+    var zapretCurrentNode = E("div", { class:"fkpsc-zapret-current", style:"display:none" });
     zapretStatusNode.appendChild(zapretProgressWrap);
     zapretStatusNode.appendChild(zapretProgressText);
+    zapretStatusNode.appendChild(zapretStatsNode);
+    zapretStatusNode.appendChild(zapretCurrentNode);
     var zapretResultsNode = E("div", { class:"fkpsc-zapret-results" });
     var zapretForkopFormat = E("input", { type:"checkbox", checked:"" });
     var zapretFormatLabel = E("label", { class:"fkpsc-zapret-format" }, [zapretForkopFormat, E("span", {}, "Под формат Forkop")]);
@@ -2291,25 +2312,43 @@ function vlessUriFromOutbound(document) {
       zapretProviderSelect.replaceChildren();
       ["zapret2", "zapret"].forEach(function (id) {
         var item = providers[id] || {};
-        if (item.ready) zapretProviderSelect.appendChild(E("option", { value:id }, item.label || (id === "zapret2" ? "Zapret2" : "Zapret")));
+        if (item.ready) zapretProviderSelect.appendChild(E("option", { value:id }, (item.label || id) + " · " + (item.catalog_count || 0) + " профилей"));
       });
-      if (!zapretProviderSelect.options.length) zapretProviderSelect.appendChild(E("option", { value:"" }, "Blockcheck не найден"));
+      if (!zapretProviderSelect.options.length) zapretProviderSelect.appendChild(E("option", { value:"" }, "nfqws / nfqws2 не найден"));
       if (previous && Array.from(zapretProviderSelect.options).some(function (item) { return item.value === previous; })) zapretProviderSelect.value = previous;
       zapretProviderSelect.disabled = !caps.ready || !!zapretRunState.jobId;
     }
     function zapretChip(text, state) { return E("span", { class:"fkpsc-zapret-chip " + state }, text); }
+    function zapretLocationRow(title, value, emptyText) {
+      return E("div", { class:"fkpsc-zapret-location-row" }, [E("span", {}, title), E("code", {}, value || emptyText || "—")]);
+    }
+    function renderZapretLocation(caps) {
+      var providers = (caps && caps.providers) || {};
+      var selected = providers[zapretProviderSelect.value] || {};
+      zapretLocationNode.replaceChildren(
+        zapretLocationRow("Корень установки", selected.root, "не найден"),
+        zapretLocationRow("Движок", selected.engine, "не найден"),
+        zapretLocationRow("Штатный blockcheck", selected.blockcheck, "не найден; для готовых профилей не требуется"),
+        zapretLocationRow("Локальный каталог", (selected.catalog_count || 0) + " готовых составных профилей")
+      );
+    }
     function renderZapretPreflight(caps) {
       caps = caps || {};
       zapretProviderOptions(caps);
       var deps = caps.dependencies || {}, running = Array.isArray(caps.running_backends) ? caps.running_backends : [];
+      var standalone = Array.isArray(caps.running_services) ? caps.running_services : [];
       zapretPreflightNode.replaceChildren(
         zapretChip(deps.curl ? "curl готов" : "нет curl", deps.curl ? "ok" : "err"),
         zapretChip(deps.nft ? "nftables готов" : "нет nftables", deps.nft ? "ok" : "err"),
+        zapretChip(deps.dns ? "DNS resolver готов" : "нет resolveip/nslookup", deps.dns ? "ok" : "err"),
         zapretChip(caps.worker_ready === false ? "worker отсутствует" : "worker готов", caps.worker_ready === false ? "err" : "ok"),
+        zapretChip(caps.catalog_ready === false ? "каталог отсутствует" : "каталог готов", caps.catalog_ready === false ? "err" : "ok"),
         zapretChip(running.length ? ("Будет остановлен: " + running.join(", ")) : "Backend остановлен", running.length ? "warn" : "ok"),
-        zapretChip(caps.ready ? "blockcheck найден" : "blockcheck не найден", caps.ready ? "ok" : "err")
+        zapretChip(standalone.length ? ("Будет остановлен отдельный: " + standalone.join(", ")) : "Отдельный Zapret остановлен", standalone.length ? "warn" : "ok"),
+        zapretChip(caps.ready ? "nfqws найден" : "nfqws не найден", caps.ready ? "ok" : "err")
       );
-      zapretStartButton.disabled = !caps.ready || deps.curl === false || deps.nft === false || !!zapretRunState.jobId;
+      renderZapretLocation(caps);
+      zapretStartButton.disabled = !caps.ready || deps.curl === false || deps.nft === false || deps.dns === false || !!zapretRunState.jobId;
     }
     function zapretMetric(metric) {
       var state = metric.ok === metric.total ? "ok" : (metric.ok === 0 ? "err" : "warn");
@@ -2320,21 +2359,21 @@ function vlessUriFromOutbound(document) {
     }
     function zapretStrategyCard(item, index) {
       var code = E("pre", { class:"fkpsc-strategy-code" }, zapretCurrentText(item));
-      var copy = E("button", { class:"cbi-button", type:"button" }, "Копировать");
+      var copy = E("button", { class:"cbi-button", type:"button" }, zapretForkopFormat.checked ? "Копировать для Forkop" : "Копировать конфиг");
       copy.addEventListener("click", function () {
         copyText(zapretCurrentText(item)).then(function () {
           copy.textContent = "Скопировано";
-          window.setTimeout(function () { copy.textContent = "Копировать"; }, 1400);
+          window.setTimeout(function () { copy.textContent = zapretForkopFormat.checked ? "Копировать для Forkop" : "Копировать конфиг"; }, 1400);
         }).catch(function () { copy.textContent = "Не скопировано"; });
       });
       item.__codeNode = code;
       return E("div", { class:"fkpsc-strategy-card" }, [
         E("div", { class:"fkpsc-strategy-head" }, [
-          E("strong", {}, "Вариант " + (index + 1) + " · " + item.score + "/" + item.total),
+          E("div", {}, [E("strong", {}, (index + 1) + ". " + (item.title || "Готовый профиль") + " · " + item.score + "/" + item.total), E("div", { class:"fkpsc-dim" }, item.source || "Локальный каталог")]),
           copy,
         ]),
         E("div", { class:"fkpsc-strategy-metrics" }, (item.services || []).map(zapretMetric)),
-        item.quic_coverage ? E("div", { class:"fkpsc-dim" }, "Запасной QUIC-профиль: " + item.quic_coverage + "/12 endpoint’ов") : E("div", { class:"fkpsc-dim" }, "Рабочий QUIC-профиль не найден; сохранён HTTPS/TLS-профиль."),
+        E("div", { class:"fkpsc-dim" }, item.quic_included ? "В состав профиля уже включён отдельный блок для QUIC/UDP 443. Оценка выше относится к 12 HTTPS endpoint’ам." : "Профиль проверен по HTTPS; отдельного QUIC-блока нет."),
         code,
       ]);
     }
@@ -2347,31 +2386,63 @@ function vlessUriFromOutbound(document) {
     function renderZapretResults(state) {
       zapretResultsNode.replaceChildren();
       var items = Array.isArray(state.results) ? state.results : [];
+      var targetTotal = state.telemetry && state.telemetry.target_total ? state.telemetry.target_total : 12;
       var directCount = state.direct && typeof state.direct === "object" ? Object.keys(state.direct).length : 0;
-      if (directCount) zapretResultsNode.appendChild(E("div", { class:"fkpsc-note" }, directCount + " из 12 endpoint’ов доступны без обхода. Их результат не приписывается стратегиям; это может означать мягкий DPI или временно снятую блокировку."));
+      if (directCount) zapretResultsNode.appendChild(E("div", { class:"fkpsc-note" }, directCount + " из " + targetTotal + " HTTPS endpoint’ов доступны без обхода. Это отмечено отдельно и не скрывает результаты готовых профилей."));
       var full = items.filter(function (item) { return item.complete; });
       var partial = items.filter(function (item) { return !item.complete && item.score > 0; });
-      if (full.length) zapretResultsNode.appendChild(zapretGroup("Лучшие: работают на всех проверках", full, true));
-      if (partial.length) zapretResultsNode.appendChild(zapretGroup("Частично рабочие", partial, !full.length));
-      if (!items.length && !state.running) zapretResultsNode.appendChild(E("div", { class:"fkpsc-note" }, "Рабочие стратегии не найдены. Попробуйте стандартный или полный перебор и проверьте, что трафик действительно блокируется без обхода."));
+      if (full.length) zapretResultsNode.appendChild(zapretGroup("Лучшие: прошли все HTTPS-проверки", full, true));
+      if (partial.length) zapretResultsNode.appendChild(zapretGroup("Частично рабочие готовые профили", partial, !full.length));
+      if (!items.length && !state.running) zapretResultsNode.appendChild(E("div", { class:"fkpsc-note" }, "Ни один готовый профиль не прошёл HTTPS-проверки. Нерабочие варианты собраны ниже и не занимают основную область."));
       var failed = Array.isArray(state.failed_strategies) ? state.failed_strategies : [];
       if (failed.length) {
         var failedList = E("ol", { class:"fkpsc-failed-list" }, failed.map(function (item) {
-          return E("li", {}, [E("span", { class:"fkpsc-dim" }, item.protocol.toUpperCase() + " · " + item.attempts + " попыток — "), E("code", {}, item.strategy)]);
+          var label = (item.title || item.id || "Профиль") + " · 0/" + (item.total || targetTotal) + " · проверено " + (item.checked || 0);
+          return E("li", {}, [E("span", { class:"fkpsc-dim" }, label + (item.reason ? " · " + item.reason : "")), E("details", {}, [E("summary", {}, "Показать стратегию"), E("code", {}, item.strategy || "")])]);
         }));
         zapretResultsNode.appendChild(E("details", { class:"fkpsc-zapret-group" }, [
-          E("summary", {}, "Нерабочие стратегии · " + (state.failed_total || failed.length) + " (показаны отдельно)"),
+          E("summary", {}, "Полностью нерабочие · " + (state.failed_total || failed.length) + " (скрыты)"),
           E("div", { class:"fkpsc-zapret-list" }, [failedList]),
         ]));
       }
     }
+    function zapretDuration(seconds) {
+      seconds = Math.max(0, Number(seconds || 0));
+      var minutes = Math.floor(seconds / 60), rest = seconds % 60;
+      return minutes ? minutes + " мин " + rest + " с" : rest + " с";
+    }
+    function zapretStat(title, value) {
+      return E("div", { class:"fkpsc-zapret-stat" }, [E("span", {}, title), E("strong", {}, value)]);
+    }
+    function renderZapretTelemetry(state) {
+      var telemetry = state.telemetry || {};
+      var candidateIndex = Number(telemetry.candidate_index || 0), candidateTotal = Number(telemetry.candidate_total || 0);
+      var requestsDone = Number(telemetry.requests_done || 0), requestsTotal = Number(telemetry.requests_total || 0);
+      zapretStatsNode.replaceChildren(
+        zapretStat("Прошло времени", zapretDuration(telemetry.elapsed)),
+        zapretStat("Текущий профиль", candidateTotal ? candidateIndex + " / " + candidateTotal : "подготовка"),
+        zapretStat("HTTPS-проверки", requestsDone + " / " + requestsTotal),
+        zapretStat("Профили завершены", Number(telemetry.strategies_completed || 0) + " / " + candidateTotal),
+        zapretStat("Результаты", "все " + Number(telemetry.full || 0) + " · часть " + Number(telemetry.partial || 0) + " · 0 " + Number(telemetry.failed || 0)),
+        zapretStat("DNS-цели", Number(telemetry.dns_ready || 0) + " / " + Number(telemetry.target_total || 12))
+      );
+      var title = telemetry.strategy_title || telemetry.phase_message || "Подготовка проверки";
+      var phaseLabel = telemetry.phase === "baseline" ? "Без обхода" : (telemetry.phase === "resolve" ? "DNS" : (telemetry.phase === "complete" ? "Готово" : "Готовый профиль"));
+      var endpoint = telemetry.endpoint_title || "";
+      var endpointState = telemetry.endpoint_ok === true ? "ok" : (telemetry.endpoint_ok === false ? "err" : "");
+      zapretCurrentNode.style.display = "";
+      zapretCurrentNode.replaceChildren(
+        E("div", { class:"fkpsc-zapret-current-head" }, [E("strong", {}, title), E("span", { class:"fkpsc-dim" }, phaseLabel)]),
+        E("div", { class:"fkpsc-zapret-current-endpoint" }, endpoint ? [E("i", { class:"fkpsc-zapret-result-dot " + endpointState }), E("span", {}, "Последняя цель: " + endpoint + " · " + (telemetry.endpoint_ok === true ? "доступна" : (telemetry.endpoint_ok === false ? "нет доступа" : "ожидание")) + " · " + Number(telemetry.endpoint_elapsed || 0) + " с")] : [E("span", {}, telemetry.phase_message || "Запуск")])
+      );
+    }
     function renderZapretStatus(state) {
       zapretRunState.state = state;
       zapretStatusNode.style.display = "";
-      var progress = state.progress || { done:0, total:36 }, done = Number(progress.done || 0), total = Number(progress.total || 36);
+      var progress = state.progress || { done:0, total:0 }, done = Number(progress.done || 0), total = Number(progress.total || 0);
       zapretProgressBar.style.width = Math.max(0, Math.min(100, total ? done * 100 / total : 0)) + "%";
-      zapretProgressText.textContent = (state.message || (state.running ? "Выполняется подбор" : "Подбор завершён")) +
-        " · этапов " + done + "/" + total + (state.current ? " · " + state.current : "");
+      zapretProgressText.textContent = (state.message || (state.running ? "Проверяются готовые профили" : "Проверка завершена")) + (total ? " · HTTPS-запросов " + done + "/" + total : "");
+      renderZapretTelemetry(state);
       zapretStartButton.style.display = state.running ? "none" : "";
       zapretCancelButton.style.display = state.running ? "" : "none";
       zapretProviderSelect.disabled = !!state.running;
@@ -2388,13 +2459,14 @@ function vlessUriFromOutbound(document) {
       if (!jobId) return;
       callBin(["zapret-status", jobId]).then(function (state) {
         renderZapretStatus(state);
-        if (state.running) zapretRunState.timer = window.setTimeout(pollZapretJob, 1800);
+        if (state.running) zapretRunState.timer = window.setTimeout(pollZapretJob, 1200);
+        else refreshZapretCapabilities(false);
       }).catch(function (error) {
         zapretRunState.jobId = "";
         zapretCancelButton.style.display = "none";
         zapretStartButton.style.display = "";
         zapretStatusNode.style.display = "";
-        zapretProgressText.textContent = error.message || "Не удалось получить состояние подбора.";
+        zapretProgressText.textContent = error.message || "Не удалось получить состояние проверки.";
       });
     }
     function refreshZapretCapabilities(report) {
@@ -2414,23 +2486,21 @@ function vlessUriFromOutbound(document) {
     zapretStartButton.addEventListener("click", function () {
       var provider = zapretProviderSelect.value, depth = zapretDepthSelect.value;
       if (!provider) return;
-      if (!window.confirm("На время подбора Forkop/Tachyon/Podkop и самостоятельный Zapret будут остановлены. После завершения или отмены ранее активные сервисы запустятся снова. Продолжить?")) return;
+      if (!window.confirm("На время проверки Forkop/Tachyon/Podkop и самостоятельный Zapret будут остановлены. Проверяются только локальные готовые профили; после завершения или отмены ранее активные сервисы запустятся снова. Продолжить?")) return;
       zapretStartButton.disabled = true;
       zapretStartButton.textContent = "Проверяю остановку...";
       zapretStatusNode.style.display = "";
-      zapretProgressText.textContent = "Останавливаем конфликтующие сервисы и повторно проверяем их состояние.";
+      zapretProgressText.textContent = "Останавливаем конфликтующие сервисы и дважды проверяем фактическое состояние.";
       zapretResultsNode.replaceChildren();
       callBin(["zapret-start", provider, depth]).then(function (result) {
-        if (!result || result.success !== true || !result.job_id) {
-          throw new Error((result && result.message) || "Backend не остановлен, подбор не запущен.");
-        }
+        if (!result || result.success !== true || !result.job_id) throw new Error((result && result.message) || "Backend не остановлен, проверка не запущена.");
         zapretRunState.jobId = result.job_id;
-        renderZapretStatus({ running:true, message:"Blockcheck запущен; конфиги не изменяются", progress:result.progress || {done:0,total:36} });
+        renderZapretStatus({ running:true, message:"Запущена проверка готовых профилей; конфиги не изменяются", progress:result.progress || {done:0,total:0}, telemetry:result.telemetry || {} });
         pollZapretJob();
       }).catch(function (error) {
         zapretStartButton.disabled = false;
         zapretStartButton.textContent = "Остановить backend и начать";
-        zapretProgressText.textContent = error.message || "Подбор не запущен.";
+        zapretProgressText.textContent = error.message || "Проверка не запущена.";
         refreshZapretCapabilities(false);
       });
     });
@@ -2441,10 +2511,11 @@ function vlessUriFromOutbound(document) {
       callBin(["zapret-cancel", jobId]).then(function (state) {
         renderZapretStatus(state);
         window.setTimeout(function () { refreshZapretCapabilities(false); }, 1400);
-      }).catch(function (error) { zapretProgressText.textContent = error.message || "Не удалось остановить подбор.";
+      }).catch(function (error) { zapretProgressText.textContent = error.message || "Не удалось остановить проверку.";
       }).finally(function () { zapretCancelButton.disabled = false; });
     });
     zapretRefreshButton.addEventListener("click", function () { refreshZapretCapabilities(true); });
+    zapretProviderSelect.addEventListener("change", function () { renderZapretLocation(zapretCapabilities); });
     zapretForkopFormat.addEventListener("change", function () {
       var state = zapretRunState.state;
       if (state && !state.running) renderZapretResults(state);
@@ -2452,23 +2523,24 @@ function vlessUriFromOutbound(document) {
     renderZapretPreflight(zapretCapabilities);
     if (zapretCapabilities && zapretCapabilities.active_job) {
       zapretRunState.jobId = String(zapretCapabilities.active_job);
-      renderZapretStatus({ running:true, message:"Продолжается ранее запущенный подбор", progress:{done:0,total:36} });
+      renderZapretStatus({ running:true, message:"Продолжается ранее запущенная проверка", progress:{done:0,total:0}, telemetry:{} });
       pollZapretJob();
     }
 
     var zapretVpnTab = E("button", { class:"fkpsc-vpn-tab", type:"button", role:"tab", "aria-selected":"false" }, "Подбор стратегии Zapret");
     var zapretVpnPanel = E("div", { class:"fkpsc-card fkpsc-vpn-panel", role:"tabpanel" }, [
       E("div", { class:"fkpsc-strategy-head" }, [
-        E("div", {}, [E("h3", {}, "Подбор стратегии Zapret"), E("p", { class:"fkpsc-dim" }, "Штатный blockcheck проверяет по четыре endpoint’а YouTube, Discord и Telegram. Конфиги не изменяются; найдено несколько вариантов для ручного выбора.")]),
+        E("div", {}, [E("h3", {}, "Подбор стратегии Zapret"), E("p", { class:"fkpsc-dim" }, "Готовые составные профили проверяются по четырём HTTPS endpoint’ам YouTube, Discord и Telegram. Генерации коротких комбинаций нет; конфиги не изменяются.")]),
         zapretFormatLabel,
       ]),
       E("div", { class:"fkpsc-zapret-toolbar" }, [
         E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Движок"), zapretProviderSelect]),
-        E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Глубина"), zapretDepthSelect]),
+        E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Набор"), zapretDepthSelect]),
         E("div", { class:"fkpsc-zapret-actions" }, [zapretStartButton, zapretCancelButton, zapretRefreshButton]),
       ]),
       zapretPreflightNode,
-      E("div", { class:"fkpsc-note" }, "Важно: во время теста обход и маршрутизация временно не работают. Модуль проверяет фактическую остановку Forkop/Tachyon/Podkop перед blockcheck и восстанавливает только ранее активные сервисы даже при отмене или таймауте."),
+      zapretLocationNode,
+      E("div", { class:"fkpsc-note" }, "Важно: во время теста обход и маршрутизация временно не работают. Перед запуском модуль подтверждает остановку Forkop/Tachyon/Podkop и отдельных сервисов Zapret, а затем восстанавливает только те сервисы, которые были активны до проверки."),
       zapretStatusNode,
       zapretResultsNode,
     ]);

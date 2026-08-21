@@ -22,11 +22,11 @@ SHARE_DIR="/usr/share/forkop-servicecheck"
 VERSION_FILE="$SHARE_DIR/version"
 VIEW_NAME="@@LUCI_VIEW_NAME@@"
 VIEW_FILE="/www/luci-static/resources/view/forkop/$VIEW_NAME"
-PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"
-OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"
-ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"
-HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1111.js"
-LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1110.js"
+PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1122.js"
+OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"
+ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"
+HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"
+LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1111.js"
 LEGACY_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck.js"
 BROKEN_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-1.1.0.js"
 MENU_FILE="/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json"
@@ -358,7 +358,7 @@ __FORKOP_SC_PAYLOAD__
 
 extract_payload || fail "Не удалось распаковать полезную нагрузку."
 
-for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh; do
+for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh zapret_strategy_catalog.tsv; do
     [ -f "$TMP_DIR/usr/lib/forkop-servicecheck/$runtime_file" ] ||
         fail "В архиве нет runtime-файла $runtime_file."
 done
@@ -429,7 +429,7 @@ reload_rpcd
 
 log "Проверяю установку"
 
-for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh; do
+for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh zapret_strategy_catalog.tsv; do
     [ -f "$LIB_DIR/$runtime_file" ] || fail "После установки отсутствует $LIB_DIR/$runtime_file"
 done
 [ -x "$LIB_DIR/zapret_strategy_worker.sh" ] || fail "Worker подбора Zapret установлен без права запуска"
