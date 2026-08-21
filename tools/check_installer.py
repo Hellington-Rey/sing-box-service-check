@@ -302,6 +302,12 @@ def main():
     assert '"Проверить туннель вручную"' in view
     assert 'else if (mode == "vpn-check")' in engine
     assert 'else if (mode == "vpn-interfaces")' in engine
+    assert 'function vpn_unsigned_range(value, maximum)' in engine
+    assert 'awg_header_protection_key' in engine
+    assert 'awg_content_padding_addition' in engine
+    assert 'установленный netifd-протокол AmneziaWG не поддерживает поля AWG 3.0' in engine
+    assert 'replace(/[^A-Za-z0-9_]/g, "_")' in view
+    assert 'suggestedName.slice(0, 15)' in view
     assert 'function zapret_strategy_start(provider, selection_mode, scan_level, selected_payload)' in engine
     assert 'function zapret_parse_log(path, provider, targets)' in engine
     assert 'function zapret_find_install(provider)' in engine

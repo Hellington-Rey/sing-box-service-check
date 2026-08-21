@@ -34,7 +34,7 @@ try {
     # normalized again at build time regardless of checkout settings.
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     Get-ChildItem -Recurse -File $staging | Where-Object {
-        $_.Extension -in @('.sh', '.uc', '.json', '.js') -or
+        $_.Extension -in @('.sh', '.uc', '.json', '.js', '.tsv') -or
         $_.FullName -like '*\usr\bin\forkop-servicecheck' -or
         $_.FullName -like '*\usr\share\forkop-servicecheck\version'
     } | ForEach-Object {

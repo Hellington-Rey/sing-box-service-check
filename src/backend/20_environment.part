@@ -259,14 +259,21 @@ function vpn_status(protocol) {
     let proto_dir = trim(as_string(getenv("FORKOP_SC_NETIFD_PROTO_DIR"))) || "/lib/netifd/proto";
     let proto_path = proto_dir + "/" + protocol + ".sh";
     let proto_ready = fs.stat(proto_path) != null;
+    let proto_source = proto_ready ? as_string(fs.readfile(proto_path)) : "";
     let awg_i_ready = protocol != "amneziawg" ||
-        (proto_ready && index(as_string(fs.readfile(proto_path)), "awg_i1") >= 0);
+        index(proto_source, "awg_i1") >= 0;
+    let awg_ranges_ready = protocol != "amneziawg" ||
+        index(proto_source, "proto_config_add_string \"awg_h1\"") >= 0;
+    let awg3_ready = protocol != "amneziawg" ||
+        (awg_ranges_ready && index(proto_source, "awg_header_protection_key") >= 0 &&
+            index(proto_source, "awg_content_padding_addition") >= 0);
     let issues = [];
     if (length(missing)) push(issues, "пакеты: " + join(", ", missing));
     if (!tool_ready) push(issues, protocol == "wireguard" ? "не найдена команда wg" : "не найдена команда awg");
     if (!proto_ready) push(issues, "не найден " + proto_path);
     return { protocol, manager, packages: vpn_packages(protocol), missing, tool_ready, proto_ready,
-        awg_i_ready, issues, ready: length(issues) == 0, install_available: manager != "" };
+        awg_i_ready, awg_ranges_ready, awg3_ready, issues,
+        ready: length(issues) == 0, install_available: manager != "" };
 }
 
 function vpn_packages_status() {
@@ -352,17 +359,31 @@ function vpn_ip(value) { return iptoarr(trim(as_string(value))) != null; }
 function vpn_cidr(value) { let parts = match(trim(as_string(value)), /^(.+)\/([0-9]{1,3})$/); if (parts == null) return false; let address = iptoarr(parts[1]); return address != null && int(parts[2]) <= (length(address) == 4 ? 32 : 128); }
 function vpn_address(value) { value = trim(as_string(value)); return vpn_cidr(value) ? value : (vpn_ip(value) ? value + (index(value, ":") >= 0 ? "/128" : "/32") : ""); }
 function vpn_safe_address(value) { value = trim(as_string(value)); let cidr = match(value, /^(.+)\/[0-9]{1,3}$/); let address = cidr == null ? value : cidr[1]; return vpn_ip(address) ? address + (index(address, ":") >= 0 ? "/128" : "/32") : ""; }
-function vpn_awg_i(value) { return match(trim(as_string(value)), /^([0-9]{1,10}|<b 0x[0-9A-Fa-f]+>)$/) != null; }
+function vpn_unsigned_range(value, maximum) {
+    let parts = match(trim(as_string(value)), /^([0-9]{1,10})(-([0-9]{1,10}))?$/);
+    if (parts == null) return null;
+    let start = int(parts[1]), end = parts[3] == null ? start : int(parts[3]);
+    return start <= end && end <= maximum ? { start, end } : null;
+}
+function vpn_awg_i(value) {
+    value = trim(as_string(value));
+    return match(value, /^[0-9]{1,10}$/) != null ||
+        match(value, /^((<b 0x[0-9A-Fa-f]+>|<t>|<(r|rc|rd) [0-9]{1,10}>)[ \t]*)+$/) != null;
+}
 function vpn_endpoint(value) { let p = match(as_string(value), /^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+):([0-9]{1,5})$/); return p != null && int(p[2]) > 0 && int(p[2]) <= 65535; }
 function vpn_value(config, section, key) { return as_string(object_or_empty(config[section])[lc(key)]); }
 function vpn_peer_value(peer, key) { return as_string(object_or_empty(peer)[lc(key)]); }
-function vpn_detect_protocol(config) { for (let key in keys(config.interface)) if (index(" jc jmin jmax s1 s2 s3 s4 h1 h2 h3 h4 i1 i2 i3 i4 i5 ", " " + key + " ") >= 0) return "amneziawg"; return "wireguard"; }
-function vpn_awg_version(config) { let i1 = vpn_value(config,"interface","I1"); return match(i1,/^<b 0x[0-9A-Fa-f]+>$/) != null ? "1.5" : (i1 != "" ? "3.0" : "2.0"); }
+function vpn_detect_protocol(config) { for (let key in keys(config.interface)) if (index(" jc jmin jmax s1 s2 s3 s4 h1 h2 h3 h4 i1 i2 i3 i4 i5 headerprotectionkey contentpaddingaddition rekeyaftertime rekeytimeout rejectaftertime keepalivetimeout maxhandshakeattempts ", " " + key + " ") >= 0) return "amneziawg"; return "wireguard"; }
+function vpn_awg_version(config) {
+    if (vpn_value(config,"interface","HeaderProtectionKey") != "") return "3.0";
+    let i1 = vpn_value(config,"interface","I1");
+    return match(i1,/^<b 0x[0-9A-Fa-f]+>$/) != null ? "1.5" : (i1 != "" ? "2.0" : "1.0");
+}
 
 function vpn_validate(name, protocol, config) {
-    if (match(as_string(name), /^[A-Za-z][A-Za-z0-9_]{0,14}$/) == null) return "некорректное имя интерфейса";
+    if (match(as_string(name), /^[A-Za-z][A-Za-z0-9_]{0,14}$/) == null) return "некорректное имя интерфейса: нужны 1–15 символов, первая буква, затем буквы, цифры или _";
     if (protocol != "wireguard" && protocol != "amneziawg") return "неизвестный VPN-протокол";
-    let base = { privatekey:true, address:true, dns:true, listenport:true, mtu:true, fwmark:true, jc:true, jmin:true, jmax:true, s1:true, s2:true, s3:true, s4:true, h1:true, h2:true, h3:true, h4:true, i1:true, i2:true, i3:true, i4:true, i5:true };
+    let base = { privatekey:true, address:true, dns:true, listenport:true, mtu:true, fwmark:true, jc:true, jmin:true, jmax:true, s1:true, s2:true, s3:true, s4:true, h1:true, h2:true, h3:true, h4:true, i1:true, i2:true, i3:true, i4:true, i5:true, headerprotectionkey:true, contentpaddingaddition:true, rekeyaftertime:true, rekeytimeout:true, rejectaftertime:true, keepalivetimeout:true, maxhandshakeattempts:true };
     let peer = { publickey:true, presharedkey:true, allowedips:true, endpoint:true, persistentkeepalive:true };
     for (let key in keys(config.interface)) if (!base[key]) return "неподдерживаемый параметр [Interface]: " + key;
     if (!vpn_key(vpn_value(config,"interface","PrivateKey"))) return "некорректный PrivateKey";
@@ -384,9 +405,25 @@ function vpn_validate(name, protocol, config) {
     if (listen_port != "" && (!vpn_number(listen_port) || int(listen_port) < 1 || int(listen_port) > 65535)) return "некорректный ListenPort";
     let mtu = vpn_value(config,"interface","MTU");
     if (mtu != "" && (!vpn_number(mtu) || int(mtu) < 576 || int(mtu) > 65535)) return "MTU должен быть от 576 до 65535";
-    for (let field in [ "Jc", "Jmin", "Jmax", "S1", "S2", "H1", "H2", "H3", "H4" ]) { let value = vpn_value(config,"interface",field); if (protocol == "amneziawg" && !vpn_number(value)) return "для AmneziaWG требуется " + field; if (protocol == "wireguard" && value != "") return field + " допустим только для AmneziaWG"; }
+    for (let field in [ "Jc", "Jmin", "Jmax", "S1", "S2" ]) { let value = vpn_value(config,"interface",field); if (protocol == "amneziawg" && !vpn_number(value)) return "для AmneziaWG требуется " + field; if (protocol == "wireguard" && value != "") return field + " допустим только для AmneziaWG"; }
     for (let field in [ "S3", "S4" ]) { let value = vpn_value(config,"interface",field); if (value != "" && !vpn_number(value)) return "некорректный " + field; if (protocol == "wireguard" && value != "") return field + " допустим только для AmneziaWG"; }
+    let header_ranges = [];
+    for (let field in [ "H1", "H2", "H3", "H4" ]) {
+        let value = vpn_value(config,"interface",field), range = vpn_unsigned_range(value, 4294967295);
+        if (protocol == "amneziawg" && range == null) return "для AmneziaWG требуется корректный " + field + " (число или диапазон число-число)";
+        if (protocol == "wireguard" && value != "") return field + " допустим только для AmneziaWG";
+        for (let other in header_ranges) if (range != null && range.start <= other.end && other.start <= range.end) return "диапазоны H1-H4 не должны пересекаться";
+        if (range != null) push(header_ranges, range);
+    }
     for (let i = 1; i <= 5; i++) { let value = vpn_value(config,"interface","I" + i); if (value != "" && !vpn_awg_i(value)) return "некорректный I" + i; if (protocol == "wireguard" && value != "") return "I1-I5 допустимы только для AWG Tools"; }
+    let header_key = vpn_value(config,"interface","HeaderProtectionKey");
+    if (header_key != "" && !vpn_key(header_key)) return "некорректный HeaderProtectionKey";
+    if (protocol == "wireguard" && header_key != "") return "HeaderProtectionKey допустим только для AWG Tools";
+    for (let field in [ "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts" ]) {
+        let value = vpn_value(config,"interface",field);
+        if (value != "" && vpn_unsigned_range(value, 65535) == null) return "некорректный " + field + ": ожидается число или диапазон 0–65535";
+        if (protocol == "wireguard" && value != "") return field + " допустим только для AWG Tools";
+    }
     if (protocol == "amneziawg" && int(vpn_value(config,"interface","Jmin")) > int(vpn_value(config,"interface","Jmax"))) return "Jmin не может быть больше Jmax";
     return "";
 }
@@ -528,6 +565,12 @@ function vpn_create(name, protocol, payload, probe_target) {
     if (uci_get("network." + name) != "") { write_json({ success:false, message:"интерфейс уже существует" }); return 1; }
     let iface = parsed.config.interface, peers = parsed.config.peers, iface_i1 = vpn_value(parsed.config,"interface","I1");
     if (protocol == "amneziawg" && iface_i1 != "" && !status.awg_i_ready) { write_json({ success:false, message:"установленный AWG Tools netifd-протокол не поддерживает параметр I1", status }); return 1; }
+    let ranged_headers = false;
+    for (let field in [ "H1", "H2", "H3", "H4" ]) if (index(vpn_value(parsed.config,"interface",field), "-") >= 0) ranged_headers = true;
+    if (protocol == "amneziawg" && ranged_headers && !status.awg_ranges_ready) { write_json({ success:false, message:"установленный netifd-протокол AmneziaWG не поддерживает диапазоны H1-H4; обновите пакет luci-proto-amneziawg", status }); return 1; }
+    let awg3_config = false;
+    for (let field in [ "HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts" ]) if (vpn_value(parsed.config,"interface",field) != "") awg3_config = true;
+    if (protocol == "amneziawg" && awg3_config && !status.awg3_ready) { write_json({ success:false, message:"установленный netifd-протокол AmneziaWG не поддерживает поля AWG 3.0; обновите AWG Tools и luci-proto-amneziawg", status }); return 1; }
     let peer_type = vpn_peer_type(protocol,name), peer_sections = [];
     for (let index=0; index<length(peers); index++) {
         let section = peer_type + "_" + (index + 1);
@@ -541,7 +584,12 @@ function vpn_create(name, protocol, payload, probe_target) {
     let mtu = vpn_value(parsed.config,"interface","MTU");
     if (mtu != "") created = created && vpn_set(name,"mtu",mtu);
     for (let value in vpn_split(vpn_value(parsed.config,"interface","Address"))) created = created && vpn_list(name,"addresses",vpn_safe_address(value));
-    if (protocol == "amneziawg") { for (let field in ["jc","jmin","jmax","s1","s2","s3","s4","h1","h2","h3","h4"]) { let value=vpn_value(parsed.config,"interface",field); if (value != "") created = created && vpn_set(name,"awg_" + field,value); } for (let i=1;i<=5;i++) { let value=vpn_value(parsed.config,"interface","i"+i); if (value != "") created = created && vpn_set(name,"awg_i"+i,value); } }
+    if (protocol == "amneziawg") {
+        for (let field in ["jc","jmin","jmax","s1","s2","s3","s4","h1","h2","h3","h4"]) { let value=vpn_value(parsed.config,"interface",field); if (value != "") created = created && vpn_set(name,"awg_" + field,value); }
+        for (let i=1;i<=5;i++) { let value=vpn_value(parsed.config,"interface","i"+i); if (value != "") created = created && vpn_set(name,"awg_i"+i,value); }
+        let awg3_fields = { headerprotectionkey:"header_protection_key", contentpaddingaddition:"content_padding_addition", rekeyaftertime:"rekey_after_time", rekeytimeout:"rekey_timeout", rejectaftertime:"reject_after_time", keepalivetimeout:"keepalive_timeout", maxhandshakeattempts:"max_handshake_attempts" };
+        for (let field in keys(awg3_fields)) { let value=as_string(iface[field]); if (value != "") created = created && vpn_set(name,"awg_" + awg3_fields[field],value); }
+    }
     for (let index=0; index<length(peers); index++) {
         let peer = peers[index], section = peer_sections[index];
         let endpoint = vpn_peer_value(peer,"Endpoint"), preshared = vpn_peer_value(peer,"PresharedKey"), keepalive = vpn_peer_value(peer,"PersistentKeepalive");
