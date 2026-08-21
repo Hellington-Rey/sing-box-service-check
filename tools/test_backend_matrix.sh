@@ -190,7 +190,11 @@ cat > "$TMP/zapret2/nfq2/nfqws2" <<'EOF'
 trap 'exit 0' TERM INT HUP
 while :; do sleep 1; done
 EOF
-chmod +x "$TMP/zapret2/nfq2/nfqws2"
+cat > "$TMP/zapret2/blockcheck2.sh" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$TMP/zapret2/nfq2/nfqws2" "$TMP/zapret2/blockcheck2.sh"
 mkdir -p "$TMP/proto"
 : > "$TMP/proto/wireguard.sh"
 echo 'proto_config_add_string "awg_i1"' > "$TMP/proto/amneziawg.sh"
@@ -588,9 +592,16 @@ PY
 
 cat > "$TMP/zapret2.log" <<'EOF'
 FKPSC	meta	zapret2	2	12	36	/opt/zapret2/nfq2/nfqws2	/opt/zapret2
+FKPSC	mode	auto
+FKPSC	phase	scan	Автоподбор: quic
+FKPSC	scan_start	quic	3	3	120	2	www.youtube.com discord.com web.telegram.org
+FKPSC	scan_tick	quic	3	3	17	120	11	2	2	nfqws2 --lua-desync=fake
+FKPSC	scan_done	quic	3	3	18	11	2	0	0
+FKPSC	discovery_summary	3	2	1	2
 FKPSC	phase	baseline	Проверка без обхода
 FKPSC	endpoint	direct	0	direct	youtube_web	youtube	1	1	ok
 FKPSC	strategy_start	1	2	ready-full	Official ready	zapret2 documentation	1	--qnum=999 --fwmark=0x1 --hostlist=/tmp/unsafe --filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld --new --filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=6
+FKPSC	voice_profile	1	ready-full	1	engine_loaded
 FKPSC	endpoint	strategy	1	ready-full	youtube_web	youtube	1	1	ok
 FKPSC	endpoint	strategy	1	ready-full	youtube_api	youtube	1	1	ok
 FKPSC	endpoint	strategy	1	ready-full	youtube_images	youtube	1	1	ok
@@ -605,6 +616,7 @@ FKPSC	endpoint	strategy	1	ready-full	telegram_api	telegram	1	1	ok
 FKPSC	endpoint	strategy	1	ready-full	telegram_links	telegram	1	1	ok
 FKPSC	strategy_done	1	2	ready-full	12	12
 FKPSC	strategy_start	2	2	ready-failed	Failed ready	local catalog	1	--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multidisorder:pos=midsld --new --filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=send:ipfrag --lua-desync=drop
+FKPSC	voice_profile	2	ready-failed	0	engine
 FKPSC	endpoint	strategy	2	ready-failed	youtube_web	youtube	0	1	connect
 FKPSC	endpoint	strategy	2	ready-failed	youtube_api	youtube	0	1	connect
 FKPSC	endpoint	strategy	2	ready-failed	youtube_images	youtube	0	1	connect
@@ -618,6 +630,7 @@ FKPSC	endpoint	strategy	2	ready-failed	telegram_site	telegram	0	1	connect
 FKPSC	endpoint	strategy	2	ready-failed	telegram_api	telegram	0	1	connect
 FKPSC	endpoint	strategy	2	ready-failed	telegram_links	telegram	0	1	connect
 FKPSC	strategy_done	2	2	ready-failed	0	12
+FKPSC	phase	complete	Проверка завершена
 EOF
 ZAPRET_JSON="$(run_engine zapret-parse-log "$TMP/zapret2.log" zapret2)" python3 - <<'PY'
 import json, os
@@ -626,6 +639,7 @@ variants = data["results"]["variants"]
 assert variants, data
 best = variants[0]
 assert best["score"] == 12 and best["complete"] is True, best
+assert best["voice_profile_ready"] is True, best
 assert [(m["id"], m["ok"], m["total"]) for m in best["services"]] == [
     ("youtube", 4, 4), ("discord", 4, 4), ("telegram", 4, 4)
 ], best
@@ -636,6 +650,17 @@ for forbidden in ("--qnum", "--fwmark", "--hostlist"):
     assert forbidden not in strategy, strategy
 assert data["results"]["failed"], data
 assert data["parsed"]["progress_done"] == 25, data
+assert data["parsed"]["selection_mode"] == "auto", data
+assert data["parsed"]["scan"] == {
+    "protocol": "quic", "phase_index": 3, "phase_total": 3,
+    "elapsed": 18, "timeout": 120, "attempted": 11, "found": 2, "wanted": 2,
+    "attempted_completed": 11, "found_completed": 2,
+    "attempted_total": 11, "found_total": 2,
+    "last": "nfqws2 --lua-desync=fake", "timed_out": False,
+    "direct": False, "finished": True,
+    "domains": "www.youtube.com discord.com web.telegram.org"
+}, data["parsed"]["scan"]
+assert data["parsed"]["discovery"] == {"tls13": 3, "tls12": 2, "common": 1, "quic": 2}, data
 PY
 rm -f "$TMP/tachyon" "$TMP/podkop"
 cp "$TMP/backend" "$TMP/forkop"
@@ -648,7 +673,9 @@ provider = data["providers"]["zapret2"]
 assert data["ready"] is True and provider["ready"] is True, data
 assert provider["root"].endswith("/zapret2"), provider
 assert provider["engine"].endswith("/zapret2/nfq2/nfqws2"), provider
+assert provider["blockcheck"].endswith("/zapret2/blockcheck2.sh"), provider
 assert provider["catalog_count"] == 10, provider
+assert data["auto_ready"] is True and provider["auto_ready"] is True, data
 assert data["running_backends"] == ["forkop"], data
 PY
 

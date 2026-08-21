@@ -86,6 +86,7 @@ POSTINST = """#!/bin/sh
 # не появится до перезагрузки.
 rm -rf /tmp/luci-modulecache 2>/dev/null
 rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -f /www/luci-static/resources/view/forkop/servicecheck-v1123.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1122.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1121.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1120.js 2>/dev/null

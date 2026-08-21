@@ -48,7 +48,7 @@ Available commands:
                             Создать VPN-интерфейс, отправить пакет и проверить туннель
     vpn-check NAME [TARGET] Проверить созданный модулем туннель; TARGET по умолчанию 1.1.1.1
     zapret-capabilities     Проверить готовность автоподбора Zapret/Zapret2
-    zapret-start TYPE LEVEL Запустить подбор; TYPE zapret/zapret2, LEVEL quick/standard/force
+    zapret-start TYPE MODE LEVEL Запустить подбор; MODE auto/ready, LEVEL quick/standard/force
     zapret-status JOB_ID    Показать прогресс и найденные стратегии
     zapret-cancel JOB_ID    Остановить подбор и восстановить остановленные сервисы
     netns_teardown          Снести временный network namespace
@@ -143,7 +143,7 @@ case "$COMMAND" in
         exec ucode -L "$LIB_DIR" "$ENGINE" vpn-check "${2:-}" "${3:-1.1.1.1}"
         ;;
     zapret-start)
-        exec ucode -L "$LIB_DIR" "$ENGINE" zapret-start "${2:-}" "${3:-standard}"
+        exec ucode -L "$LIB_DIR" "$ENGINE" zapret-start "${2:-}" "${3:-auto}" "${4:-standard}"
         ;;
     zapret-status|zapret-cancel)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}"

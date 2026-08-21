@@ -82,6 +82,15 @@ function zapret_existing_path(candidates) {
     return "";
 }
 
+function zapret_existing_executable_path(candidates) {
+    for (let path in candidates) {
+        path = trim(as_string(path));
+        if (path != "" && fs.stat(path) != null && run_quiet([ "test", "-x", path ]))
+            return path;
+    }
+    return "";
+}
+
 function zapret_root_from_path(path, provider) {
     path = trim(as_string(path));
     if (path == "") return "";
@@ -148,11 +157,11 @@ function zapret_find_install(provider) {
         root = trim(as_string(root));
         if (root == "") continue;
         let engine = zapret_root_from_path(explicit_engine, provider) == root
-            ? zapret_existing_path([ explicit_engine ]) : "";
+            ? zapret_existing_executable_path([ explicit_engine ]) : "";
         if (engine == "")
             engine = provider == "zapret2"
-                ? zapret_existing_path([ root + "/nfq2/nfqws2", root + "/nfqws2", "/usr/bin/nfqws2", "/usr/sbin/nfqws2" ])
-                : zapret_existing_path([ root + "/nfq/nfqws", root + "/nfqws", "/usr/bin/nfqws", "/usr/sbin/nfqws" ]);
+                ? zapret_existing_executable_path([ root + "/nfq2/nfqws2", root + "/nfqws2", "/usr/bin/nfqws2", "/usr/sbin/nfqws2" ])
+                : zapret_existing_executable_path([ root + "/nfq/nfqws", root + "/nfqws", "/usr/bin/nfqws", "/usr/sbin/nfqws" ]);
         if (engine == "") continue;
         let assets_ready = provider == "zapret2"
             ? (fs.stat(root + "/lua/zapret-lib.lua") != null &&
@@ -170,12 +179,12 @@ function zapret_find_install(provider) {
 
     if (result.root != "") {
         result.blockcheck = provider == "zapret2"
-            ? zapret_existing_path([
+            ? zapret_existing_executable_path([
                 explicit_blockcheck, result.root + "/blockcheck2.sh",
                 "/opt/zapret2/blockcheck2.sh", "/opt/zapret/blockcheck2.sh",
                 "/usr/share/zapret2/blockcheck2.sh", "/usr/lib/zapret2/blockcheck2.sh"
             ])
-            : zapret_existing_path([
+            : zapret_existing_executable_path([
                 explicit_blockcheck, result.root + "/blockcheck.sh",
                 "/opt/zapret/blockcheck.sh", "/usr/share/zapret/blockcheck.sh",
                 "/usr/lib/zapret/blockcheck.sh"
@@ -183,6 +192,7 @@ function zapret_find_install(provider) {
     }
     result.ready = result.engine != "" && result.assets_ready &&
         result.catalog_count > 0 && fs.stat(ZAPRET_STRATEGY_CATALOG) != null;
+    result.auto_ready = result.ready && result.blockcheck != "";
     return result;
 }
 
@@ -206,6 +216,7 @@ function zapret_strategy_capabilities() {
     return {
         success: true,
         ready: zapret.ready || zapret2.ready,
+        auto_ready: zapret.auto_ready || zapret2.auto_ready,
         providers: { zapret, zapret2 },
         dependencies: {
             curl: command_exists("curl"),
@@ -319,17 +330,32 @@ function zapret_scan_count(level, available) {
     return wanted < available ? wanted : available;
 }
 
-function zapret_strategy_start(provider, scan_level) {
+function zapret_auto_candidate_count(level) {
+    return level == "quick" ? 3 : (level == "standard" ? 6 : 10);
+}
+
+function zapret_strategy_start(provider, selection_mode, scan_level) {
     ensure_state_dir();
     cleanup_jobs();
     provider = lc(trim(as_string(provider)));
+    selection_mode = lc(trim(as_string(selection_mode)));
+    // Backward-compatible CLI form: zapret-start TYPE LEVEL.
+    if (selection_mode == "quick" || selection_mode == "standard" || selection_mode == "force") {
+        scan_level = selection_mode;
+        selection_mode = "ready";
+    }
+    if (selection_mode == "") selection_mode = "auto";
     scan_level = lc(trim(as_string(scan_level)));
     if (provider != "zapret" && provider != "zapret2") {
         write_json({ success: false, message: "Выберите Zapret или Zapret2" });
         return 1;
     }
+    if (selection_mode != "auto" && selection_mode != "ready") {
+        write_json({ success: false, message: "Выберите автоподбор или готовые профили" });
+        return 1;
+    }
     if (scan_level != "quick" && scan_level != "standard" && scan_level != "force") {
-        write_json({ success: false, message: "Неизвестный набор готовых профилей" });
+        write_json({ success: false, message: "Неизвестная глубина подбора" });
         return 1;
     }
     if (fs.stat(ZAPRET_STRATEGY_WORKER) == null || fs.stat(ZAPRET_STRATEGY_CATALOG) == null) {
@@ -346,6 +372,10 @@ function zapret_strategy_start(provider, scan_level) {
         write_json({ success: false, message: "Не найден рабочий движок и локальные ресурсы " + provider });
         return 1;
     }
+    if (selection_mode == "auto" && !install.auto_ready) {
+        write_json({ success: false, message: "Для автоподбора не найден штатный " + (provider == "zapret2" ? "blockcheck2.sh" : "blockcheck.sh") });
+        return 1;
+    }
     let active = zapret_active_job();
     if (active != "") {
         write_json({ success: false, message: "Подбор уже выполняется", job_id: active });
@@ -358,14 +388,18 @@ function zapret_strategy_start(provider, scan_level) {
         return 1;
     }
 
-    let candidate_count = zapret_scan_count(scan_level, install.catalog_count);
+    let candidate_count = selection_mode == "auto"
+        ? zapret_auto_candidate_count(scan_level)
+        : zapret_scan_count(scan_level, install.catalog_count);
     let target_count = length(ZAPRET_STRATEGY_TARGETS);
     let job_id = sprintf("zapret-%d-%d", now_seconds(), int(now_ms() % 100000));
     let path = job_path(job_id);
     let pid_path = job_pid_path(job_id);
     let log_path = zapret_job_log_path(job_id);
     let done_path = zapret_job_done_path(job_id);
-    let timeout_seconds = scan_level == "quick" ? 600 : (scan_level == "standard" ? 1200 : 2400);
+    let timeout_seconds = selection_mode == "auto"
+        ? (scan_level == "quick" ? 900 : (scan_level == "standard" ? 1800 : 3600))
+        : (scan_level == "quick" ? 600 : (scan_level == "standard" ? 1200 : 2400));
     let state = {
         kind: "zapret_strategy",
         job_id,
@@ -374,6 +408,7 @@ function zapret_strategy_start(provider, scan_level) {
         started_at: now_seconds(),
         finished_at: 0,
         provider,
+        selection_mode,
         scan_level,
         install,
         restore_services: stopped.restore,
@@ -385,7 +420,9 @@ function zapret_strategy_start(provider, scan_level) {
             requests_total: (candidate_count + 1) * target_count,
             strategies_completed: 0, full: 0, partial: 0, failed: 0
         },
-        message: "Подготовка каталога готовых профилей"
+        message: selection_mode == "auto"
+            ? "Подготовка автоподбора TLS 1.3, TLS 1.2 и QUIC"
+            : "Подготовка каталога готовых профилей"
     };
     if (!write_state(path, state)) {
         zapret_restore_services(stopped.restore);
@@ -397,12 +434,13 @@ function zapret_strategy_start(provider, scan_level) {
         "sh", "-c", "pid_file=$1; shift; echo $$ > \"$pid_file\"; exec \"$@\"",
         "zapret-strategy-worker", pid_path,
         "sh", ZAPRET_STRATEGY_WORKER, path, log_path, done_path, provider,
-        scan_level, install.engine, install.root, ZAPRET_STRATEGY_CATALOG,
+        selection_mode, scan_level, install.engine, install.root, install.blockcheck,
+        ZAPRET_STRATEGY_CATALOG,
         zapret_strategy_targets_spec(), join(",", stopped.restore), as_string(timeout_seconds)
     ]);
     system("(" + launch + " >/dev/null 2>&1 &)");
     write_json({
-        success: true, job_id, provider, scan_level, progress: state.progress,
+        success: true, job_id, provider, selection_mode, scan_level, progress: state.progress,
         telemetry: state.telemetry, install, message: stopped.message
     });
     return 0;
@@ -454,6 +492,7 @@ function zapret_clean_strategy(value, provider) {
 function zapret_parse_log(path, provider) {
     let parsed = {
         provider,
+        selection_mode: "ready",
         candidate_total: 0,
         target_total: length(ZAPRET_STRATEGY_TARGETS),
         progress_done: 0,
@@ -470,6 +509,14 @@ function zapret_parse_log(path, provider) {
         failed: 0,
         current_strategy: null,
         current_endpoint: null,
+        scan: {
+            protocol: "", phase_index: 0, phase_total: 3,
+            elapsed: 0, timeout: 0, attempted: 0, found: 0, wanted: 0,
+            attempted_completed: 0, found_completed: 0,
+            attempted_total: 0, found_total: 0,
+            last: "", timed_out: false, direct: false, finished: false, domains: ""
+        },
+        discovery: { tls13: 0, tls12: 0, common: 0, quic: 0 },
         error: ""
     };
 
@@ -479,12 +526,17 @@ function zapret_parse_log(path, provider) {
         let fields = split(line, "\t");
         if (length(fields) < 2 || fields[0] != "FKPSC") continue;
         let type = as_string(fields[1]);
-        if (type == "meta" && length(fields) >= 8) {
+        if (type == "mode" && length(fields) >= 3) {
+            parsed.selection_mode = as_string(fields[2]) == "auto" ? "auto" : "ready";
+        }
+        else if (type == "meta" && length(fields) >= 8) {
             parsed.candidate_total = int(fields[3]);
             parsed.target_total = int(fields[4]);
             parsed.progress_total = int(fields[5]);
             parsed.engine = as_string(fields[6]);
             parsed.root = as_string(fields[7]);
+            if (length(fields) >= 9)
+                parsed.selection_mode = as_string(fields[8]) == "auto" ? "auto" : "ready";
         }
         else if (type == "phase" && length(fields) >= 4) {
             parsed.phase = as_string(fields[2]);
@@ -492,6 +544,57 @@ function zapret_parse_log(path, provider) {
         }
         else if (type == "resolve" && length(fields) >= 7) {
             if (fields[6] == "ok") parsed.dns_ready++;
+        }
+        else if (type == "scan_start" && length(fields) >= 8) {
+            parsed.scan.protocol = as_string(fields[2]);
+            parsed.scan.phase_index = int(fields[3]);
+            parsed.scan.phase_total = int(fields[4]);
+            parsed.scan.timeout = int(fields[5]);
+            parsed.scan.wanted = int(fields[6]);
+            parsed.scan.domains = as_string(fields[7]);
+            parsed.scan.elapsed = 0;
+            parsed.scan.attempted = 0;
+            parsed.scan.found = 0;
+            parsed.scan.last = "";
+            parsed.scan.timed_out = false;
+            parsed.scan.direct = false;
+            parsed.scan.finished = false;
+            parsed.scan.attempted_total = parsed.scan.attempted_completed;
+            parsed.scan.found_total = parsed.scan.found_completed;
+        }
+        else if (type == "scan_tick" && length(fields) >= 11) {
+            parsed.scan.protocol = as_string(fields[2]);
+            parsed.scan.phase_index = int(fields[3]);
+            parsed.scan.phase_total = int(fields[4]);
+            parsed.scan.elapsed = int(fields[5]);
+            parsed.scan.timeout = int(fields[6]);
+            parsed.scan.attempted = int(fields[7]);
+            parsed.scan.found = int(fields[8]);
+            parsed.scan.wanted = int(fields[9]);
+            parsed.scan.last = as_string(fields[10]);
+            parsed.scan.attempted_total = parsed.scan.attempted_completed + parsed.scan.attempted;
+            parsed.scan.found_total = parsed.scan.found_completed + parsed.scan.found;
+        }
+        else if (type == "scan_done" && length(fields) >= 10) {
+            parsed.scan.protocol = as_string(fields[2]);
+            parsed.scan.phase_index = int(fields[3]);
+            parsed.scan.phase_total = int(fields[4]);
+            parsed.scan.elapsed = int(fields[5]);
+            parsed.scan.attempted = int(fields[6]);
+            parsed.scan.found = int(fields[7]);
+            parsed.scan.timed_out = int(fields[8]) == 1;
+            parsed.scan.direct = int(fields[9]) == 1;
+            parsed.scan.finished = true;
+            parsed.scan.attempted_completed += parsed.scan.attempted;
+            parsed.scan.found_completed += parsed.scan.found;
+            parsed.scan.attempted_total = parsed.scan.attempted_completed;
+            parsed.scan.found_total = parsed.scan.found_completed;
+        }
+        else if (type == "discovery_summary" && length(fields) >= 6) {
+            parsed.discovery.tls13 = int(fields[2]);
+            parsed.discovery.tls12 = int(fields[3]);
+            parsed.discovery.common = int(fields[4]);
+            parsed.discovery.quic = int(fields[5]);
         }
         else if (type == "strategy_start" && length(fields) >= 9) {
             let id = as_string(fields[4]);
@@ -507,6 +610,8 @@ function zapret_parse_log(path, provider) {
                 score: 0,
                 total: parsed.target_total,
                 complete: false,
+                voice_profile_ready: false,
+                voice_profile_reason: "",
                 engine_error: ""
             };
             parsed.candidates[id] = candidate;
@@ -538,6 +643,13 @@ function zapret_parse_log(path, provider) {
                 if (ok) candidate.hits[target_id] = true;
             }
         }
+        else if (type == "voice_profile" && length(fields) >= 6) {
+            let candidate = parsed.candidates[as_string(fields[3])];
+            if (candidate != null) {
+                candidate.voice_profile_ready = int(fields[4]) == 1;
+                candidate.voice_profile_reason = as_string(fields[5]);
+            }
+        }
         else if (type == "engine_error" && length(fields) >= 5) {
             let candidate = parsed.candidates[as_string(fields[3])];
             if (candidate != null) candidate.engine_error = as_string(fields[4]);
@@ -565,7 +677,7 @@ function zapret_service_metrics(hits) {
     let result = [];
     for (let service in [
         { id: "youtube", title: "YouTube" },
-        { id: "discord", title: "Discord" },
+        { id: "discord", title: "Discord HTTPS" },
         { id: "telegram", title: "Telegram" }
     ]) {
         let ok = 0;
@@ -622,6 +734,8 @@ function zapret_results(parsed, provider) {
             complete: score == length(ZAPRET_STRATEGY_TARGETS),
             services: zapret_service_metrics(candidate.hits),
             quic_included: candidate.quic_included,
+            voice_profile_ready: candidate.voice_profile_ready,
+            voice_profile_reason: candidate.voice_profile_reason,
             forkop_strategy: strategy,
             raw_strategy: zapret_raw_format(provider, strategy)
         };
@@ -652,11 +766,52 @@ function zapret_strategy_status(job_id) {
         return 1;
     }
     let parsed = zapret_parse_log(zapret_job_log_path(job_id), as_string(state.provider));
+    if (as_string(state.selection_mode) == "auto")
+        parsed.selection_mode = "auto";
     let done = trim(as_string(fs.readfile(zapret_job_done_path(job_id))));
     let fallback_total = int(object_or_empty(state.progress).total);
     let total = parsed.progress_total > 0 ? parsed.progress_total : fallback_total;
-    state.progress = { done: parsed.progress_done, total };
+    let scan_percent = parsed.scan.timeout > 0
+        ? int(parsed.scan.elapsed * 100 / parsed.scan.timeout) : 0;
+    if (parsed.scan.finished) scan_percent = 100;
+    else if (scan_percent > 99) scan_percent = 99;
+    if (scan_percent < 0) scan_percent = 0;
+    let scan_progress = parsed.scan.phase_index > 0
+        ? (parsed.scan.phase_index - 1) * 100 + scan_percent : 0;
+    if (parsed.selection_mode == "auto") {
+        let baseline_done = parsed.progress_done > parsed.target_total
+            ? parsed.target_total : parsed.progress_done;
+        let scan_total = parsed.scan.phase_total * 100;
+        if (parsed.phase == "scan")
+            state.progress = {
+                done: 100 + int(scan_progress * 400 / (scan_total > 0 ? scan_total : 300)),
+                total: 1000,
+                stage: "scan"
+            };
+        else if (parsed.phase == "compose")
+            state.progress = { done: 500, total: 1000, stage: "compose" };
+        else if (parsed.phase == "strategy" || parsed.phase == "complete") {
+            let candidate_done = parsed.progress_done - parsed.target_total;
+            if (candidate_done < 0) candidate_done = 0;
+            let candidate_total = total - parsed.target_total;
+            let validation_done = candidate_total > 0
+                ? int(candidate_done * 500 / candidate_total)
+                : (parsed.phase == "complete" ? 500 : 0);
+            if (validation_done > 500) validation_done = 500;
+            state.progress = { done: 500 + validation_done, total: 1000, stage: "validate" };
+        }
+        else
+            state.progress = {
+                done: parsed.target_total > 0 ? int(baseline_done * 100 / parsed.target_total) : 0,
+                total: 1000,
+                stage: "prepare"
+            };
+    }
+    else
+        state.progress = { done: parsed.progress_done, total, stage: "validate" };
+    state.selection_mode = parsed.selection_mode;
     state.telemetry = {
+        selection_mode: parsed.selection_mode,
         phase: parsed.phase,
         phase_message: parsed.phase_message,
         elapsed: (state.finished_at > 0 ? int(state.finished_at) : now_seconds()) - int(state.started_at),
@@ -677,7 +832,27 @@ function zapret_strategy_status(job_id) {
         partial: parsed.partial,
         failed: parsed.failed,
         dns_ready: parsed.dns_ready,
-        target_total: parsed.target_total
+        target_total: parsed.target_total,
+        progress_stage: as_string(state.progress.stage),
+        scan_protocol: parsed.scan.protocol,
+        scan_phase_index: parsed.scan.phase_index,
+        scan_phase_total: parsed.scan.phase_total,
+        scan_elapsed: parsed.scan.elapsed,
+        scan_timeout: parsed.scan.timeout,
+        scan_attempted: parsed.scan.attempted,
+        scan_found: parsed.scan.found,
+        scan_attempted_total: parsed.scan.attempted_total,
+        scan_found_total: parsed.scan.found_total,
+        scan_wanted: parsed.scan.wanted,
+        scan_last: parsed.scan.last,
+        scan_timed_out: parsed.scan.timed_out,
+        scan_direct: parsed.scan.direct,
+        scan_finished: parsed.scan.finished,
+        scan_domains: parsed.scan.domains,
+        discovered_tls13: parsed.discovery.tls13,
+        discovered_tls12: parsed.discovery.tls12,
+        discovered_common: parsed.discovery.common,
+        discovered_quic: parsed.discovery.quic
     };
 
     if (done != "" && state.running === true) {
@@ -690,8 +865,10 @@ function zapret_strategy_status(job_id) {
         state.telemetry.elapsed = state.finished_at - int(state.started_at);
         state.services_restored = length(parts) < 3 || int(parts[2]) == 0;
         state.message = state.cancelled ? "Проверка остановлена" :
-            (state.timed_out ? "Проверка завершена по таймауту; показаны готовые результаты" :
-                (state.success ? "Проверка готовых профилей завершена" :
+            (state.timed_out ? "Проверка завершена по таймауту; показаны успевшие сформироваться результаты" :
+                (state.success ? (parsed.selection_mode == "auto"
+                    ? "Автоподбор и проверка составных стратегий завершены"
+                    : "Проверка готовых профилей завершена") :
                     (parsed.error != "" ? "Ошибка: " + parsed.error : "Worker проверки завершился с ошибкой")));
         if (!state.services_restored)
             state.message += "; не все ранее активные сервисы удалось восстановить";

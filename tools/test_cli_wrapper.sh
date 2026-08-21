@@ -83,9 +83,10 @@ VPN_CONFIG='[Interface] PrivateKey = test [Peer] PublicKey = test'
 [ "$(run_wrapper vpn-packages | tail -n 1)" = "vpn-packages" ]
 [ "$(run_wrapper vpn-interfaces | tail -n 1)" = "vpn-interfaces" ]
 [ "$(run_wrapper zapret-capabilities | tail -n 1)" = "zapret-capabilities" ]
-ZAPRET_START_OUTPUT="$(run_wrapper zapret-start zapret2 force)"
-[ "$(printf '%s\n' "$ZAPRET_START_OUTPUT" | tail -n 3 | head -n 1)" = "zapret-start" ]
-[ "$(printf '%s\n' "$ZAPRET_START_OUTPUT" | tail -n 2 | head -n 1)" = "zapret2" ]
+ZAPRET_START_OUTPUT="$(run_wrapper zapret-start zapret2 ready force)"
+[ "$(printf '%s\n' "$ZAPRET_START_OUTPUT" | tail -n 4 | head -n 1)" = "zapret-start" ]
+[ "$(printf '%s\n' "$ZAPRET_START_OUTPUT" | tail -n 3 | head -n 1)" = "zapret2" ]
+[ "$(printf '%s\n' "$ZAPRET_START_OUTPUT" | tail -n 2 | head -n 1)" = "ready" ]
 [ "$(printf '%s\n' "$ZAPRET_START_OUTPUT" | tail -n 1)" = "force" ]
 ZAPRET_STATUS_OUTPUT="$(run_wrapper zapret-status zapret-123)"
 [ "$(printf '%s\n' "$ZAPRET_STATUS_OUTPUT" | tail -n 2 | head -n 1)" = "zapret-status" ]

@@ -33,7 +33,7 @@ else if (mode == "zapret-capabilities") {
     exit(0);
 }
 else if (mode == "zapret-start")
-    exit(zapret_strategy_start(ARGV[1], ARGV[2]));
+    exit(zapret_strategy_start(ARGV[1], ARGV[2], ARGV[3]));
 else if (mode == "zapret-status")
     exit(zapret_strategy_status(ARGV[1]));
 else if (mode == "zapret-cancel")
