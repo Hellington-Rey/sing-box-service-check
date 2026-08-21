@@ -26,6 +26,7 @@ RESTORE_SERVICES="${12:-}"
 MAX_SECONDS="${13:-1800}"
 ENGINE_START_DELAY="${FORKOP_SC_ENGINE_START_DELAY:-1}"
 SCAN_POLL_SECONDS="${FORKOP_SC_SCAN_POLL_SECONDS:-2}"
+FINALIZER="${FORKOP_SC_FINALIZER:-/usr/bin/sing-box-service-check}"
 
 ENGINE_PID=""
 BLOCKCHECK_PID=""
@@ -36,6 +37,7 @@ TIMED_OUT=0
 RC=1
 RESTORE_FAILED=0
 NFT_READY=0
+VOICE_REQUIRED=0
 NFT_TABLE="fkpsc_zapret_$$"
 QNUM=$((300 + ($$ % 300)))
 MARK="0x40000000"
@@ -127,6 +129,11 @@ finish() {
         printf 'timeout\t124\t%s\n' "$RESTORE_FAILED" > "$DONE_PATH"
     else
         printf 'complete\t%s\t%s\n' "$RC" "$RESTORE_FAILED" > "$DONE_PATH"
+    fi
+    if [ "$CANCELLED" -ne 1 ] && [ -x "$FINALIZER" ]; then
+        job_file="${STATE_PATH##*/}"
+        job_id="${job_file%.json}"
+        "$FINALIZER" zapret-status "$job_id" >/dev/null 2>&1 || true
     fi
 }
 
@@ -228,6 +235,10 @@ voice_profile() {
 
 ensure_voice_profile() {
     strategy="$1"
+    if [ "$VOICE_REQUIRED" -ne 1 ]; then
+        printf '%s\n' "$strategy"
+        return 0
+    fi
     case "$strategy" in
         *discord_ip_discovery*|*--filter-l7=discord,stun*) printf '%s\n' "$strategy" ;;
         *) printf '%s %s\n' "$strategy" "$(voice_profile)" ;;
@@ -526,6 +537,10 @@ if [ "$target_total" -eq 0 ]; then
     RC=2
     exit "$RC"
 fi
+if awk -F '\t' '$2 == "discord" { found=1 } END { exit !found }' "$TMP_DIR/targets.tsv"; then
+    VOICE_REQUIRED=1
+fi
+emit "FKPSC\tvoice_required\t$VOICE_REQUIRED"
 
 emit "FKPSC\tphase\tresolve\tDNS: $target_total целей подготовлено"
 while IFS="$tab" read -r target_id service host ip; do
@@ -584,7 +599,11 @@ while IFS="$tab" read -r candidate_id title source quic strategy; do
     emit "FKPSC\tphase\tstrategy\t$phase_title"
     emit "FKPSC\tstrategy_start\t$candidate_index\t$candidate_total\t$candidate_id\t$title\t$source\t$quic\t$strategy"
     if start_engine "$strategy"; then
-        emit "FKPSC\tvoice_profile\t$candidate_index\t$candidate_id\t1\tengine_loaded"
+        if [ "$VOICE_REQUIRED" -eq 1 ]; then
+            emit "FKPSC\tvoice_profile\t$candidate_index\t$candidate_id\t1\tengine_loaded"
+        else
+            emit "FKPSC\tvoice_profile\t$candidate_index\t$candidate_id\t1\tnot_required"
+        fi
         command -v conntrack >/dev/null 2>&1 && conntrack -F >/dev/null 2>&1 || true
         run_endpoint_batch strategy "$candidate_index" "$candidate_id"
     else

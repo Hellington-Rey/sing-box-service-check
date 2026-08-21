@@ -34,12 +34,12 @@ def main():
     assert f'VERSION="{VERSION}"' in script
     assert f'VIEW_NAME="{LUCI_VIEW_NAME}"' in script
     assert "@@LUCI_VIEW_NAME@@" not in script
-    assert 'PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1123.js"' in script
-    assert 'OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1122.js"' in script
-    assert 'ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"' in script
-    assert 'HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"' in script
-    assert 'LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"' in script
-    assert 'OLDER_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1111.js"' in script
+    assert 'PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1124.js"' in script
+    assert 'OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1123.js"' in script
+    assert 'ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1122.js"' in script
+    assert 'HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"' in script
+    assert 'LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"' in script
+    assert 'OLDER_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"' in script
     assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
@@ -108,7 +108,7 @@ def main():
         "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
         "usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv",
     }
-    assert "www/luci-static/resources/view/forkop/servicecheck-v1123.js" not in names
+    assert "www/luci-static/resources/view/forkop/servicecheck-v1124.js" not in names
     assert menu["admin/services/forkop_servicecheck"]["action"]["path"] == f"forkop/{LUCI_VIEW_NAME[:-3]}"
     assert_shell("installer CLI", cli_raw)
     assert_shell("installer xHTTP fix", xhttp_fix)
@@ -140,7 +140,7 @@ def main():
         )
         assert recovery_tar.getmember(recovery_worker_name).mode == 0o755
         assert recovery_tar.extractfile(recovery_worker_name).read() == zapret_worker
-        assert not any(name.endswith("/servicecheck-v1123.js") for name in recovery_names)
+        assert not any(name.endswith("/servicecheck-v1124.js") for name in recovery_names)
         assert not any(name.startswith("/") or "../" in name for name in recovery_names)
     assert payload_modes["usr/lib/forkop-servicecheck/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
@@ -302,12 +302,18 @@ def main():
     assert '"Проверить туннель вручную"' in view
     assert 'else if (mode == "vpn-check")' in engine
     assert 'else if (mode == "vpn-interfaces")' in engine
-    assert 'function zapret_strategy_start(provider, selection_mode, scan_level)' in engine
-    assert 'function zapret_parse_log(path, provider)' in engine
+    assert 'function zapret_strategy_start(provider, selection_mode, scan_level, selected_payload)' in engine
+    assert 'function zapret_parse_log(path, provider, targets)' in engine
     assert 'function zapret_find_install(provider)' in engine
     assert 'else if (mode == "zapret-start")' in engine
+    assert 'else if (mode == "zapret-settings")' in engine
+    assert 'else if (mode == "zapret-services-save")' in engine
+    assert 'else if (mode == "zapret-results-clear")' in engine
     assert 'zapret-start TYPE MODE LEVEL' in cli
-    assert 'callBin(["zapret-start", provider, mode, depth])' in view
+    assert 'callBin(["zapret-start", provider, mode, depth, JSON.stringify(selectedIds)])' in view
+    assert 'callBin(["zapret-settings"])' in view
+    assert 'callBin(["zapret-services-save", JSON.stringify(payload)])' in view
+    assert 'callBin(["zapret-results-clear", record.provider' in view
     assert 'result.success !== true || !result.job_id' in view
     assert 'callBin(["zapret-status", jobId])' in view
     assert 'callBin(["zapret-cancel", jobId])' in view
@@ -315,6 +321,9 @@ def main():
     assert '"Под формат Forkop"' in view
     assert '"Автоподбор"' in view
     assert '"Готовые профили"' in view
+    assert '"Какие сервисы проверяем"' in view
+    assert '"Свои сервисы и домены"' in view
+    assert '"Сохранённый результат"' in view
     assert '"Discord Voice — профиль загружен"' in view
     assert '"Проверено всего"' in view
     assert '"HTTPS-проверки"' in view
@@ -330,11 +339,11 @@ def main():
         assert f"Version: {VERSION}-r1" in control
         assert "для Tachyon, Forkop и оригинального Podkop" in control
         assert "оригинального Podkop" in control
-        assert "rm -f /www/luci-static/resources/view/forkop/servicecheck-v1123.js" in postinst
+        assert "rm -f /www/luci-static/resources/view/forkop/servicecheck-v1124.js" in postinst
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
         data_names = set(data_tar.getnames())
         assert f"./{LUCI_VIEW_PATH}" in data_names
-        assert "./www/luci-static/resources/view/forkop/servicecheck-v1123.js" not in data_names
+        assert "./www/luci-static/resources/view/forkop/servicecheck-v1124.js" not in data_names
         assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
         assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
         assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())

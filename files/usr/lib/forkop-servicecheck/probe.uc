@@ -36,6 +36,8 @@ const ZAPRET_STRATEGY_WORKER = LIB_DIR + "/zapret_strategy_worker.sh";
 const ZAPRET_STRATEGY_CATALOG = LIB_DIR + "/zapret_strategy_catalog.tsv";
 const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
 const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
+const ZAPRET_SERVICES_FILE = CONFIG_DIR + "/zapret_services.json";
+const ZAPRET_RESULTS_FILE = CONFIG_DIR + "/zapret_strategy_results.json";
 const REPAIR_SCRIPT = LIB_DIR + "/repair.sh";
 const RECOVERY_ARCHIVE = "/usr/share/forkop-servicecheck/recovery.tar.gz";
 const RECOVERY_CHECKSUM = "/usr/share/forkop-servicecheck/recovery.sha256";
@@ -2861,7 +2863,7 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1124.js" ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1125.js" ],
         [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
         [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
     ];
@@ -3345,6 +3347,291 @@ function zapret_existing_executable_path(candidates) {
     return "";
 }
 
+function zapret_write_config(path, value) {
+    if (!run_quiet([ "mkdir", "-p", CONFIG_DIR ]))
+        return false;
+    let serialized = sprintf("%J", value) + "\n";
+    if (as_string(fs.readfile(path)) == serialized)
+        return true;
+    let temporary = as_string(path) + ".tmp";
+    if (fs.writefile(temporary, serialized) == null ||
+        !run_quiet([ "chmod", "0644", temporary ]) ||
+        !run_quiet([ "mv", "-f", temporary, as_string(path) ])) {
+        fs.unlink(temporary);
+        return false;
+    }
+    return true;
+}
+
+function zapret_builtin_services() {
+    let result = [];
+    for (let definition in [
+        { id: "youtube", title: "YouTube" },
+        { id: "discord", title: "Discord" },
+        { id: "telegram", title: "Telegram" }
+    ]) {
+        let targets = [];
+        for (let target in ZAPRET_STRATEGY_TARGETS) {
+            if (as_string(target.service) != definition.id) continue;
+            push(targets, {
+                id: as_string(target.id), service: definition.id,
+                title: as_string(target.title), host: as_string(target.host)
+            });
+        }
+        push(result, {
+            id: definition.id, title: definition.title,
+            builtin: true, targets
+        });
+    }
+    return result;
+}
+
+function zapret_normalize_custom_services(items) {
+    items = array_or_empty(items);
+    if (length(items) > 9)
+        return { error: "Можно добавить не более 9 пользовательских сервисов", services: [] };
+
+    let services = [];
+    let seen_ids = { youtube: true, discord: true, telegram: true };
+    let seen_titles = { youtube: true, discord: true, telegram: true };
+    let seen_hosts = {};
+    for (let target in ZAPRET_STRATEGY_TARGETS)
+        seen_hosts[lc(as_string(target.host))] = true;
+
+    let generated = 1;
+    for (let raw in items) {
+        raw = object_or_empty(raw);
+        let id = lc(trim(as_string(raw.id)));
+        if (match(id, /^custom_[a-z0-9][a-z0-9_-]{0,31}$/) == null) {
+            id = "custom_" + as_string(generated++);
+            while (seen_ids[id]) id = "custom_" + as_string(generated++);
+        }
+        else if (seen_ids[id])
+            return { error: "Идентификатор пользовательского сервиса повторяется: " + id, services: [] };
+        let title = trim(as_string(raw.title));
+        if (title == "" || length(title) > 64 || match(title, /[\t\r\n]/) != null)
+            return { error: "Название пользовательского сервиса должно содержать от 1 до 64 символов", services: [] };
+        let title_key = lc(title);
+        if (seen_titles[title_key])
+            return { error: "Название сервиса повторяется: " + title, services: [] };
+
+        let hosts = type(raw.hosts) == "array" ? raw.hosts : [];
+        if (length(hosts) == 0 && type(raw.targets) == "array") {
+            for (let target in raw.targets)
+                push(hosts, as_string(object_or_empty(target).host));
+        }
+        if (length(hosts) == 0 || length(hosts) > 8)
+            return { error: "У сервиса «" + title + "» должно быть от 1 до 8 доменов", services: [] };
+
+        let targets = [];
+        let local_hosts = {};
+        for (let host in hosts) {
+            host = lc(trim(as_string(host)));
+            host = replace(host, /\.$/, "");
+            if (!valid_domain(host))
+                return { error: "Некорректный домен пользовательского сервиса: " + host, services: [] };
+            if (local_hosts[host] || seen_hosts[host])
+                return { error: "Домен уже используется в другом сервисе: " + host, services: [] };
+            local_hosts[host] = true;
+            seen_hosts[host] = true;
+            push(targets, {
+                id: id + "_" + as_string(length(targets) + 1),
+                service: id, title: title + " · " + host, host
+            });
+        }
+
+        seen_ids[id] = true;
+        seen_titles[title_key] = true;
+        push(services, { id, title, builtin: false, targets });
+    }
+    return { error: "", services };
+}
+
+function zapret_service_settings() {
+    let stored = object_or_empty(read_json_file(ZAPRET_SERVICES_FILE));
+    let normalized = zapret_normalize_custom_services(stored.services);
+    let custom = normalized.error == "" ? normalized.services : [];
+    let services = zapret_builtin_services();
+    for (let service in custom) push(services, service);
+
+    let known = {};
+    for (let service in services) known[as_string(service.id)] = true;
+    let selected = [];
+    if (type(stored.selected) == "array") {
+        for (let id in stored.selected) {
+            id = as_string(id);
+            if (known[id] && index(selected, id) < 0) push(selected, id);
+        }
+    }
+    else {
+        for (let service in services)
+            if (service.builtin) push(selected, as_string(service.id));
+    }
+    return { version: 1, services, custom_services: custom, selected, error: normalized.error };
+}
+
+function zapret_save_service_settings(custom_services, selected) {
+    let normalized = zapret_normalize_custom_services(custom_services);
+    if (normalized.error != "") return normalized;
+    let all = zapret_builtin_services();
+    for (let service in normalized.services) push(all, service);
+    let known = {};
+    for (let service in all) known[as_string(service.id)] = true;
+    let clean_selected = [];
+    for (let id in array_or_empty(selected)) {
+        id = as_string(id);
+        if (known[id] && index(clean_selected, id) < 0) push(clean_selected, id);
+    }
+    let stored_services = [];
+    for (let service in normalized.services) {
+        let hosts = [];
+        for (let target in array_or_empty(service.targets)) push(hosts, as_string(target.host));
+        push(stored_services, { id: service.id, title: service.title, hosts });
+    }
+    let value = { version: 1, selected: clean_selected, services: stored_services };
+    if (!zapret_write_config(ZAPRET_SERVICES_FILE, value))
+        return { error: "Не удалось сохранить список сервисов", services: [] };
+    return { error: "", services: all, custom_services: normalized.services, selected: clean_selected };
+}
+
+function zapret_selected_targets(payload) {
+    let settings = zapret_service_settings();
+    if (settings.error != "")
+        return { error: settings.error, ids: [], services: [], targets: [] };
+    let requested = as_string(payload) == "" ? settings.selected : parse_json(payload);
+    if (type(requested) != "array")
+        return { error: "Выбор сервисов имеет неверный формат", ids: [], services: [], targets: [] };
+    let by_id = {};
+    for (let service in settings.services) by_id[as_string(service.id)] = service;
+    let ids = [];
+    let services = [];
+    let targets = [];
+    for (let id in requested) {
+        id = as_string(id);
+        if (by_id[id] == null)
+            return { error: "Неизвестный сервис: " + id, ids: [], services: [], targets: [] };
+        if (index(ids, id) >= 0) continue;
+        push(ids, id);
+        push(services, by_id[id]);
+        for (let target in array_or_empty(by_id[id].targets)) push(targets, target);
+    }
+    if (length(ids) == 0)
+        return { error: "Выберите хотя бы один сервис для проверки", ids: [], services: [], targets: [] };
+    if (length(targets) > 48)
+        return { error: "Выбрано слишком много доменов; допускается не более 48", ids: [], services: [], targets: [] };
+    return { error: "", ids, services, targets, custom_services: settings.custom_services };
+}
+
+function zapret_result_key(provider, selection_mode) {
+    provider = as_string(provider) == "zapret2" ? "zapret2" : "zapret";
+    selection_mode = as_string(selection_mode) == "auto" ? "auto" : "ready";
+    return provider + "_" + selection_mode;
+}
+
+function zapret_saved_result_records() {
+    let stored = object_or_empty(read_json_file(ZAPRET_RESULTS_FILE));
+    let records = object_or_empty(stored.records);
+    let result = {};
+    for (let key in [ "zapret_auto", "zapret_ready", "zapret2_auto", "zapret2_ready" ]) {
+        let record = object_or_empty(records[key]);
+        if (as_string(record.provider) == "" || type(record.results) != "array") continue;
+        result[key] = record;
+    }
+    return result;
+}
+
+function zapret_save_result(state) {
+    state = object_or_empty(state);
+    let provider = as_string(state.provider) == "zapret2" ? "zapret2" : "zapret";
+    let selection_mode = as_string(state.selection_mode) == "auto" ? "auto" : "ready";
+    let records = zapret_saved_result_records();
+    let key = zapret_result_key(provider, selection_mode);
+    records[key] = {
+        saved: true,
+        saved_at: int(state.finished_at || now_seconds()),
+        running: false,
+        success: state.success === true,
+        timed_out: state.timed_out === true,
+        cancelled: false,
+        services_restored: state.services_restored !== false,
+        provider,
+        selection_mode,
+        scan_level: as_string(state.scan_level),
+        selected_services: array_or_empty(state.selected_services),
+        services: array_or_empty(state.services),
+        targets: array_or_empty(state.targets),
+        progress: object_or_empty(state.progress),
+        telemetry: object_or_empty(state.telemetry),
+        message: as_string(state.message),
+        results: array_or_empty(state.results),
+        failed_strategies: array_or_empty(state.failed_strategies),
+        failed_total: int(state.failed_total || 0),
+        direct: object_or_empty(state.direct)
+    };
+    return zapret_write_config(ZAPRET_RESULTS_FILE, { version: 1, records });
+}
+
+function zapret_settings_payload() {
+    let settings = zapret_service_settings();
+    return {
+        success: settings.error == "",
+        message: settings.error,
+        services: settings.services,
+        custom_services: settings.custom_services,
+        selected: settings.selected,
+        saved_results: zapret_saved_result_records()
+    };
+}
+
+function zapret_settings_get() {
+    let payload = zapret_settings_payload();
+    write_json(payload);
+    return payload.success ? 0 : 1;
+}
+
+function zapret_services_save(payload) {
+    payload = as_string(payload);
+    if (length(payload) == 0 || length(payload) > 32768) {
+        write_json({ success: false, message: "Размер списка сервисов должен быть от 1 байта до 32 КиБ" });
+        return 1;
+    }
+    let config = parse_json(payload);
+    if (type(config) != "object") {
+        write_json({ success: false, message: "Список сервисов имеет неверный формат" });
+        return 1;
+    }
+    let saved = zapret_save_service_settings(config.services, config.selected);
+    if (saved.error != "") {
+        write_json({ success: false, message: saved.error });
+        return 1;
+    }
+    let result = zapret_settings_payload();
+    result.message = "Список сервисов сохранён";
+    write_json(result);
+    return 0;
+}
+
+function zapret_results_clear(provider, selection_mode) {
+    provider = lc(trim(as_string(provider)));
+    selection_mode = lc(trim(as_string(selection_mode)));
+    if ((provider != "zapret" && provider != "zapret2") ||
+        (selection_mode != "auto" && selection_mode != "ready")) {
+        write_json({ success: false, message: "Укажите корректные движок и режим сохранённого результата" });
+        return 1;
+    }
+    let key = zapret_result_key(provider, selection_mode);
+    let previous = zapret_saved_result_records();
+    let records = {};
+    for (let existing in keys(previous))
+        if (existing != key) records[existing] = previous[existing];
+    if (!zapret_write_config(ZAPRET_RESULTS_FILE, { version: 1, records })) {
+        write_json({ success: false, message: "Не удалось удалить сохранённый результат" });
+        return 1;
+    }
+    write_json({ success: true, saved_results: records, message: "Сохранённый результат удалён" });
+    return 0;
+}
+
 function zapret_root_from_path(path, provider) {
     path = trim(as_string(path));
     if (path == "") return "";
@@ -3501,9 +3788,9 @@ function zapret_job_done_path(job_id) {
     return job_id_valid(job_id) ? STATE_DIR + "/" + as_string(job_id) + ".zapret.done" : "";
 }
 
-function zapret_strategy_targets_spec() {
+function zapret_strategy_targets_spec(targets) {
     let result = [];
-    for (let target in ZAPRET_STRATEGY_TARGETS)
+    for (let target in array_or_empty(targets))
         push(result, as_string(target.id) + "," + as_string(target.service) + "," + as_string(target.host));
     return join(";", result);
 }
@@ -3588,7 +3875,7 @@ function zapret_auto_candidate_count(level) {
     return level == "quick" ? 3 : (level == "standard" ? 6 : 10);
 }
 
-function zapret_strategy_start(provider, selection_mode, scan_level) {
+function zapret_strategy_start(provider, selection_mode, scan_level, selected_payload) {
     ensure_state_dir();
     cleanup_jobs();
     provider = lc(trim(as_string(provider)));
@@ -3610,6 +3897,11 @@ function zapret_strategy_start(provider, selection_mode, scan_level) {
     }
     if (scan_level != "quick" && scan_level != "standard" && scan_level != "force") {
         write_json({ success: false, message: "Неизвестная глубина подбора" });
+        return 1;
+    }
+    let selected = zapret_selected_targets(selected_payload);
+    if (selected.error != "") {
+        write_json({ success: false, message: selected.error });
         return 1;
     }
     if (fs.stat(ZAPRET_STRATEGY_WORKER) == null || fs.stat(ZAPRET_STRATEGY_CATALOG) == null) {
@@ -3636,6 +3928,12 @@ function zapret_strategy_start(provider, selection_mode, scan_level) {
         return 1;
     }
 
+    let saved_selection = zapret_save_service_settings(selected.custom_services, selected.ids);
+    if (saved_selection.error != "") {
+        write_json({ success: false, message: saved_selection.error });
+        return 1;
+    }
+
     let stopped = zapret_stop_for_test();
     if (!stopped.success) {
         write_json(stopped);
@@ -3645,7 +3943,7 @@ function zapret_strategy_start(provider, selection_mode, scan_level) {
     let candidate_count = selection_mode == "auto"
         ? zapret_auto_candidate_count(scan_level)
         : zapret_scan_count(scan_level, install.catalog_count);
-    let target_count = length(ZAPRET_STRATEGY_TARGETS);
+    let target_count = length(selected.targets);
     let job_id = sprintf("zapret-%d-%d", now_seconds(), int(now_ms() % 100000));
     let path = job_path(job_id);
     let pid_path = job_pid_path(job_id);
@@ -3664,6 +3962,10 @@ function zapret_strategy_start(provider, selection_mode, scan_level) {
         provider,
         selection_mode,
         scan_level,
+        selected_services: selected.ids,
+        services: selected.services,
+        targets: selected.targets,
+        voice_required: index(selected.ids, "discord") >= 0,
         install,
         restore_services: stopped.restore,
         services_restored: false,
@@ -3690,19 +3992,22 @@ function zapret_strategy_start(provider, selection_mode, scan_level) {
         "sh", ZAPRET_STRATEGY_WORKER, path, log_path, done_path, provider,
         selection_mode, scan_level, install.engine, install.root, install.blockcheck,
         ZAPRET_STRATEGY_CATALOG,
-        zapret_strategy_targets_spec(), join(",", stopped.restore), as_string(timeout_seconds)
+        zapret_strategy_targets_spec(selected.targets), join(",", stopped.restore), as_string(timeout_seconds)
     ]);
     system("(" + launch + " >/dev/null 2>&1 &)");
     write_json({
-        success: true, job_id, provider, selection_mode, scan_level, progress: state.progress,
+        success: true, job_id, provider, selection_mode, scan_level,
+        selected_services: selected.ids, services: selected.services,
+        progress: state.progress,
         telemetry: state.telemetry, install, message: stopped.message
     });
     return 0;
 }
 
-function zapret_target_for_id(id) {
+function zapret_target_for_id(id, targets) {
     id = as_string(id);
-    for (let target in ZAPRET_STRATEGY_TARGETS)
+    targets = length(array_or_empty(targets)) > 0 ? targets : ZAPRET_STRATEGY_TARGETS;
+    for (let target in targets)
         if (as_string(target.id) == id)
             return target;
     return null;
@@ -3743,12 +4048,14 @@ function zapret_clean_strategy(value, provider) {
     return join(" ", result);
 }
 
-function zapret_parse_log(path, provider) {
+function zapret_parse_log(path, provider, targets) {
+    targets = length(array_or_empty(targets)) > 0 ? targets : ZAPRET_STRATEGY_TARGETS;
     let parsed = {
         provider,
         selection_mode: "ready",
         candidate_total: 0,
-        target_total: length(ZAPRET_STRATEGY_TARGETS),
+        target_total: length(targets),
+        voice_required: false,
         progress_done: 0,
         progress_total: 0,
         phase: "prepare",
@@ -3879,7 +4186,7 @@ function zapret_parse_log(path, provider) {
             let candidate_id = as_string(fields[4]);
             let target_id = as_string(fields[5]);
             let ok = int(fields[7]) == 1;
-            let target = zapret_target_for_id(target_id);
+            let target = zapret_target_for_id(target_id, targets);
             parsed.current_endpoint = {
                 id: target_id,
                 title: target == null ? target_id : as_string(target.title),
@@ -3896,6 +4203,9 @@ function zapret_parse_log(path, provider) {
                 candidate.attempts++;
                 if (ok) candidate.hits[target_id] = true;
             }
+        }
+        else if (type == "voice_required" && length(fields) >= 3) {
+            parsed.voice_required = int(fields[2]) == 1;
         }
         else if (type == "voice_profile" && length(fields) >= 6) {
             let candidate = parsed.candidates[as_string(fields[3])];
@@ -3927,21 +4237,22 @@ function zapret_parse_log(path, provider) {
     return parsed;
 }
 
-function zapret_service_metrics(hits) {
+function zapret_service_metrics(hits, services) {
     let result = [];
-    for (let service in [
-        { id: "youtube", title: "YouTube" },
-        { id: "discord", title: "Discord HTTPS" },
-        { id: "telegram", title: "Telegram" }
-    ]) {
+    for (let service in array_or_empty(services)) {
+        let id = as_string(service.id);
         let ok = 0;
         let total = 0;
-        for (let target in ZAPRET_STRATEGY_TARGETS) {
-            if (target.service != service.id) continue;
+        for (let target in array_or_empty(service.targets)) {
             total++;
             if (hits[as_string(target.id)]) ok++;
         }
-        push(result, { id: service.id, title: service.title, ok, total });
+        push(result, {
+            id,
+            title: id == "discord" ? "Discord HTTPS" : as_string(service.title),
+            ok,
+            total
+        });
     }
     return result;
 }
@@ -3969,7 +4280,10 @@ function zapret_insert_ranked(items, item) {
     return result;
 }
 
-function zapret_results(parsed, provider) {
+function zapret_results(parsed, provider, targets, services) {
+    targets = length(array_or_empty(targets)) > 0 ? targets : ZAPRET_STRATEGY_TARGETS;
+    services = length(array_or_empty(services)) > 0 ? services : zapret_builtin_services();
+    let target_total = length(targets);
     let variants = [];
     let failed = [];
     for (let id in parsed.order) {
@@ -3983,11 +4297,12 @@ function zapret_results(parsed, provider) {
             source: candidate.source,
             provider,
             score,
-            total: length(ZAPRET_STRATEGY_TARGETS),
+            total: target_total,
             checked: candidate.attempts,
-            complete: score == length(ZAPRET_STRATEGY_TARGETS),
-            services: zapret_service_metrics(candidate.hits),
+            complete: score == target_total,
+            services: zapret_service_metrics(candidate.hits, services),
             quic_included: candidate.quic_included,
+            voice_required: parsed.voice_required,
             voice_profile_ready: candidate.voice_profile_ready,
             voice_profile_reason: candidate.voice_profile_reason,
             forkop_strategy: strategy,
@@ -4000,7 +4315,7 @@ function zapret_results(parsed, provider) {
                 title: candidate.title,
                 source: candidate.source,
                 checked: candidate.attempts,
-                total: length(ZAPRET_STRATEGY_TARGETS),
+                total: target_total,
                 strategy,
                 reason: candidate.engine_error
             });
@@ -4019,7 +4334,10 @@ function zapret_strategy_status(job_id) {
         write_json({ success: false, running: false, message: "Это не задание подбора Zapret" });
         return 1;
     }
-    let parsed = zapret_parse_log(zapret_job_log_path(job_id), as_string(state.provider));
+    let targets = length(array_or_empty(state.targets)) > 0 ? state.targets : ZAPRET_STRATEGY_TARGETS;
+    let services = length(array_or_empty(state.services)) > 0 ? state.services : zapret_builtin_services();
+    let parsed = zapret_parse_log(zapret_job_log_path(job_id), as_string(state.provider), targets);
+    if (state.voice_required === true) parsed.voice_required = true;
     if (as_string(state.selection_mode) == "auto")
         parsed.selection_mode = "auto";
     let done = trim(as_string(fs.readfile(zapret_job_done_path(job_id))));
@@ -4109,6 +4427,7 @@ function zapret_strategy_status(job_id) {
         discovered_quic: parsed.discovery.quic
     };
 
+    let just_finished = false;
     if (done != "" && state.running === true) {
         let parts = split(done, "\t");
         state.running = false;
@@ -4127,13 +4446,21 @@ function zapret_strategy_status(job_id) {
         if (!state.services_restored)
             state.message += "; не все ранее активные сервисы удалось восстановить";
         fs.unlink(job_pid_path(job_id));
-        write_state(path, state);
+        just_finished = true;
     }
-    let results = zapret_results(parsed, as_string(state.provider));
+    let results = zapret_results(parsed, as_string(state.provider), targets, services);
     state.results = results.variants;
     state.failed_strategies = results.failed;
     state.failed_total = results.failed_total;
     state.direct = results.direct;
+    if (just_finished) {
+        if (!state.cancelled) {
+            state.results_saved = zapret_save_result(state);
+            if (!state.results_saved)
+                state.message += "; не удалось сохранить результат в постоянном хранилище";
+        }
+        write_state(path, state);
+    }
     write_json(state);
     return 0;
 }
@@ -4181,8 +4508,9 @@ function zapret_strategy_cancel(job_id) {
 
 function zapret_parse_log_command(path, provider) {
     provider = as_string(provider) == "zapret2" ? "zapret2" : "zapret";
-    let parsed = zapret_parse_log(path, provider);
-    let results = zapret_results(parsed, provider);
+    let services = zapret_builtin_services();
+    let parsed = zapret_parse_log(path, provider, ZAPRET_STRATEGY_TARGETS);
+    let results = zapret_results(parsed, provider, ZAPRET_STRATEGY_TARGETS, services);
     write_json({ success: true, parsed, results });
     return 0;
 }
@@ -4220,8 +4548,14 @@ else if (mode == "zapret-capabilities") {
     write_json(zapret_strategy_capabilities());
     exit(0);
 }
+else if (mode == "zapret-settings")
+    exit(zapret_settings_get());
+else if (mode == "zapret-services-save")
+    exit(zapret_services_save(ARGV[1]));
+else if (mode == "zapret-results-clear")
+    exit(zapret_results_clear(ARGV[1], ARGV[2]));
 else if (mode == "zapret-start")
-    exit(zapret_strategy_start(ARGV[1], ARGV[2], ARGV[3]));
+    exit(zapret_strategy_start(ARGV[1], ARGV[2], ARGV[3], ARGV[4]));
 else if (mode == "zapret-status")
     exit(zapret_strategy_status(ARGV[1]));
 else if (mode == "zapret-cancel")

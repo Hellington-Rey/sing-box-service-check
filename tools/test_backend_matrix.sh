@@ -203,6 +203,7 @@ run_engine() {
     PATH="$TMP/bin:/usr/bin:/bin" \
     FORKOP_SC_LIB="$LIB" \
     FORKOP_SC_STATE_DIR="$TMP/state" \
+    FORKOP_SC_CONFIG_DIR="$TMP/config-dir" \
     FORKOP_SC_SING_BOX_CONFIG="$TMP/config.json" \
     FORKOP_SC_NETIFD_PROTO_DIR="$TMP/proto" \
     UCI_LOG="$TMP/uci.log" \
@@ -593,6 +594,7 @@ PY
 cat > "$TMP/zapret2.log" <<'EOF'
 FKPSC	meta	zapret2	2	12	36	/opt/zapret2/nfq2/nfqws2	/opt/zapret2
 FKPSC	mode	auto
+FKPSC	voice_required	1
 FKPSC	phase	scan	Автоподбор: quic
 FKPSC	scan_start	quic	3	3	120	2	www.youtube.com discord.com web.telegram.org
 FKPSC	scan_tick	quic	3	3	17	120	11	2	2	nfqws2 --lua-desync=fake
@@ -679,7 +681,37 @@ assert data["auto_ready"] is True and provider["auto_ready"] is True, data
 assert data["running_backends"] == ["forkop"], data
 PY
 
-if failed_start="$(BACKEND_STOP_FAIL=1 run_engine zapret-start zapret2 quick)"; then
+ZAPRET_JSON="$(run_engine zapret-settings)" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+assert data["success"] is True, data
+assert [item["id"] for item in data["services"]] == ["youtube", "discord", "telegram"], data
+assert data["selected"] == ["youtube", "discord", "telegram"], data
+assert data["saved_results"] == {}, data
+PY
+
+custom_services='{"services":[{"id":"custom_twitch","title":"Twitch","hosts":["www.twitch.tv","usher.ttvnw.net"]}],"selected":["youtube","custom_twitch"]}'
+ZAPRET_JSON="$(run_engine zapret-services-save "$custom_services")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+assert data["success"] is True, data
+assert data["selected"] == ["youtube", "custom_twitch"], data
+custom = data["custom_services"]
+assert len(custom) == 1 and custom[0]["id"] == "custom_twitch", data
+assert [target["host"] for target in custom[0]["targets"]] == ["www.twitch.tv", "usher.ttvnw.net"], data
+PY
+
+if run_engine zapret-services-save '{"services":[{"id":"custom_bad","title":"Bad","hosts":["www.youtube.com"]}],"selected":["custom_bad"]}' >"$TMP/invalid-zapret-service.json" 2>/dev/null; then
+    echo "custom Zapret service reused a built-in domain" >&2
+    exit 1
+fi
+ZAPRET_JSON="$(cat "$TMP/invalid-zapret-service.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+assert data["success"] is False and "уже используется" in data["message"], data
+PY
+
+if failed_start="$(BACKEND_STOP_FAIL=1 run_engine zapret-start zapret2 ready quick '["youtube","discord","telegram"]')"; then
     echo "zapret start must fail when backend cannot be stopped" >&2
     exit 1
 fi
@@ -691,7 +723,7 @@ assert "останов" in data["message"].lower(), data
 PY
 [ "$(cat "$TMP/backend-running")" = "1" ]
 
-start_json="$(BACKEND_STOP_DELAY=1 BACKEND_STOP_NONZERO=1 run_engine zapret-start zapret2 quick)"
+start_json="$(BACKEND_STOP_DELAY=1 BACKEND_STOP_NONZERO=1 run_engine zapret-start zapret2 ready quick '["youtube","discord","telegram"]')"
 ZAPRET_JSON="$start_json" python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["ZAPRET_JSON"])
@@ -716,6 +748,28 @@ data = json.loads(os.environ["ZAPRET_JSON"])
 assert data["success"] is True, data
 assert data["services_restored"] is True, data
 assert data["results"] and data["results"][0]["score"] == 12, data
+assert data["results_saved"] is True, data
 PY
+
+rm -f "$TMP/state/$job_id.json" "$TMP/state/$job_id.zapret.log" "$TMP/state/$job_id.zapret.done"
+ZAPRET_JSON="$(run_engine zapret-settings)" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+saved = data["saved_results"]["zapret2_ready"]
+assert saved["saved"] is True and saved["running"] is False, saved
+assert saved["selected_services"] == ["youtube", "discord", "telegram"], saved
+assert saved["results"] and saved["results"][0]["score"] == 12, saved
+assert [service["id"] for service in saved["services"]] == ["youtube", "discord", "telegram"], saved
+PY
+
+ZAPRET_JSON="$(run_engine zapret-results-clear zapret2 ready)" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+assert data["success"] is True and "zapret2_ready" not in data["saved_results"], data
+PY
+if run_engine zapret-results-clear unknown wrong >"$TMP/invalid-zapret-clear.json" 2>/dev/null; then
+    echo "invalid saved-result key was accepted" >&2
+    exit 1
+fi
 
 echo "backend runtime matrix: OK"

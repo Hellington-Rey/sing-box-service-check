@@ -48,7 +48,11 @@ Available commands:
                             Создать VPN-интерфейс, отправить пакет и проверить туннель
     vpn-check NAME [TARGET] Проверить созданный модулем туннель; TARGET по умолчанию 1.1.1.1
     zapret-capabilities     Проверить готовность автоподбора Zapret/Zapret2
-    zapret-start TYPE MODE LEVEL Запустить подбор; MODE auto/ready, LEVEL quick/standard/force
+    zapret-settings         Показать сервисы и сохранённые результаты подбора
+    zapret-services-save JSON Сохранить свои сервисы и выбор проверок
+    zapret-results-clear TYPE MODE Удалить сохранённый результат TYPE/MODE
+    zapret-start TYPE MODE LEVEL [SERVICES_JSON]
+                            Запустить подбор; MODE auto/ready, LEVEL quick/standard/force
     zapret-status JOB_ID    Показать прогресс и найденные стратегии
     zapret-cancel JOB_ID    Остановить подбор и восстановить остановленные сервисы
     netns_teardown          Снести временный network namespace
@@ -81,7 +85,7 @@ command -v ucode >/dev/null 2>&1 || {
 }
 
 case "$COMMAND" in
-    list|capabilities|fixes|cleanup|doctor|repair|history|history-clear|profiles-get|profiles-reset|vpn-packages|vpn-interfaces|zapret-capabilities|update-check|update-status)
+    list|capabilities|fixes|cleanup|doctor|repair|history|history-clear|profiles-get|profiles-reset|vpn-packages|vpn-interfaces|zapret-capabilities|zapret-settings|update-check|update-status)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND"
         ;;
     update-start)
@@ -130,7 +134,7 @@ case "$COMMAND" in
     gemini_key_set)
         exec ucode -L "$LIB_DIR" "$ENGINE" gemini-key-set "${2:-}"
         ;;
-    fix|status|cancel|profiles-save|profiles-validate)
+    fix|status|cancel|profiles-save|profiles-validate|zapret-services-save)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}"
         ;;
     vpn-install)
@@ -143,7 +147,10 @@ case "$COMMAND" in
         exec ucode -L "$LIB_DIR" "$ENGINE" vpn-check "${2:-}" "${3:-1.1.1.1}"
         ;;
     zapret-start)
-        exec ucode -L "$LIB_DIR" "$ENGINE" zapret-start "${2:-}" "${3:-auto}" "${4:-standard}"
+        exec ucode -L "$LIB_DIR" "$ENGINE" zapret-start "${2:-}" "${3:-auto}" "${4:-standard}" "${5:-}"
+        ;;
+    zapret-results-clear)
+        exec ucode -L "$LIB_DIR" "$ENGINE" zapret-results-clear "${2:-}" "${3:-}"
         ;;
     zapret-status|zapret-cancel)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}"

@@ -169,6 +169,32 @@ function injectStyles() {
     ".fkpsc-strategy-metric.err { color:var(--bad); }",
     ".fkpsc-strategy-code { box-sizing:border-box; width:100%; max-height:12em; overflow:auto; margin:.55em 0 0; padding:.65em; border-radius:7px; background:var(--code-bg); color:var(--code-text); white-space:pre-wrap; overflow-wrap:anywhere; font:.82em/1.42 monospace; }",
     ".fkpsc-zapret-format { display:inline-flex; align-items:center; gap:.45em; font-weight:600; }",
+    ".fkpsc-zapret-service-section { margin:.8em 0; padding:.8em; border:1px solid var(--border-soft); border-radius:11px; background:var(--surface-soft); }",
+    ".fkpsc-zapret-section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.8em; margin-bottom:.65em; }",
+    ".fkpsc-zapret-section-head h4 { margin:0 0 .18em; font-size:1em; }",
+    ".fkpsc-zapret-section-head p { margin:0; }",
+    ".fkpsc-zapret-service-limit { flex:0 0 auto; padding:.25em .52em; border:1px solid var(--border-soft); border-radius:999px; color:var(--muted); font-size:.78em; }",
+    ".fkpsc-zapret-services { display:grid; grid-template-columns:repeat(auto-fit,minmax(12.5em,1fr)); gap:.55em; }",
+    ".fkpsc-zapret-service { box-sizing:border-box; min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:.58em; padding:.68em .72em; border:1px solid var(--border-soft); border-radius:9px; background:var(--surface-raised); cursor:pointer; transition:border-color .15s,box-shadow .15s,transform .15s; }",
+    ".fkpsc-zapret-service:hover { border-color:var(--border-strong); transform:translateY(-1px); }",
+    ".fkpsc-zapret-service:has(input:checked) { border-color:var(--accent-border); box-shadow:inset 3px 0 0 var(--accent); }",
+    ".fkpsc-zapret-service input { margin:0; accent-color:var(--accent); }",
+    ".fkpsc-zapret-service-copy { min-width:0; }",
+    ".fkpsc-zapret-service-copy strong, .fkpsc-zapret-service-copy small { display:block; overflow-wrap:anywhere; }",
+    ".fkpsc-zapret-service-copy small { margin-top:.12em; color:var(--muted); }",
+    ".fkpsc-zapret-service-kind { padding:.18em .4em; border-radius:999px; background:var(--surface-soft); color:var(--muted); font-size:.7em; white-space:nowrap; }",
+    ".fkpsc-zapret-custom-editor { margin-top:.65em; border-top:1px solid var(--border-soft); }",
+    ".fkpsc-zapret-custom-editor > summary { cursor:pointer; padding:.7em .1em .15em; font-weight:650; }",
+    ".fkpsc-zapret-custom-list { display:grid; gap:.42em; margin:.65em 0; }",
+    ".fkpsc-zapret-custom-row { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:.65em; padding:.58em .65em; border:1px solid var(--border-soft); border-radius:8px; background:var(--surface-raised); }",
+    ".fkpsc-zapret-custom-row > div:first-child { min-width:0; }",
+    ".fkpsc-zapret-custom-row strong, .fkpsc-zapret-custom-row span { display:block; overflow-wrap:anywhere; }",
+    ".fkpsc-zapret-custom-actions { display:flex; flex-wrap:wrap; gap:.45em; align-items:center; }",
+    ".fkpsc-zapret-custom-form { display:grid; grid-template-columns:minmax(10em,.38fr) minmax(15em,.62fr); gap:.65em; align-items:end; padding:.7em; border:1px dashed var(--border-strong); border-radius:9px; background:var(--surface-raised); }",
+    ".fkpsc-zapret-custom-form .wide { grid-column:auto; }",
+    ".fkpsc-zapret-custom-form .fkpsc-zapret-custom-actions { grid-column:1/-1; }",
+    ".fkpsc-zapret-saved-card { display:flex; align-items:center; justify-content:space-between; gap:.7em; margin:.8em 0; padding:.7em .8em; border:1px solid color-mix(in srgb,var(--good) 42%,var(--border)); border-radius:9px; background:color-mix(in srgb,var(--good) 8%,var(--surface-raised)); }",
+    ".fkpsc-zapret-saved-card strong, .fkpsc-zapret-saved-card span { display:block; }",
     ".fkpsc-failed-list { max-height:22em; overflow:auto; margin:.4em 0 0; padding-left:1.4em; }",
     ".fkpsc-failed-list code { overflow-wrap:anywhere; }",
     ".fkpsc-list-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:.55em; margin:.8em 0 1em; }",
@@ -369,6 +395,11 @@ function injectStyles() {
     "  .fkpsc-zapret-toolbar { grid-template-columns:1fr; }",
     "  .fkpsc-zapret-actions .cbi-button { flex:1 1 100%; }",
     "  .fkpsc-zapret-location-row { grid-template-columns:1fr; gap:.15em; }",
+    "  .fkpsc-zapret-services { grid-template-columns:1fr; }",
+    "  .fkpsc-zapret-section-head, .fkpsc-zapret-custom-row, .fkpsc-zapret-saved-card { align-items:stretch; flex-direction:column; }",
+    "  .fkpsc-zapret-custom-form { grid-template-columns:1fr; }",
+    "  .fkpsc-zapret-custom-form .wide, .fkpsc-zapret-custom-form .fkpsc-zapret-custom-actions { grid-column:auto; }",
+    "  .fkpsc-zapret-custom-actions .cbi-button, .fkpsc-zapret-saved-card .cbi-button { flex:1 1 auto; }",
     "  .fkpsc-vpn-tab { flex:1 1 45%; }",
     "  .fkpsc-vpn-manual .cbi-button { flex:1 1 100%; }",
     "  .fkpsc-converter-grid { grid-template-columns:1fr; }",
@@ -1108,6 +1139,9 @@ return view.extend({
       callBin(["zapret-capabilities"]).catch(function () {
         return { success: false, ready: false, providers: {}, running_backends: [], message: "Автоподбор недоступен" };
       }),
+      callBin(["zapret-settings"]).catch(function () {
+        return { success: false, services: [], custom_services: [], selected: ["youtube", "discord", "telegram"], saved_results: {} };
+      }),
     ]);
   },
 
@@ -1122,6 +1156,7 @@ return view.extend({
     var vpnPackages = data[5] || { wireguard: {}, amneziawg: {} };
     var vpnInterfacesData = data[6] || { success: false, interfaces: [] };
     var zapretCapabilities = data[7] || { success: false, ready: false, providers: {}, running_backends: [] };
+    var zapretSettings = data[8] || { success: false, services: [], custom_services: [], selected: ["youtube", "discord", "telegram"], saved_results: {} };
     var profilesDraft = profilesData && profilesData.config ?
       JSON.parse(JSON.stringify(profilesData.config)) : { version: 2, profiles: [] };
     if (!Array.isArray(profilesDraft.profiles)) {
@@ -2311,6 +2346,172 @@ function vlessUriFromOutbound(document) {
     var zapretForkopFormat = E("input", { type:"checkbox", checked:"" });
     var zapretFormatLabel = E("label", { class:"fkpsc-zapret-format" }, [zapretForkopFormat, E("span", {}, "Под формат Forkop")]);
     var zapretRunState = { jobId:"", timer:null, state:null };
+    var zapretServices = Array.isArray(zapretSettings.services) ? zapretSettings.services.slice() : [];
+    var zapretCustomServices = Array.isArray(zapretSettings.custom_services) ? zapretSettings.custom_services.slice() : [];
+    var zapretSavedResults = zapretSettings.saved_results || {};
+    var zapretSelectedServices = {};
+    (Array.isArray(zapretSettings.selected) ? zapretSettings.selected : ["youtube", "discord", "telegram"]).forEach(function (id) {
+      zapretSelectedServices[String(id)] = true;
+    });
+    if (!zapretServices.length) {
+      [
+        ["youtube", "YouTube"], ["discord", "Discord"], ["telegram", "Telegram"],
+      ].forEach(function (definition) {
+        var targets = ((zapretCapabilities && zapretCapabilities.targets) || []).filter(function (target) { return target.service === definition[0]; });
+        zapretServices.push({ id:definition[0], title:definition[1], builtin:true, targets:targets });
+      });
+    }
+    var zapretServicesNode = E("div", { class:"fkpsc-zapret-services" });
+    var zapretSavedNode = E("div", { class:"fkpsc-zapret-saved" });
+    var zapretCustomListNode = E("div", { class:"fkpsc-zapret-custom-list" });
+    var zapretCustomNameInput = E("input", { type:"text", class:"cbi-input-text", maxlength:"64", placeholder:"Например, Twitch" });
+    var zapretCustomHostsInput = E("textarea", { class:"cbi-input-text", rows:"3", placeholder:"www.example.com\napi.example.com", spellcheck:"false" });
+    var zapretCustomSaveButton = E("button", { class:"cbi-button cbi-button-action", type:"button" }, "Добавить сервис");
+    var zapretCustomCancelButton = E("button", { class:"cbi-button", type:"button", style:"display:none" }, "Отмена");
+    var zapretCustomEditId = "";
+    var zapretSettingsSaveTimer = null;
+
+    function zapretSelectedIds() {
+      return zapretServices.filter(function (service) { return zapretSelectedServices[String(service.id)] === true; }).map(function (service) { return String(service.id); });
+    }
+    function zapretSelectedTitles() {
+      return zapretServices.filter(function (service) { return zapretSelectedServices[String(service.id)] === true; }).map(function (service) { return service.title || service.id; });
+    }
+    function zapretCustomPayload() {
+      return zapretCustomServices.map(function (service) {
+        return {
+          id:String(service.id || ""),
+          title:String(service.title || ""),
+          hosts:(Array.isArray(service.hosts) ? service.hosts : (service.targets || []).map(function (target) { return target.host; })).filter(Boolean),
+        };
+      });
+    }
+    function applyZapretSettings(settings) {
+      if (!settings || settings.success !== true) return;
+      zapretSettings = settings;
+      zapretServices = Array.isArray(settings.services) ? settings.services.slice() : zapretServices;
+      zapretCustomServices = Array.isArray(settings.custom_services) ? settings.custom_services.slice() : [];
+      zapretSavedResults = settings.saved_results || zapretSavedResults || {};
+      zapretSelectedServices = {};
+      (settings.selected || []).forEach(function (id) { zapretSelectedServices[String(id)] = true; });
+      renderZapretServicePicker();
+      renderZapretPreflight(zapretCapabilities);
+    }
+    function saveZapretServiceSettings(showMessage) {
+      var payload = {
+        services:zapretCustomPayload(),
+        selected:Object.keys(zapretSelectedServices).filter(function (id) { return zapretSelectedServices[id] === true; }),
+      };
+      return callBin(["zapret-services-save", JSON.stringify(payload)]).then(function (settings) {
+        applyZapretSettings(settings);
+        if (showMessage) ui.addNotification(null, E("p", {}, settings.message || "Сервисы сохранены."), "info");
+        return settings;
+      }).catch(function (error) {
+        ui.addNotification(null, E("p", {}, "Не удалось сохранить сервисы: " + error.message), "warning");
+        throw error;
+      });
+    }
+    function scheduleZapretServiceSave() {
+      if (zapretSettingsSaveTimer) window.clearTimeout(zapretSettingsSaveTimer);
+      zapretSettingsSaveTimer = window.setTimeout(function () {
+        zapretSettingsSaveTimer = null;
+        saveZapretServiceSettings(false).catch(function () { refreshZapretSettings(false); });
+      }, 650);
+    }
+    function resetZapretCustomEditor() {
+      zapretCustomEditId = "";
+      zapretCustomNameInput.value = "";
+      zapretCustomHostsInput.value = "";
+      zapretCustomSaveButton.textContent = "Добавить сервис";
+      zapretCustomCancelButton.style.display = "none";
+    }
+    function editZapretCustomService(service) {
+      zapretCustomEditId = String(service.id || "");
+      zapretCustomNameInput.value = String(service.title || "");
+      zapretCustomHostsInput.value = (service.targets || []).map(function (target) { return target.host; }).join("\n");
+      zapretCustomSaveButton.textContent = "Сохранить изменения";
+      zapretCustomCancelButton.style.display = "";
+      zapretCustomNameInput.focus();
+    }
+    function renderZapretCustomList() {
+      zapretCustomListNode.replaceChildren.apply(zapretCustomListNode, zapretCustomServices.map(function (service) {
+        var edit = E("button", { class:"cbi-button", type:"button" }, "Изменить");
+        var remove = E("button", { class:"cbi-button cbi-button-negative", type:"button" }, "Удалить");
+        edit.addEventListener("click", function () { editZapretCustomService(service); });
+        remove.addEventListener("click", function () {
+          if (!window.confirm("Удалить сервис «" + (service.title || service.id) + "» из списка проверок?")) return;
+          var previousCustom = zapretCustomServices.slice();
+          var previousSelected = Object.assign({}, zapretSelectedServices);
+          zapretCustomServices = zapretCustomServices.filter(function (item) { return String(item.id) !== String(service.id); });
+          delete zapretSelectedServices[String(service.id)];
+          remove.disabled = true;
+          saveZapretServiceSettings(true).then(resetZapretCustomEditor).catch(function () {
+            zapretCustomServices = previousCustom;
+            zapretSelectedServices = previousSelected;
+            renderZapretServicePicker();
+          });
+        });
+        return E("div", { class:"fkpsc-zapret-custom-row" }, [
+          E("div", {}, [E("strong", {}, service.title || service.id), E("span", { class:"fkpsc-dim" }, (service.targets || []).map(function (target) { return target.host; }).join(", "))]),
+          E("div", { class:"fkpsc-zapret-custom-actions" }, [edit, remove]),
+        ]);
+      }));
+      if (!zapretCustomServices.length) zapretCustomListNode.appendChild(E("p", { class:"fkpsc-dim" }, "Свои сервисы пока не добавлены."));
+    }
+    function renderZapretServicePicker() {
+      var cards = zapretServices.map(function (service) {
+        var id = String(service.id || ""), input = E("input", { type:"checkbox", checked:zapretSelectedServices[id] ? "" : null });
+        var targetCount = Number((service.targets || []).length);
+        var targetWord = targetCount % 10 === 1 && targetCount % 100 !== 11 ? "цель" : (targetCount % 10 >= 2 && targetCount % 10 <= 4 && (targetCount % 100 < 12 || targetCount % 100 > 14) ? "цели" : "целей");
+        input.disabled = !!zapretRunState.jobId;
+        input.addEventListener("change", function () {
+          zapretSelectedServices[id] = input.checked;
+          renderZapretPreflight(zapretCapabilities);
+          scheduleZapretServiceSave();
+        });
+        return E("label", { class:"fkpsc-zapret-service" + (service.builtin ? " builtin" : " custom") }, [
+          input,
+          E("span", { class:"fkpsc-zapret-service-copy" }, [
+            E("strong", {}, service.title || id),
+            E("small", {}, targetCount + " HTTPS-" + targetWord),
+          ]),
+          E("span", { class:"fkpsc-zapret-service-kind" }, service.builtin ? "встроенный" : "свой"),
+        ]);
+      });
+      zapretServicesNode.replaceChildren.apply(zapretServicesNode, cards);
+      renderZapretCustomList();
+    }
+
+    zapretCustomCancelButton.addEventListener("click", resetZapretCustomEditor);
+    zapretCustomSaveButton.addEventListener("click", function () {
+      var title = zapretCustomNameInput.value.trim();
+      var hosts = zapretCustomHostsInput.value.split(/[\s,;]+/).map(function (host) { return host.trim().toLowerCase().replace(/\.$/, ""); }).filter(Boolean);
+      if (!title || !hosts.length || hosts.length > 8) {
+        ui.addNotification(null, E("p", {}, !title || !hosts.length ? "Укажите название и хотя бы один домен сервиса." : "Для одного сервиса можно указать не более 8 доменов."), "warning");
+        return;
+      }
+      var id = zapretCustomEditId || ("custom_" + Date.now().toString(36));
+      var draft = { id:id, title:title, hosts:hosts, targets:hosts.map(function (host, index) { return { id:id + "_" + (index + 1), service:id, host:host }; }) };
+      var previousCustom = zapretCustomServices.slice();
+      var previousSelected = Object.assign({}, zapretSelectedServices);
+      var replaced = false;
+      zapretCustomServices = zapretCustomServices.map(function (service) {
+        if (String(service.id) !== id) return service;
+        replaced = true;
+        return draft;
+      });
+      if (!replaced) {
+        zapretCustomServices.push(draft);
+        zapretSelectedServices[id] = true;
+      }
+      zapretCustomSaveButton.disabled = true;
+      if (zapretSettingsSaveTimer) window.clearTimeout(zapretSettingsSaveTimer);
+      saveZapretServiceSettings(true).then(resetZapretCustomEditor).catch(function () {
+        zapretCustomServices = previousCustom;
+        zapretSelectedServices = previousSelected;
+        renderZapretServicePicker();
+      }).finally(function () { zapretCustomSaveButton.disabled = false; });
+    });
 
     function zapretSetDepthOptions() {
       var previous = zapretDepthSelect.value || "standard";
@@ -2371,6 +2572,8 @@ function vlessUriFromOutbound(document) {
       var standalone = Array.isArray(caps.running_services) ? caps.running_services : [];
       var selected = ((caps.providers || {})[zapretProviderSelect.value]) || {};
       var modeReady = zapretProviderReady(selected);
+      var selectedIds = zapretSelectedIds();
+      var discordSelected = selectedIds.indexOf("discord") >= 0;
       zapretPreflightNode.replaceChildren(
         zapretChip(deps.curl ? "curl готов" : "нет curl", deps.curl ? "ok" : "err"),
         zapretChip(deps.nft ? "nftables готов" : "нет nftables", deps.nft ? "ok" : "err"),
@@ -2378,13 +2581,14 @@ function vlessUriFromOutbound(document) {
         zapretChip(caps.worker_ready === false ? "worker отсутствует" : "worker готов", caps.worker_ready === false ? "err" : "ok"),
         zapretChip(caps.catalog_ready === false ? "каталог отсутствует" : "каталог готов", caps.catalog_ready === false ? "err" : "ok"),
         zapretChip(zapretMode === "auto" ? (selected.blockcheck ? "blockcheck найден" : "blockcheck не найден") : "blockcheck не требуется", zapretMode === "auto" ? (selected.blockcheck ? "ok" : "err") : "ok"),
-        zapretChip("Discord Voice профиль включён", "ok"),
+        zapretChip(discordSelected ? "Discord Voice профиль включён" : "Discord Voice не требуется", "ok"),
         zapretChip(running.length ? ("Будет остановлен: " + running.join(", ")) : "Backend остановлен", running.length ? "warn" : "ok"),
         zapretChip(standalone.length ? ("Будет остановлен отдельный: " + standalone.join(", ")) : "Отдельный Zapret остановлен", standalone.length ? "warn" : "ok"),
         zapretChip(modeReady ? "движок готов" : "движок не готов", modeReady ? "ok" : "err")
       );
       renderZapretLocation(caps);
-      zapretStartButton.disabled = !modeReady || deps.curl === false || deps.nft === false || deps.dns === false || !!zapretRunState.jobId;
+      zapretStartButton.disabled = !modeReady || !selectedIds.length || deps.curl === false || deps.nft === false || deps.dns === false || !!zapretRunState.jobId;
+      zapretStartButton.title = selectedIds.length ? "" : "Выберите хотя бы один сервис";
     }
     function applyZapretMode(mode, force) {
       if (!force && zapretRunState.jobId) return;
@@ -2395,13 +2599,14 @@ function vlessUriFromOutbound(document) {
       zapretReadyModeButton.setAttribute("aria-selected", zapretMode === "ready" ? "true" : "false");
       zapretSetDepthOptions();
       renderZapretPreflight(zapretCapabilities);
-      zapretResultsNode.replaceChildren();
+      renderZapretSavedSelection();
     }
     function zapretMetric(metric) {
       var state = metric.ok === metric.total ? "ok" : (metric.ok === 0 ? "err" : "warn");
       return E("span", { class:"fkpsc-strategy-metric " + state }, metric.title + " — " + metric.ok + "/" + metric.total);
     }
     function zapretVoiceMetric(item) {
+      if (item.voice_required === false) return null;
       var ok = item.voice_profile_ready === true;
       return E("span", { class:"fkpsc-strategy-metric " + (ok ? "ok" : "err") }, ok ? "Discord Voice — профиль загружен" : "Discord Voice — профиль не запущен");
     }
@@ -2419,14 +2624,18 @@ function vlessUriFromOutbound(document) {
       });
       item.__codeNode = code;
       var metrics = (item.services || []).map(zapretMetric);
-      metrics.push(zapretVoiceMetric(item));
+      var voiceMetric = zapretVoiceMetric(item);
+      if (voiceMetric) metrics.push(voiceMetric);
+      var voiceNote = item.voice_required === false
+        ? "Discord не выбран, поэтому голосовой UDP-профиль не добавлялся. "
+        : "Discord Voice обрабатывается отдельным сигнатурным блоком IP Discovery + STUN; движок успешно загрузил весь профиль. ";
       return E("div", { class:"fkpsc-strategy-card" }, [
         E("div", { class:"fkpsc-strategy-head" }, [
           E("div", {}, [E("strong", {}, (index + 1) + ". " + (item.title || "Составная стратегия") + " · HTTPS " + item.score + "/" + item.total), E("div", { class:"fkpsc-dim" }, item.source || "Локальный каталог")]),
           copy,
         ]),
         E("div", { class:"fkpsc-strategy-metrics" }, metrics),
-        E("div", { class:"fkpsc-dim" }, (item.quic_included ? "QUIC/UDP 443 включён. " : "Найденного QUIC-профиля нет. ") + "Discord Voice обрабатывается отдельным сигнатурным блоком IP Discovery + STUN; установленный движок успешно загрузил весь профиль. Балл относится к 12 HTTPS endpoint’ам."),
+        E("div", { class:"fkpsc-dim" }, (item.quic_included ? "QUIC/UDP 443 включён. " : "Найденного QUIC-профиля нет. ") + voiceNote + "Балл относится к " + Number(item.total || 0) + " HTTPS endpoint’ам."),
         code,
       ]);
     }
@@ -2439,13 +2648,13 @@ function vlessUriFromOutbound(document) {
     function renderZapretResults(state) {
       zapretResultsNode.replaceChildren();
       var items = Array.isArray(state.results) ? state.results : [];
-      var targetTotal = state.telemetry && state.telemetry.target_total ? state.telemetry.target_total : 12;
+      var targetTotal = state.telemetry && state.telemetry.target_total ? state.telemetry.target_total : ((state.targets || []).length || 0);
       var directCount = state.direct && typeof state.direct === "object" ? Object.keys(state.direct).length : 0;
       var isAuto = state.selection_mode === "auto";
       if (directCount) zapretResultsNode.appendChild(E("div", { class:"fkpsc-note" }, directCount + " из " + targetTotal + " HTTPS endpoint’ов доступны без обхода. Контрольный результат показан отдельно и не повышает баллы стратегий."));
-      var full = items.filter(function (item) { return item.complete && item.voice_profile_ready; });
-      var partial = items.filter(function (item) { return !(item.complete && item.voice_profile_ready) && item.score > 0; });
-      if (full.length) zapretResultsNode.appendChild(zapretGroup("Лучшие: все HTTPS-проверки + загруженный Discord Voice профиль", full, true));
+      var full = items.filter(function (item) { return item.complete && (item.voice_required === false || item.voice_profile_ready); });
+      var partial = items.filter(function (item) { return !(item.complete && (item.voice_required === false || item.voice_profile_ready)) && item.score > 0; });
+      if (full.length) zapretResultsNode.appendChild(zapretGroup(items.some(function (item) { return item.voice_required !== false; }) ? "Лучшие: все HTTPS-проверки + загруженный Discord Voice профиль" : "Лучшие: все HTTPS-проверки пройдены", full, true));
       if (partial.length) zapretResultsNode.appendChild(zapretGroup(isAuto ? "Частично рабочие варианты автоподбора" : "Частично рабочие готовые профили", partial, !full.length));
       if (!items.length && !state.running) zapretResultsNode.appendChild(E("div", { class:"fkpsc-note" }, isAuto ? "Автоподбор не сформировал рабочий составной вариант. Подробности последнего прохода сохранены выше." : "Ни один готовый профиль не прошёл HTTPS-проверки. Нерабочие варианты собраны ниже и не занимают основную область."));
       var failed = Array.isArray(state.failed_strategies) ? state.failed_strategies : [];
@@ -2459,6 +2668,45 @@ function vlessUriFromOutbound(document) {
           E("div", { class:"fkpsc-zapret-list" }, [failedList]),
         ]));
       }
+    }
+    function zapretSavedKey() {
+      var provider = zapretProviderSelect.value === "zapret2" ? "zapret2" : "zapret";
+      return provider + "_" + (zapretMode === "auto" ? "auto" : "ready");
+    }
+    function renderZapretSavedSelection() {
+      if (zapretRunState.jobId) return;
+      var record = zapretSavedResults[zapretSavedKey()];
+      zapretSavedNode.replaceChildren();
+      if (!record || !Array.isArray(record.results)) {
+        zapretRunState.state = null;
+        zapretStatusNode.style.display = "none";
+        zapretResultsNode.replaceChildren();
+        return;
+      }
+      var selected = Array.isArray(record.selected_services) ? record.selected_services : [];
+      var titles = (record.services || []).filter(function (service) { return !selected.length || selected.indexOf(String(service.id)) >= 0; }).map(function (service) { return service.title || service.id; });
+      var savedAt = Number(record.saved_at || 0) * 1000;
+      var clear = E("button", { class:"cbi-button cbi-button-negative", type:"button" }, "Удалить результат");
+      clear.addEventListener("click", function () {
+        clear.disabled = true;
+        callBin(["zapret-results-clear", record.provider || zapretProviderSelect.value, record.selection_mode || zapretMode]).then(function (result) {
+          zapretSavedResults = result.saved_results || {};
+          renderZapretSavedSelection();
+          ui.addNotification(null, E("p", {}, result.message || "Результат удалён."), "info");
+        }).catch(function (error) {
+          ui.addNotification(null, E("p", {}, "Не удалось удалить результат: " + error.message), "warning");
+          clear.disabled = false;
+        });
+      });
+      zapretSavedNode.replaceChildren(E("div", { class:"fkpsc-zapret-saved-card" }, [
+        E("div", {}, [
+          E("strong", {}, "Сохранённый результат"),
+          E("span", { class:"fkpsc-dim" }, (savedAt ? new Date(savedAt).toLocaleString() : "время неизвестно") + (titles.length ? " · " + titles.join(", ") : "")),
+        ]),
+        clear,
+      ]));
+      record.saved = true;
+      renderZapretStatus(record);
     }
     function zapretDuration(seconds) {
       seconds = Math.max(0, Number(seconds || 0));
@@ -2501,7 +2749,7 @@ function vlessUriFromOutbound(document) {
         zapretStat("HTTPS-проверки", requestsDone + " / " + requestsTotal),
         zapretStat("Варианты завершены", Number(telemetry.strategies_completed || 0) + " / " + candidateTotal),
         zapretStat("Результаты", "все " + Number(telemetry.full || 0) + " · часть " + Number(telemetry.partial || 0) + " · 0 " + Number(telemetry.failed || 0)),
-        zapretStat("DNS-цели", Number(telemetry.dns_ready || 0) + " / " + Number(telemetry.target_total || 12)),
+        zapretStat("DNS-цели", Number(telemetry.dns_ready || 0) + " / " + Number(telemetry.target_total || 0)),
       ];
       if (telemetry.selection_mode === "auto") stats.push(zapretStat("Найдено blockcheck", "TLS 1.3: " + Number(telemetry.discovered_tls13 || 0) + " · TLS 1.2: " + Number(telemetry.discovered_tls12 || 0) + " · общих: " + Number(telemetry.discovered_common || 0) + " · QUIC: " + Number(telemetry.discovered_quic || 0)));
       zapretStatsNode.replaceChildren.apply(zapretStatsNode, stats);
@@ -2528,7 +2776,7 @@ function vlessUriFromOutbound(document) {
       zapretProgressBar.style.width = Math.max(0, Math.min(100, total ? done * 100 / total : 0)) + "%";
       var telemetry = state.telemetry || {}, suffix = "";
       if (progress.stage === "scan") suffix = " · " + zapretProtocolTitle(telemetry.scan_protocol) + ": в проходе " + Number(telemetry.scan_attempted || 0) + ", всего " + Number(telemetry.scan_attempted_total || telemetry.scan_attempted || 0) + ", найдено " + Number(telemetry.scan_found || 0);
-      else if (total) suffix = " · HTTPS-запросов " + done + "/" + total;
+      else if (Number(telemetry.requests_total || 0)) suffix = " · HTTPS-запросов " + Number(telemetry.requests_done || 0) + "/" + Number(telemetry.requests_total || 0);
       zapretProgressText.textContent = (state.message || (state.running ? "Выполняется подбор стратегии" : "Проверка завершена")) + suffix;
       renderZapretTelemetry(state);
       zapretStartButton.style.display = state.running ? "none" : "";
@@ -2538,6 +2786,10 @@ function vlessUriFromOutbound(document) {
       zapretAutoModeButton.disabled = !!state.running;
       zapretReadyModeButton.disabled = !!state.running;
       zapretRefreshButton.disabled = !!state.running;
+      Array.from(zapretServicesNode.querySelectorAll("input")).forEach(function (input) { input.disabled = !!state.running; });
+      zapretCustomNameInput.disabled = !!state.running;
+      zapretCustomHostsInput.disabled = !!state.running;
+      zapretCustomSaveButton.disabled = !!state.running;
       if (!state.running) {
         zapretRunState.jobId = "";
         zapretStartButton.textContent = "Остановить backend и начать";
@@ -2550,7 +2802,10 @@ function vlessUriFromOutbound(document) {
       callBin(["zapret-status", jobId]).then(function (state) {
         renderZapretStatus(state);
         if (state.running) zapretRunState.timer = window.setTimeout(pollZapretJob, 1200);
-        else refreshZapretCapabilities(false);
+        else {
+          refreshZapretCapabilities(false);
+          refreshZapretSettings(true);
+        }
       }).catch(function (error) {
         zapretRunState.jobId = "";
         zapretCancelButton.style.display = "none";
@@ -2573,17 +2828,36 @@ function vlessUriFromOutbound(document) {
         zapretProgressText.textContent = error.message || "Не удалось проверить готовность.";
       }).finally(function () { zapretRefreshButton.disabled = !!zapretRunState.jobId; });
     }
+    function refreshZapretSettings(showSaved) {
+      return callBin(["zapret-settings"]).then(function (settings) {
+        applyZapretSettings(settings);
+        if (showSaved) renderZapretSavedSelection();
+      }).catch(function (error) {
+        if (showSaved) ui.addNotification(null, E("p", {}, "Результат завершён, но постоянное хранилище не прочитано: " + error.message), "warning");
+      });
+    }
     zapretStartButton.addEventListener("click", function () {
       var provider = zapretProviderSelect.value, depth = zapretDepthSelect.value, mode = zapretMode;
       if (!provider) return;
-      var modeDescription = mode === "auto" ? "Штатный blockcheck выполнит проходы TLS 1.3, TLS 1.2 и QUIC, после чего составные варианты будут проверены на YouTube, Discord и Telegram." : "Будут проверены локальные готовые составные профили.";
+      var selectedIds = zapretSelectedIds(), selectedTitles = zapretSelectedTitles();
+      if (!selectedIds.length) {
+        ui.addNotification(null, E("p", {}, "Выберите хотя бы один сервис для проверки."), "warning");
+        return;
+      }
+      var modeDescription = mode === "auto" ? "Штатный blockcheck выполнит проходы TLS 1.3, TLS 1.2 и QUIC, после чего составные варианты будут проверены." : "Будут проверены локальные готовые составные профили.";
+      modeDescription += " Сервисы: " + selectedTitles.join(", ") + ".";
       if (!window.confirm("На время проверки Forkop/Tachyon/Podkop и самостоятельный Zapret будут остановлены. " + modeDescription + " Конфиги не изменяются, ранее активные сервисы после завершения запустятся снова. Продолжить?")) return;
       zapretStartButton.disabled = true;
       zapretStartButton.textContent = "Проверяю остановку...";
+      if (zapretSettingsSaveTimer) {
+        window.clearTimeout(zapretSettingsSaveTimer);
+        zapretSettingsSaveTimer = null;
+      }
       zapretStatusNode.style.display = "";
       zapretProgressText.textContent = "Останавливаем конфликтующие сервисы и дважды проверяем фактическое состояние.";
       zapretResultsNode.replaceChildren();
-      callBin(["zapret-start", provider, mode, depth]).then(function (result) {
+      zapretSavedNode.replaceChildren();
+      callBin(["zapret-start", provider, mode, depth, JSON.stringify(selectedIds)]).then(function (result) {
         if (!result || result.success !== true || !result.job_id) throw new Error((result && result.message) || "Backend не остановлен, проверка не запущена.");
         zapretRunState.jobId = result.job_id;
         renderZapretStatus({ running:true, selection_mode:mode, message:mode === "auto" ? "Запущен автоподбор; конфиги не изменяются" : "Запущена проверка готовых профилей; конфиги не изменяются", progress:result.progress || {done:0,total:0}, telemetry:result.telemetry || {} });
@@ -2606,7 +2880,7 @@ function vlessUriFromOutbound(document) {
       }).finally(function () { zapretCancelButton.disabled = false; });
     });
     zapretRefreshButton.addEventListener("click", function () { refreshZapretCapabilities(true); });
-    zapretProviderSelect.addEventListener("change", function () { renderZapretPreflight(zapretCapabilities); });
+    zapretProviderSelect.addEventListener("change", function () { renderZapretPreflight(zapretCapabilities); renderZapretSavedSelection(); });
     zapretAutoModeButton.addEventListener("click", function () { applyZapretMode("auto", false); });
     zapretReadyModeButton.addEventListener("click", function () { applyZapretMode("ready", false); });
     zapretForkopFormat.addEventListener("change", function () {
@@ -2614,20 +2888,39 @@ function vlessUriFromOutbound(document) {
       if (state && !state.running) renderZapretResults(state);
     });
     zapretSetDepthOptions();
+    renderZapretServicePicker();
     renderZapretPreflight(zapretCapabilities);
     if (zapretCapabilities && zapretCapabilities.active_job) {
       zapretRunState.jobId = String(zapretCapabilities.active_job);
       renderZapretStatus({ running:true, message:"Продолжается ранее запущенная проверка", progress:{done:0,total:0}, telemetry:{} });
       pollZapretJob();
     }
+    else renderZapretSavedSelection();
 
     var zapretVpnTab = E("button", { class:"fkpsc-vpn-tab", type:"button", role:"tab", "aria-selected":"false" }, "Подбор стратегии Zapret");
     var zapretVpnPanel = E("div", { class:"fkpsc-card fkpsc-vpn-panel", role:"tabpanel" }, [
       E("div", { class:"fkpsc-strategy-head" }, [
-        E("div", {}, [E("h3", {}, "Подбор стратегии Zapret"), E("p", { class:"fkpsc-dim" }, "Автоподбор собирает составные стратегии через штатный blockcheck и перепроверяет их по YouTube, Discord и Telegram. Готовые профили сохранены в отдельном режиме. Конфиги не изменяются.")]),
+        E("div", {}, [E("h3", {}, "Подбор стратегии Zapret"), E("p", { class:"fkpsc-dim" }, "Автоподбор собирает составные стратегии через штатный blockcheck и проверяет выбранные сервисы. Готовые профили остаются в отдельном режиме, а последние результаты сохраняются между перезагрузками. Конфиги обхода не изменяются.")]),
         zapretFormatLabel,
       ]),
       zapretModeSwitch,
+      E("section", { class:"fkpsc-zapret-service-section" }, [
+        E("div", { class:"fkpsc-zapret-section-head" }, [
+          E("div", {}, [E("h4", {}, "Какие сервисы проверяем"), E("p", { class:"fkpsc-dim" }, "Отметьте нужные сервисы. Выбор сохраняется на роутере; для каждого домена выполняется отдельная HTTPS-проверка.")]),
+          E("span", { class:"fkpsc-zapret-service-limit" }, "до 48 целей"),
+        ]),
+        zapretServicesNode,
+        E("details", { class:"fkpsc-zapret-custom-editor" }, [
+          E("summary", {}, "Свои сервисы и домены"),
+          E("p", { class:"fkpsc-dim" }, "Добавьте название и от 1 до 8 доменов. URL и пути не нужны — только домены, каждый с новой строки."),
+          zapretCustomListNode,
+          E("div", { class:"fkpsc-zapret-custom-form" }, [
+            E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Название сервиса"), zapretCustomNameInput]),
+            E("label", { class:"fkpsc-editor-field wide" }, [E("span", {}, "Домены"), zapretCustomHostsInput]),
+            E("div", { class:"fkpsc-zapret-custom-actions" }, [zapretCustomSaveButton, zapretCustomCancelButton]),
+          ]),
+        ]),
+      ]),
       E("div", { class:"fkpsc-zapret-toolbar" }, [
         E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Движок"), zapretProviderSelect]),
         E("label", { class:"fkpsc-editor-field" }, [E("span", {}, "Глубина"), zapretDepthSelect]),
@@ -2636,6 +2929,7 @@ function vlessUriFromOutbound(document) {
       zapretPreflightNode,
       zapretLocationNode,
       E("div", { class:"fkpsc-note" }, "Важно: во время теста обход и маршрутизация временно не работают. Перед запуском модуль подтверждает остановку Forkop/Tachyon/Podkop и отдельных сервисов Zapret, а затем восстанавливает только те сервисы, которые были активны до проверки."),
+      zapretSavedNode,
       zapretStatusNode,
       zapretResultsNode,
     ]);

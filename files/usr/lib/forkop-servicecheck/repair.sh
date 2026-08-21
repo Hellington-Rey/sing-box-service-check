@@ -19,7 +19,7 @@ usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
 usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv
 usr/share/forkop-servicecheck/profiles.json
 usr/share/forkop-servicecheck/version
-www/luci-static/resources/view/forkop/servicecheck-v1124.js
+www/luci-static/resources/view/forkop/servicecheck-v1125.js
 usr/share/luci/menu.d/luci-app-forkop-servicecheck.json
 usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json
 "

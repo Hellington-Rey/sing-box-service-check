@@ -32,8 +32,14 @@ else if (mode == "zapret-capabilities") {
     write_json(zapret_strategy_capabilities());
     exit(0);
 }
+else if (mode == "zapret-settings")
+    exit(zapret_settings_get());
+else if (mode == "zapret-services-save")
+    exit(zapret_services_save(ARGV[1]));
+else if (mode == "zapret-results-clear")
+    exit(zapret_results_clear(ARGV[1], ARGV[2]));
 else if (mode == "zapret-start")
-    exit(zapret_strategy_start(ARGV[1], ARGV[2], ARGV[3]));
+    exit(zapret_strategy_start(ARGV[1], ARGV[2], ARGV[3], ARGV[4]));
 else if (mode == "zapret-status")
     exit(zapret_strategy_status(ARGV[1]));
 else if (mode == "zapret-cancel")

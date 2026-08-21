@@ -103,6 +103,7 @@ grep -Fq -- '--fwmark=0x40000000' "$TMP/engine.log"
 grep -Fq -- '--lua-init=@' "$TMP/engine.log"
 grep -Fq -- '--payload=discord_ip_discovery,stun' "$TMP/engine.log"
 grep -Fq -- '--filter-udp=50000-50099,19294-19344' "$TMP/engine.log"
+[ "$(awk -F '\t' '$1=="FKPSC" && $2=="voice_required" && $3==1 { n++ } END { print n + 0 }' "$TMP/run.log")" -eq 1 ]
 [ "$(awk -F '\t' '$1=="FKPSC" && $2=="voice_profile" && $3==1 && $4=="ready-1" && $5==1 && $6=="engine_loaded" { n++ } END { print n + 0 }' "$TMP/run.log")" -eq 1 ]
 grep -Fq 'delete table inet fkpsc_zapret_' "$TMP/nft.log"
 if grep -Fiq 'pornhub' "$TMP/run.log"; then
@@ -110,14 +111,19 @@ if grep -Fiq 'pornhub' "$TMP/run.log"; then
     exit 1
 fi
 
+: > "$TMP/engine.log"
 sh "$WORKER" "$TMP/v1-state.json" "$TMP/v1.log" "$TMP/v1.done" zapret ready force \
     "$TMP/zapret/nfqws" "$TMP/zapret" "$TMP/zapret/blockcheck.sh" "$TMP/catalog.tsv" \
     'youtube_web,youtube,www.youtube.com' '' 30
 [ "$(cut -f1 "$TMP/v1.done")" = "complete" ]
 grep -Fq "FKPSC	meta	zapret	1	1	2" "$TMP/v1.log"
 grep -Fq -- '--dpi-desync-fwmark=0x40000000' "$TMP/engine.log"
-grep -Fq -- '--filter-l7=discord,stun' "$TMP/engine.log"
-grep -Fq -- '--filter-udp=50000-50099,19294-19344' "$TMP/engine.log"
+[ "$(awk -F '\t' '$1=="FKPSC" && $2=="voice_required" && $3==0 { n++ } END { print n + 0 }' "$TMP/v1.log")" -eq 1 ]
+[ "$(awk -F '\t' '$1=="FKPSC" && $2=="voice_profile" && $5==1 && $6=="not_required" { n++ } END { print n + 0 }' "$TMP/v1.log")" -eq 1 ]
+if grep -Fq -- '--filter-l7=discord,stun' "$TMP/engine.log" || grep -Fq -- '--filter-udp=50000-50099,19294-19344' "$TMP/engine.log"; then
+    echo "Discord Voice profile was added although Discord was not selected" >&2
+    exit 1
+fi
 
 : > "$TMP/engine.log"
 sh "$WORKER" "$TMP/auto-state.json" "$TMP/auto.log" "$TMP/auto.done" zapret2 auto quick \
