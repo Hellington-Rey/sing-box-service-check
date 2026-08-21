@@ -55,6 +55,7 @@ case "${1:-}" in
         if [ "${2:-}" = "show" ] && [ "${3:-}" = "network" ]; then
             printf '%s\n' "network.vpn0.fkpsc_managed='1'" "network.vpn0.proto='wireguard'"
             printf '%s\n' "network.awg0.fkpsc_managed='1'" "network.awg0.proto='amneziawg'"
+            printf '%s\n' "network.awgplain.fkpsc_managed='1'" "network.awgplain.proto='amneziawg'"
             printf '%s\n' "network.unmanaged0.proto='wireguard'"
             while IFS="$(printf '\t')" read -r key value; do
                 [ -z "$key" ] || printf "%s='%s'\n" "$key" "$value"
@@ -67,6 +68,8 @@ case "${1:-}" in
             network.vpn0.proto) echo wireguard; exit 0 ;;
             network.awg0.fkpsc_managed) echo 1; exit 0 ;;
             network.awg0.proto) echo amneziawg; exit 0 ;;
+            network.awgplain.fkpsc_managed) echo 1; exit 0 ;;
+            network.awgplain.proto) echo amneziawg; exit 0 ;;
         esac
         wanted="${3:-}"
         found=""
@@ -197,7 +200,12 @@ EOF
 chmod +x "$TMP/zapret2/nfq2/nfqws2" "$TMP/zapret2/blockcheck2.sh"
 mkdir -p "$TMP/proto"
 : > "$TMP/proto/wireguard.sh"
-echo 'proto_config_add_string "awg_i1"' > "$TMP/proto/amneziawg.sh"
+cat > "$TMP/proto/amneziawg.sh" <<'EOF'
+proto_config_add_string "awg_i1"
+proto_config_add_string "awg_h1"
+proto_config_add_string "awg_header_protection_key"
+proto_config_add_string "awg_content_padding_addition"
+EOF
 
 run_engine() {
     PATH="$TMP/bin:/usr/bin:/bin" \
@@ -422,13 +430,21 @@ MTU = 1280
 Jc = 5
 Jmin = 50
 Jmax = 90
-S1 = 0
-S2 = 0
-H1 = 1
-H2 = 2
-H3 = 3
-H4 = 4
-I1 = <b 0x0123456789abcdef0123456789abcdef>
+S1 = 27
+S2 = 21
+S3 = 27
+S4 = 15
+H1 = 100020792-100020892
+H2 = 600028761-600028861
+H3 = 1100027362-1100027462
+H4 = 1600018748-1600018848
+I1 = <b 0x0123456789abcdef0123456789abcdef><t><rc 30><r 144>
+I2 = <b 0x86d99a85eb7><t><rc 30><r 144>
+I3 = <b 0x883445ce><rd 14><t><r 117>
+I4 = <b 0x2112a442><r 21><t><rc 14><r 58>
+I5 = <rd 10><t><b 0xcc2cc1e0ae6892><r 82>
+HeaderProtectionKey = $private_key
+ContentPaddingAddition = 0-124
 
 [Peer]
 PublicKey = $public_key
@@ -444,7 +460,7 @@ import json, os
 data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is True, data
 assert data["protocol"] == data["detected"] == "amneziawg", data
-assert data["awg_version"] == "1.5", data
+assert data["awg_version"] == "3.0", data
 assert data["safe_mode"] is True, data
 assert data["dns_applied"] is False and data["ignored_dns"] == 4, data
 assert data["routes_enabled"] is False, data
@@ -460,8 +476,66 @@ assert_no_uci 'network.awg0.dns='
 assert_no_uci 'network.awg0.fwmark='
 assert_no_uci 'network.awg0.listen_port='
 assert_no_uci 'route_allowed_ips=1'
-assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef>'
+assert_uci 'set network.awg0.awg_h1=100020792-100020892'
+assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef><t><rc 30><r 144>'
+assert_uci "set network.awg0.awg_header_protection_key=$private_key"
+assert_uci 'set network.awg0.awg_content_padding_addition=0-124'
 assert_vpn_ping '-I awg0 -c 1 -W 3 1.1.1.1'
+
+amneziawg_range_config="[Interface]
+PrivateKey = $private_key
+Address = 10.8.0.172/32
+DNS = 1.1.1.1, 1.0.0.1
+MTU = 1420
+Jc = 4
+Jmin = 64
+Jmax = 160
+S1 = 44
+S2 = 63
+S3 = 12
+S4 = 8
+H1 = 431245120-431245220
+H2 = 1187345001-1187345090
+H3 = 905120331-905120360
+H4 = 1688457701-1688457800
+I1 = <b 0xc00000000108241a><t><rc 28><r 74>
+I2 = <b 0x6ce4e892e05f9c47><t><rc 28><r 74>
+I3 = <b 0x18dfb4d9><rd 7><t><r 114>
+I4 = <b 0x2112a442><r 30><t><rc 14><r 45>
+I5 = <rd 10><t><b 0xc5d3a8a12f><r 37>
+
+[Peer]
+PublicKey = $public_key
+AllowedIPs = 0.0.0.0/0
+Endpoint = vpn.example.com:51820
+PersistentKeepalive = 25"
+: > "$TMP/uci.log"
+if ! output="$(run_engine vpn-create awgplain auto "$amneziawg_range_config")"; then
+    echo "Ranged AmneziaWG VPN creation failed: $output" >&2
+    exit 1
+fi
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is True, data
+assert data["protocol"] == data["detected"] == "amneziawg", data
+assert data["awg_version"] == "2.0", data
+PY
+assert_uci 'set network.awgplain.awg_h1=431245120-431245220'
+assert_uci 'set network.awgplain.awg_i5=<rd 10><t><b 0xc5d3a8a12f><r 37>'
+assert_no_uci 'network.awgplain.awg_header_protection_key='
+assert_vpn_ping '-I awgplain -c 1 -W 3 1.1.1.1'
+
+printf '%s\n' 'proto_config_add_int "awg_h1"' 'proto_config_add_string "awg_i1"' > "$TMP/proto/amneziawg.sh"
+if run_engine vpn-create oldproto auto "$amneziawg_range_config" >"$TMP/old-awg-proto.json" 2>/dev/null; then
+    echo "ERROR: ranged AWG config must reject an incompatible netifd protocol" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/old-awg-proto.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False and "диапазоны H1-H4" in data["message"], data
+PY
 
 if ! output="$(run_engine vpn-interfaces)"; then
     echo "Managed VPN interface list failed: $output" >&2
@@ -471,7 +545,7 @@ JSON_DATA="$output" python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["JSON_DATA"])
 items = data["interfaces"]
-assert [item["name"] for item in items] == ["awg0", "vpn0"], data
+assert [item["name"] for item in items] == ["awg0", "awgplain", "vpn0"], data
 assert {item["protocol"] for item in items} == {"wireguard", "amneziawg"}, data
 assert all(item["link_up"] and item["handshake"] for item in items), data
 assert "unmanaged0" not in {item["name"] for item in items}, data

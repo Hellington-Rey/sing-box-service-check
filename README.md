@@ -72,13 +72,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.12.4-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.12.5-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.12.4-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.12.5-r1.apk
 ```
 
 Установка без пакетного менеджера:
