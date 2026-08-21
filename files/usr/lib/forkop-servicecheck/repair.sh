@@ -15,9 +15,10 @@ usr/lib/forkop-servicecheck/probe.uc
 usr/lib/forkop-servicecheck/xhttp_hotfix.sh
 usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh
 usr/lib/forkop-servicecheck/repair.sh
+usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
 usr/share/forkop-servicecheck/profiles.json
 usr/share/forkop-servicecheck/version
-www/luci-static/resources/view/forkop/servicecheck-v1121.js
+www/luci-static/resources/view/forkop/servicecheck-v1122.js
 usr/share/luci/menu.d/luci-app-forkop-servicecheck.json
 usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json
 "
@@ -58,6 +59,7 @@ ACTIVE=1
 
 tar -xzf "$RECOVERY" -C /
 sh -n /usr/bin/sing-box-service-check
+sh -n /usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
 if ucode -c -o /dev/null /usr/lib/forkop-servicecheck/probe.uc >/dev/null 2>&1; then
     :
 elif ! /usr/bin/sing-box-service-check capabilities >/dev/null 2>&1; then
@@ -67,7 +69,7 @@ fi
 /usr/bin/sing-box-service-check capabilities >/dev/null
 
 chmod 0755 /usr/bin/sing-box-service-check /usr/bin/forkop-servicecheck
-chmod 0755 /usr/lib/forkop-servicecheck/xhttp_hotfix.sh /usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh /usr/lib/forkop-servicecheck/repair.sh
+chmod 0755 /usr/lib/forkop-servicecheck/xhttp_hotfix.sh /usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh /usr/lib/forkop-servicecheck/repair.sh /usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
 rm -rf /tmp/luci-modulecache 2>/dev/null || true
 rm -f /tmp/luci-indexcache* 2>/dev/null || true
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1 || true

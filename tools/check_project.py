@@ -105,6 +105,7 @@ def main() -> int:
         "files/usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
         "src/backend/95_zapret_strategy.part",
         "src/luci/58_zapret_strategy.part",
+        "tools/test_installer_runtime_layout.sh",
         "tools/test_zapret_strategy_worker.sh",
     ]
     for relative in required:

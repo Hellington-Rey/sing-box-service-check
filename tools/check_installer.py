@@ -34,11 +34,11 @@ def main():
     assert f'VERSION="{VERSION}"' in script
     assert f'VIEW_NAME="{LUCI_VIEW_NAME}"' in script
     assert "@@LUCI_VIEW_NAME@@" not in script
-    assert 'PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"' in script
-    assert 'OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"' in script
-    assert 'ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1111.js"' in script
-    assert 'HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1110.js"' in script
-    assert 'LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1106.js"' in script
+    assert 'PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"' in script
+    assert 'OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"' in script
+    assert 'ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"' in script
+    assert 'HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1111.js"' in script
+    assert 'LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1110.js"' in script
     assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
@@ -50,6 +50,10 @@ def main():
     assert 'apk fix --upgrade bind-libs bind-dig' in script
     assert 'command -v dig >/dev/null 2>&1 && dig -v >/dev/null 2>&1' in script
     assert "sed -n '/^__PAYLOAD_BELOW__$/,$p' \"$0\"" not in script
+    assert 'runtime_payload_paths "$TMP_DIR/usr/lib/forkop-servicecheck" "$LIB_DIR"' in script
+    assert 'install_runtime_payload "$TMP_DIR/usr/lib/forkop-servicecheck" "$LIB_DIR"' in script
+    assert 'for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh; do' in script
+    assert '[ -x "$LIB_DIR/zapret_strategy_worker.sh" ]' in script
 
     chunks = script.split(MARKER)
     assert len(chunks) >= 3, "payload heredoc is missing"
@@ -73,6 +77,11 @@ def main():
         menu = json.loads(tar.extractfile("usr/share/luci/menu.d/luci-app-forkop-servicecheck.json").read())
         view = tar.extractfile(LUCI_VIEW_PATH).read().decode("utf-8")
 
+    runtime_names = {
+        name for name in names
+        if name.startswith("usr/lib/forkop-servicecheck/") and not name.endswith("/")
+    }
+
     required = {
         "usr/bin/forkop-servicecheck",
         "usr/lib/forkop-servicecheck/probe.uc",
@@ -88,13 +97,23 @@ def main():
     }
     missing = required - names
     assert not missing, f"missing payload files: {sorted(missing)}"
-    assert "www/luci-static/resources/view/forkop/servicecheck-v1120.js" not in names
+    assert runtime_names == {
+        "usr/lib/forkop-servicecheck/probe.uc",
+        "usr/lib/forkop-servicecheck/xhttp_hotfix.sh",
+        "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh",
+        "usr/lib/forkop-servicecheck/repair.sh",
+        "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
+    }
+    assert "www/luci-static/resources/view/forkop/servicecheck-v1121.js" not in names
     assert menu["admin/services/forkop_servicecheck"]["action"]["path"] == f"forkop/{LUCI_VIEW_NAME[:-3]}"
     assert_shell("installer CLI", cli_raw)
     assert_shell("installer xHTTP fix", xhttp_fix)
     assert_shell("installer ICMP fix", icmp_fix)
     assert_shell("installer repair", repair_script)
     assert_shell("installer Zapret strategy worker", zapret_worker)
+    repair_text = repair_script.decode("utf-8")
+    for runtime_name in runtime_names:
+        assert runtime_name in repair_text, f"repair transaction misses {runtime_name}"
     assert payload_modes["usr/bin/forkop-servicecheck"] == 0o755
     assert payload_modes["usr/lib/forkop-servicecheck/xhttp_hotfix.sh"] == 0o755
     assert payload_modes["usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh"] == 0o755
@@ -105,7 +124,15 @@ def main():
         recovery_names = set(recovery_tar.getnames())
         assert "usr/bin/forkop-servicecheck" in recovery_names or "./usr/bin/forkop-servicecheck" in recovery_names
         assert LUCI_VIEW_PATH in recovery_names or f"./{LUCI_VIEW_PATH}" in recovery_names
-        assert not any(name.endswith("/servicecheck-v1120.js") for name in recovery_names)
+        for runtime_name in runtime_names:
+            assert runtime_name in recovery_names or f"./{runtime_name}" in recovery_names
+        recovery_worker_name = next(
+            name for name in recovery_names
+            if name.lstrip("./") == "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh"
+        )
+        assert recovery_tar.getmember(recovery_worker_name).mode == 0o755
+        assert recovery_tar.extractfile(recovery_worker_name).read() == zapret_worker
+        assert not any(name.endswith("/servicecheck-v1121.js") for name in recovery_names)
         assert not any(name.startswith("/") or "../" in name for name in recovery_names)
     assert payload_modes["usr/lib/forkop-servicecheck/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
@@ -287,16 +314,17 @@ def main():
         assert f"Version: {VERSION}-r1" in control
         assert "для Tachyon, Forkop и оригинального Podkop" in control
         assert "оригинального Podkop" in control
-        assert "rm -f /www/luci-static/resources/view/forkop/servicecheck-v1120.js" in postinst
+        assert "rm -f /www/luci-static/resources/view/forkop/servicecheck-v1121.js" in postinst
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
         data_names = set(data_tar.getnames())
         assert f"./{LUCI_VIEW_PATH}" in data_names
-        assert "./www/luci-static/resources/view/forkop/servicecheck-v1120.js" not in data_names
+        assert "./www/luci-static/resources/view/forkop/servicecheck-v1121.js" not in data_names
         assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
         assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
         assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())
         assert_shell("IPK ICMP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read())
         assert_shell("IPK Zapret strategy worker", data_tar.extractfile("./usr/lib/forkop-servicecheck/zapret_strategy_worker.sh").read())
+        assert data_tar.getmember("./usr/lib/forkop-servicecheck/zapret_strategy_worker.sh").mode == 0o755
         assert data_tar.extractfile("./usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8") == engine
         assert data_tar.extractfile(f"./{LUCI_VIEW_PATH}").read().decode("utf-8") == view
         assert data_tar.extractfile("./usr/share/forkop-servicecheck/version").read().decode("utf-8").strip() == version_marker

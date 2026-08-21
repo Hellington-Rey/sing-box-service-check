@@ -22,11 +22,11 @@ SHARE_DIR="/usr/share/forkop-servicecheck"
 VERSION_FILE="$SHARE_DIR/version"
 VIEW_NAME="@@LUCI_VIEW_NAME@@"
 VIEW_FILE="/www/luci-static/resources/view/forkop/$VIEW_NAME"
-PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"
-OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"
-ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1111.js"
-HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1110.js"
-LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1106.js"
+PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"
+OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"
+ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"
+HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1111.js"
+LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1110.js"
 LEGACY_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck.js"
 BROKEN_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-1.1.0.js"
 MENU_FILE="/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json"
@@ -53,6 +53,34 @@ reload_rpcd() {
     if [ -x /etc/init.d/rpcd ]; then
         /etc/init.d/rpcd restart >/dev/null 2>&1 || /etc/init.d/rpcd reload >/dev/null 2>&1 || true
     fi
+}
+
+# Эти две функции намеренно не содержат списка имён файлов: установка и
+# транзакционный откат обязаны охватывать каждый runtime-файл из payload.
+runtime_payload_paths() {
+    runtime_source_dir="$1"
+    runtime_target_dir="$2"
+    for runtime_source in "$runtime_source_dir/"*; do
+        [ -f "$runtime_source" ] || continue
+        printf '%s/%s\n' "$runtime_target_dir" "${runtime_source##*/}"
+    done
+}
+
+install_runtime_payload() {
+    runtime_source_dir="$1"
+    runtime_target_dir="$2"
+    runtime_installed=0
+    for runtime_source in "$runtime_source_dir/"*; do
+        [ -f "$runtime_source" ] || continue
+        runtime_destination="$runtime_target_dir/${runtime_source##*/}"
+        cp -f "$runtime_source" "$runtime_destination"
+        case "$runtime_destination" in
+            *.sh) chmod 0755 "$runtime_destination" ;;
+            *) chmod 0644 "$runtime_destination" ;;
+        esac
+        runtime_installed=$((runtime_installed + 1))
+    done
+    [ "$runtime_installed" -gt 0 ]
 }
 
 do_uninstall() {
@@ -259,10 +287,11 @@ transaction_paths() {
     cat <<EOF
 $BIN_PATH
 $LEGACY_BIN_PATH
-$LIB_DIR/probe.uc
-$LIB_DIR/xhttp_hotfix.sh
-$LIB_DIR/icmp_tproxy_hotfix.sh
-$LIB_DIR/repair.sh
+EOF
+    # Runtime-файлы берём из самой распакованной нагрузки. Так новый файл не
+    # сможет попасть в пакет, но выпасть из установки или отката.
+    runtime_payload_paths "$TMP_DIR/usr/lib/forkop-servicecheck" "$LIB_DIR"
+    cat <<EOF
 $SHARE_DIR/profiles.json
 $SHARE_DIR/version
 $SHARE_DIR/recovery.tar.gz
@@ -329,7 +358,10 @@ __FORKOP_SC_PAYLOAD__
 
 extract_payload || fail "Не удалось распаковать полезную нагрузку."
 
-[ -f "$TMP_DIR/usr/lib/forkop-servicecheck/probe.uc" ] || fail "В архиве нет движка проверки."
+for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh; do
+    [ -f "$TMP_DIR/usr/lib/forkop-servicecheck/$runtime_file" ] ||
+        fail "В архиве нет runtime-файла $runtime_file."
+done
 
 # --- Проверка синтаксиса до подмены живых файлов ----------------------------
 
@@ -355,6 +387,12 @@ fi
 if ! sh -n "$TMP_DIR/usr/bin/forkop-servicecheck" >/dev/null 2>&1; then
     fail "Синтаксическая ошибка в CLI - установка отменена, система не тронута."
 fi
+for runtime_script in "$TMP_DIR/usr/lib/forkop-servicecheck/"*.sh; do
+    [ -f "$runtime_script" ] || continue
+    if ! sh -n "$runtime_script" >/dev/null 2>&1; then
+        fail "Синтаксическая ошибка в ${runtime_script##*/} - установка отменена, система не тронута."
+    fi
+done
 
 # --- Установка --------------------------------------------------------------
 
@@ -368,10 +406,8 @@ mkdir -p /www/luci-static/resources/view/forkop
 
 cp -f "$TMP_DIR/usr/bin/forkop-servicecheck" "$BIN_PATH"
 cp -f "$TMP_DIR/usr/bin/forkop-servicecheck" "$LEGACY_BIN_PATH"
-cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/probe.uc" "$LIB_DIR/probe.uc"
-cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/xhttp_hotfix.sh" "$LIB_DIR/xhttp_hotfix.sh"
-cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh" "$LIB_DIR/icmp_tproxy_hotfix.sh"
-cp -f "$TMP_DIR/usr/lib/forkop-servicecheck/repair.sh" "$LIB_DIR/repair.sh"
+install_runtime_payload "$TMP_DIR/usr/lib/forkop-servicecheck" "$LIB_DIR" ||
+    fail "Не удалось установить runtime-файлы модуля"
 cp -f "$TMP_DIR/usr/share/forkop-servicecheck/profiles.json" "$SHARE_DIR/profiles.json"
 cp -f "$TMP_DIR/usr/share/forkop-servicecheck/recovery.tar.gz" "$SHARE_DIR/recovery.tar.gz"
 cp -f "$TMP_DIR/usr/share/forkop-servicecheck/recovery.sha256" "$SHARE_DIR/recovery.sha256"
@@ -381,7 +417,6 @@ cp -f "$TMP_DIR/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" "$MENU_
 cp -f "$TMP_DIR/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" "$ACL_FILE"
 
 chmod 0755 "$BIN_PATH" "$LEGACY_BIN_PATH"
-chmod 0755 "$LIB_DIR/xhttp_hotfix.sh" "$LIB_DIR/icmp_tproxy_hotfix.sh" "$LIB_DIR/repair.sh"
 chmod 0644 "$LIB_DIR/probe.uc" "$SHARE_DIR/profiles.json" "$SHARE_DIR/recovery.tar.gz" "$SHARE_DIR/recovery.sha256" "$VIEW_FILE" "$MENU_FILE" "$ACL_FILE"
 printf '%s\n' "$VERSION" > "$VERSION_FILE"
 
@@ -393,6 +428,12 @@ reload_rpcd
 # --- Проверка работоспособности ---------------------------------------------
 
 log "Проверяю установку"
+
+for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh; do
+    [ -f "$LIB_DIR/$runtime_file" ] || fail "После установки отсутствует $LIB_DIR/$runtime_file"
+done
+[ -x "$LIB_DIR/zapret_strategy_worker.sh" ] || fail "Worker подбора Zapret установлен без права запуска"
+sh -n "$LIB_DIR/zapret_strategy_worker.sh" >/dev/null 2>&1 || fail "Worker подбора Zapret повреждён после установки"
 
 if ! CAPS="$("$BIN_PATH" capabilities 2>&1)"; then
     fail "Модуль установлен, но не запускается: $CAPS"

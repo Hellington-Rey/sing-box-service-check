@@ -64,6 +64,7 @@ jobs:
           sh -n files/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh
           sh -n files/usr/lib/forkop-servicecheck/repair.sh
           sh -n files/usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
+          sh -n tools/test_installer_runtime_layout.sh
           sh -n tools/test_zapret_strategy_worker.sh
 
       - name: Build the OpenWrt ucode runtime
@@ -79,6 +80,7 @@ jobs:
 
       - name: Run shell integration tests
         run: |
+          sh tools/test_installer_runtime_layout.sh
           sh tools/test_cli_wrapper.sh
           sh tools/test_zapret_strategy_worker.sh
           sh tools/test_icmp_tproxy_hotfix.sh
