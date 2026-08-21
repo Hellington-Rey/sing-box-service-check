@@ -23,8 +23,19 @@ cat > "$TMP/backend" <<'EOF'
 case "${1:-}" in
     show_version) echo "test-backend 1.0" ;;
     get_status|get_sing_box_status)
-        [ "${MALFORMED_STATUS:-0}" = "1" ] && echo broken || echo '{"running":true}'
+        if [ "${MALFORMED_STATUS:-0}" = "1" ]; then
+            echo broken
+        elif [ "$(cat "${BACKEND_RUNNING_STATE:-/dev/null}" 2>/dev/null || echo 1)" = "1" ]; then
+            echo '{"running":true}'
+        else
+            echo '{"running":false}'
+        fi
         ;;
+    stop)
+        [ "${BACKEND_STOP_FAIL:-0}" != "1" ] || exit 1
+        printf '0\n' > "${BACKEND_RUNNING_STATE:?}"
+        ;;
+    start) printf '1\n' > "${BACKEND_RUNNING_STATE:?}" ;;
     clash_api)
         [ "${MALFORMED_CLASH:-0}" = "1" ] && echo broken || echo '{"connections":[]}'
         ;;
@@ -74,6 +85,11 @@ exit 1
 EOF
 cat > "$TMP/bin/opkg" <<'EOF'
 #!/bin/sh
+exit 0
+EOF
+cat > "$TMP/bin/nft" <<'EOF'
+#!/bin/sh
+[ "${1:-}" != "list" ] || exit 0
 exit 0
 EOF
 cat > "$TMP/bin/wg" <<'EOF'
@@ -166,12 +182,15 @@ run_engine() {
     UCI_STATE="$TMP/uci-state" \
     VPN_PROBE_STATE="$TMP/vpn-probe-count" \
     VPN_PING_LOG="$TMP/vpn-ping.log" \
+    BACKEND_RUNNING_STATE="$TMP/backend-running" \
     TACHYON_BIN="$TMP/tachyon" \
     FORKOP_BIN="$TMP/forkop" \
     PODKOP_BIN="$TMP/podkop" \
     MALFORMED_CLASH="${MALFORMED_CLASH:-0}" \
     MALFORMED_STATUS="${MALFORMED_STATUS:-0}" \
     BROKEN_DIG="${BROKEN_DIG:-0}" \
+    BACKEND_STOP_FAIL="${BACKEND_STOP_FAIL:-0}" \
+    FORKOP_SC_BLOCKCHECK2="$TMP/blockcheck2.sh" \
     "$UCODE_BIN" -L "$LIB" "$ENGINE" "$@"
 }
 
@@ -192,6 +211,7 @@ PY
 cp "$TMP/backend" "$TMP/tachyon"
 cp "$TMP/backend" "$TMP/forkop"
 cp "$TMP/backend" "$TMP/podkop"
+printf '1\n' > "$TMP/backend-running"
 assert_caps tachyon
 
 rm "$TMP/tachyon"
@@ -537,6 +557,94 @@ import json, os
 data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is False, data
 assert data["message"] == "некорректный ListenPort", data
+PY
+
+cat > "$TMP/zapret2.log" <<'EOF'
+- curl_test_https_tls13 ipv4 www.youtube.com : nfqws2 --qnum=999 --fwmark=0x1 --hostlist=/tmp/unsafe --payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls
+UNAVAILABLE
+* SUMMARY
+curl_test_https_tls13 ipv4 www.youtube.com : nfqws2 --qnum=999 --fwmark=0x1 --hostlist=/tmp/unsafe --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 youtubei.googleapis.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 i.ytimg.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 redirector.googlevideo.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 discord.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 gateway.discord.gg : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 cdn.discordapp.com : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 media.discordapp.net : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 web.telegram.org : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 telegram.org : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 api.telegram.org : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_https_tls13 ipv4 t.me : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld
+curl_test_http3 ipv4 www.youtube.com : nfqws2 --payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=6
+curl_test_http3 ipv4 youtubei.googleapis.com : nfqws2 --payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=6
+EOF
+ZAPRET_JSON="$(run_engine zapret-parse-log "$TMP/zapret2.log" zapret2)" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+variants = data["results"]["variants"]
+assert variants, data
+best = variants[0]
+assert best["score"] == 12 and best["complete"] is True, best
+assert [(m["id"], m["ok"], m["total"]) for m in best["services"]] == [
+    ("youtube", 4, 4), ("discord", 4, 4), ("telegram", 4, 4)
+], best
+strategy = best["forkop_strategy"]
+assert "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello" in strategy, strategy
+assert "--new --filter-udp=443 --filter-l7=quic --payload=quic_initial" in strategy, strategy
+for forbidden in ("--qnum", "--fwmark", "--hostlist"):
+    assert forbidden not in strategy, strategy
+assert data["results"]["failed"], data
+PY
+
+cat > "$TMP/blockcheck2.sh" <<'EOF'
+#!/bin/sh
+sleep 1
+for host in $DOMAINS; do
+    printf '%s\n' "curl_test_https_tls13 ipv4 $host : nfqws2 --payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld"
+done
+EOF
+chmod +x "$TMP/blockcheck2.sh"
+rm -f "$TMP/tachyon" "$TMP/podkop"
+cp "$TMP/backend" "$TMP/forkop"
+printf '1\n' > "$TMP/backend-running"
+
+if failed_start="$(BACKEND_STOP_FAIL=1 run_engine zapret-start zapret2 quick)"; then
+    echo "zapret start must fail when backend cannot be stopped" >&2
+    exit 1
+fi
+ZAPRET_JSON="$failed_start" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+assert data["success"] is False, data
+assert "останов" in data["message"].lower(), data
+PY
+[ "$(cat "$TMP/backend-running")" = "1" ]
+
+start_json="$(run_engine zapret-start zapret2 quick)"
+ZAPRET_JSON="$start_json" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+assert data["success"] is True and data["job_id"].startswith("zapret-"), data
+PY
+job_id="$(ZAPRET_JSON="$start_json" python3 -c 'import json, os; print(json.loads(os.environ["ZAPRET_JSON"])["job_id"])' | tr -d '\r')"
+[ "$(cat "$TMP/backend-running")" = "0" ]
+
+attempt=0
+while [ "$attempt" -lt 50 ]; do
+    status_json="$(run_engine zapret-status "$job_id")"
+    running="$(ZAPRET_JSON="$status_json" python3 -c 'import json, os; print("1" if json.loads(os.environ["ZAPRET_JSON"])["running"] else "0")' | tr -d '\r')"
+    [ "$running" = "1" ] || break
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+[ "$running" = "0" ]
+[ "$(cat "$TMP/backend-running")" = "1" ]
+ZAPRET_JSON="$status_json" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["ZAPRET_JSON"])
+assert data["success"] is True, data
+assert data["services_restored"] is True, data
+assert data["results"] and data["results"][0]["score"] == 12, data
 PY
 
 echo "backend runtime matrix: OK"

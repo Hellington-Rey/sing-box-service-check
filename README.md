@@ -51,6 +51,8 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Диагностика backend, Clash API, DNS и FakeIP, а также самопроверка и восстановление установки из локальной recovery-копии.
 - Вкладка **VPN**: безопасный импорт WireGuard или AWG Tools (AWG 1.5/2.0/3.0) из текста либо файла `.conf`/`.wg`; DNS, `FwMark`, фиксированный `ListenPort` и системные маршруты не изменяются, адреса ограничиваются `/32` и `/128`, а активная и ручная проверки отправляют тестовый пакет строго через VPN-интерфейс.
 - Локальный конвертер **VLESS ↔ sing-box JSON** во вкладке VPN: поддерживает TLS, REALITY, uTLS, ALPN, TCP, WebSocket, gRPC, HTTP/2, HTTPUpgrade и QUIC; ссылки и UUID не покидают браузер.
+- Под-вкладка **Подбор стратегии Zapret**: запускает установленный штатный `blockcheck.sh` или `blockcheck2.sh`, проверяет по четыре endpoint’а YouTube, Discord и Telegram, ранжирует несколько вариантов и отдельно сворачивает полностью нерабочие стратегии.
+- Режим **Под формат Forkop** удаляет служебные `qnum`, `fwmark`, hostlist/ipset и process-management аргументы, добавляет правильные фильтры профилей Zapret/Zapret2 и выдаёт одну строку для поля `NFQWS Strategy` либо `NFQWS2 Strategy` в секции Forkop.
 
 ## Как это работает
 
@@ -70,13 +72,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.11.2-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.12.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.11.2-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.12.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -194,6 +196,12 @@ sing-box-service-check dns example.com
 ```sh
 sing-box-service-check vpn-check awg0 1.1.1.1
 ```
+
+## Подбор стратегии Zapret
+
+Во вкладке **VPN → Подбор стратегии Zapret** выбирается установленный движок Zapret или Zapret2 и глубина перебора. Перед запуском модуль запоминает активные Forkop, Tachyon, Podkop и самостоятельные сервисы Zapret, останавливает их и повторно проверяет состояние. После завершения, отмены или таймаута запускаются только те сервисы, которые работали до теста. Установленные `blockcheck.sh`/`blockcheck2.sh` запускаются напрямую; конфиги Zapret и Forkop не переписываются.
+
+Результаты сгруппированы по полной и частичной работоспособности, а нерабочие варианты находятся в отдельном свёрнутом списке. У каждого варианта показано число успешных проверок YouTube, Discord и Telegram. Переключатель **«Под формат Forkop»** выдаёт одну готовую строку без оболочки `NFQWS_OPT=...`: для действия **Zapret** её нужно вставить в поле **NFQWS Strategy**, для действия **Zapret2** — в **NFQWS2 Strategy**. В строке уже убраны параметры очереди, `fwmark`, управление процессом, hostlist/ipset и добавлены фильтры профиля, которые Forkop ожидает назначать сам.
 
 ## Профили и диагностика установки
 

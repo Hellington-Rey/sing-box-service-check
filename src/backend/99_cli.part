@@ -28,6 +28,18 @@ else if (mode == "vpn-create")
     exit(vpn_create(ARGV[1], ARGV[2], ARGV[3], ARGV[4]));
 else if (mode == "vpn-check")
     exit(vpn_check(ARGV[1], ARGV[2]));
+else if (mode == "zapret-capabilities") {
+    write_json(zapret_strategy_capabilities());
+    exit(0);
+}
+else if (mode == "zapret-start")
+    exit(zapret_strategy_start(ARGV[1], ARGV[2]));
+else if (mode == "zapret-status")
+    exit(zapret_strategy_status(ARGV[1]));
+else if (mode == "zapret-cancel")
+    exit(zapret_strategy_cancel(ARGV[1]));
+else if (mode == "zapret-parse-log")
+    exit(zapret_parse_log_command(ARGV[1], ARGV[2]));
 else if (mode == "custom") {
     let result = custom_check(ARGV[1], ARGV[2], ARGV[3], ARGV[4]);
     write_json(result);

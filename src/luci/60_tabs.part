@@ -244,15 +244,21 @@
     ]);
     function showVpnTool(name) {
       var showVless = name === "vless";
+      var showTunnel = name === "tunnel";
+      var showZapret = name === "zapret";
       vlessVpnTab.classList.toggle("active", showVless);
-      tunnelVpnTab.classList.toggle("active", !showVless);
+      tunnelVpnTab.classList.toggle("active", showTunnel);
+      zapretVpnTab.classList.toggle("active", showZapret);
       vlessVpnTab.setAttribute("aria-selected", showVless ? "true" : "false");
-      tunnelVpnTab.setAttribute("aria-selected", showVless ? "false" : "true");
+      tunnelVpnTab.setAttribute("aria-selected", showTunnel ? "true" : "false");
+      zapretVpnTab.setAttribute("aria-selected", showZapret ? "true" : "false");
       vlessVpnPanel.classList.toggle("active", showVless);
-      tunnelVpnPanel.classList.toggle("active", !showVless);
+      tunnelVpnPanel.classList.toggle("active", showTunnel);
+      zapretVpnPanel.classList.toggle("active", showZapret);
     }
     vlessVpnTab.addEventListener("click", function () { showVpnTool("vless"); });
     tunnelVpnTab.addEventListener("click", function () { showVpnTool("tunnel"); });
+    zapretVpnTab.addEventListener("click", function () { showVpnTool("zapret"); });
 
     var checkTab = E("button", { class: "fkpsc-tab active", type: "button", role: "tab", "aria-selected": "true" }, "Проверка сервисов");
     var dnsTab = E("button", { class: "fkpsc-tab", type: "button", role: "tab", "aria-selected": "false" }, "Тест DNS");
@@ -311,7 +317,8 @@
     ]);
     var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
     var vpnPage = E("div", { class:"fkpsc-page" }, [
-      E("div", { class:"fkpsc-vpn-tabs", role:"tablist", "aria-label":"Инструменты VPN" }, [vlessVpnTab, tunnelVpnTab]),
+      E("div", { class:"fkpsc-vpn-tabs", role:"tablist", "aria-label":"Инструменты VPN" }, [vlessVpnTab, tunnelVpnTab, zapretVpnTab]),
       vlessVpnPanel,
       tunnelVpnPanel,
+      zapretVpnPanel,
     ]);

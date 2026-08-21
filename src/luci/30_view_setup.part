@@ -26,6 +26,9 @@ return view.extend({
       callBin(["vpn-interfaces"]).catch(function () {
         return { success: false, interfaces: [] };
       }),
+      callBin(["zapret-capabilities"]).catch(function () {
+        return { success: false, ready: false, providers: {}, running_backends: [], message: "Автоподбор недоступен" };
+      }),
     ]);
   },
 
@@ -39,6 +42,7 @@ return view.extend({
     var historyData = data[4] || { entries: [] };
     var vpnPackages = data[5] || { wireguard: {}, amneziawg: {} };
     var vpnInterfacesData = data[6] || { success: false, interfaces: [] };
+    var zapretCapabilities = data[7] || { success: false, ready: false, providers: {}, running_backends: [] };
     var profilesDraft = profilesData && profilesData.config ?
       JSON.parse(JSON.stringify(profilesData.config)) : { version: 2, profiles: [] };
     if (!Array.isArray(profilesDraft.profiles)) {

@@ -32,6 +32,7 @@ const NETNS_VETH_HOST = "fkpsc0";
 const NETNS_VETH_PEER = "fkpsc1";
 const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
 const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
+const ZAPRET_STRATEGY_WORKER = LIB_DIR + "/zapret_strategy_worker.sh";
 const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
 const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
 const REPAIR_SCRIPT = LIB_DIR + "/repair.sh";
@@ -45,6 +46,22 @@ const TOTAL_TIMEOUT = 15;
 const SLOW_THRESHOLD_MS = 5000;
 const JOB_MAX_AGE = 1800;
 const DNS_MATRIX_TIMEOUT = 5;
+const ZAPRET_JOB_MAX_AGE = 3900;
+
+const ZAPRET_STRATEGY_TARGETS = [
+    { id: "youtube_web", service: "youtube", title: "YouTube Web", host: "www.youtube.com" },
+    { id: "youtube_api", service: "youtube", title: "YouTube API", host: "youtubei.googleapis.com" },
+    { id: "youtube_images", service: "youtube", title: "YouTube Images", host: "i.ytimg.com" },
+    { id: "youtube_video", service: "youtube", title: "Google Video", host: "redirector.googlevideo.com" },
+    { id: "discord_web", service: "discord", title: "Discord Web", host: "discord.com" },
+    { id: "discord_gateway", service: "discord", title: "Discord Gateway", host: "gateway.discord.gg" },
+    { id: "discord_cdn", service: "discord", title: "Discord CDN", host: "cdn.discordapp.com" },
+    { id: "discord_media", service: "discord", title: "Discord Media", host: "media.discordapp.net" },
+    { id: "telegram_web", service: "telegram", title: "Telegram Web", host: "web.telegram.org" },
+    { id: "telegram_site", service: "telegram", title: "Telegram", host: "telegram.org" },
+    { id: "telegram_api", service: "telegram", title: "Telegram API", host: "api.telegram.org" },
+    { id: "telegram_links", service: "telegram", title: "Telegram Links", host: "t.me" }
+];
 
 // Набор резолверов перенесён из checkdns.sh проекта clarkxkent/checkdns.
 // Храним его локально: проверка не зависит от GitHub и не исполняет удалённый код.
@@ -2843,7 +2860,7 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1112.js" ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1120.js" ],
         [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
         [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
     ];
@@ -2856,6 +2873,12 @@ function doctor() {
     let shell_ok = capture_args([ "sh", "-n", "/usr/bin/sing-box-service-check" ], true).status == 0;
     push(checks, { id: "shell_syntax", ok: shell_ok, critical: true, message: shell_ok ? "CLI: синтаксис корректен" : "CLI: синтаксическая ошибка" });
     healthy = healthy && shell_ok;
+
+    let zapret_worker_ok = fs.stat(ZAPRET_STRATEGY_WORKER) != null &&
+        capture_args([ "sh", "-n", ZAPRET_STRATEGY_WORKER ], true).status == 0;
+    push(checks, { id: "zapret_worker_syntax", ok: zapret_worker_ok, critical: true,
+        message: zapret_worker_ok ? "worker подбора Zapret: синтаксис корректен" : "worker подбора Zapret отсутствует или повреждён" });
+    healthy = healthy && zapret_worker_ok;
 
     let ucode_check = capture_args([ "ucode", "-c", "-o", "/dev/null", ENGINE ], true);
     let ucode_ok = ucode_check.status == 0 || index(lc(ucode_check.output), "invalid option") >= 0;
@@ -2918,18 +2941,25 @@ function cleanup_jobs() {
     for (let path in fs.glob(STATE_DIR + "/*.json")) {
         let state = object_or_empty(read_json_file(path));
         let started = int(state.started_at || 0);
-        if (started > 0 && now - started > JOB_MAX_AGE) {
+        let max_age = as_string(state.kind) == "zapret_strategy" ? ZAPRET_JOB_MAX_AGE : JOB_MAX_AGE;
+        if (started > 0 && now - started > max_age) {
             let job_id = as_string(state.job_id);
             let pid_path = job_pid_path(job_id);
             let pid = trim(as_string(fs.readfile(pid_path)));
             let cmdline = match(pid, /^[0-9]+$/) != null
                 ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
-            if (cmdline != "" && index(cmdline, ENGINE) >= 0 && index(cmdline, path) >= 0)
+            let owned = cmdline != "" && index(cmdline, path) >= 0 &&
+                (index(cmdline, ENGINE) >= 0 || index(cmdline, ZAPRET_STRATEGY_WORKER) >= 0);
+            if (owned)
                 run_quiet([ "kill", "-TERM", pid ]);
             if (as_string(state.mode) == "netns")
                 netns_teardown();
             if (pid_path != "")
                 fs.unlink(pid_path);
+            if (as_string(state.kind) == "zapret_strategy") {
+                fs.unlink(STATE_DIR + "/" + job_id + ".zapret.log");
+                fs.unlink(STATE_DIR + "/" + job_id + ".zapret.done");
+            }
             fs.unlink(path);
         }
     }
@@ -3128,7 +3158,10 @@ function cancel_job(job_id) {
     state.success = false;
     state.finished_at = now_seconds();
     state.message = as_string(state.kind) == "dns_test"
-        ? "тест DNS остановлен пользователем" : "проверка остановлена пользователем";
+        ? "тест DNS остановлен пользователем"
+        : (as_string(state.kind) == "zapret_strategy"
+            ? "подбор стратегии остановлен пользователем"
+            : "проверка остановлена пользователем");
     let record_history = as_string(state.kind) == "service_check";
     state.history_saved = record_history;
     write_state(path, state);
@@ -3136,7 +3169,9 @@ function cancel_job(job_id) {
     let pid = trim(as_string(fs.readfile(pid_path)));
     let cmdline = match(pid, /^[0-9]+$/) != null
         ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
-    if (cmdline != "" && index(cmdline, ENGINE) >= 0 && index(cmdline, path) >= 0)
+    let owned = cmdline != "" && index(cmdline, path) >= 0 &&
+        (index(cmdline, ENGINE) >= 0 || index(cmdline, ZAPRET_STRATEGY_WORKER) >= 0);
+    if (owned)
         run_quiet([ "kill", "-TERM", pid ]);
     if (pid_path != "")
         fs.unlink(pid_path);
@@ -3216,6 +3251,612 @@ function gemini_key_status() {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Автоподбор стратегий Zapret / Zapret2 через штатный blockcheck.
+// ---------------------------------------------------------------------------
+
+function zapret_backend_binary(id) {
+    if (id == "tachyon") return TACHYON_BIN;
+    if (id == "forkop") return FORKOP_BIN;
+    if (id == "podkop") return PODKOP_BIN;
+    return "";
+}
+
+function zapret_backend_running(id) {
+    let binary = zapret_backend_binary(id);
+    if (binary == "" || fs.stat(binary) == null)
+        return false;
+
+    let command = id == "podkop" ? "get_sing_box_status" : "get_status";
+    let result = capture_args([ binary, command ], false);
+    if (result.status == 0) {
+        let state = object_or_empty(parse_json(result.output));
+        if (state.running === true || int(state.running) == 1)
+            return true;
+        if (state.running === false || (state.running != null && int(state.running) == 0))
+            return false;
+    }
+
+    let init = "/etc/init.d/" + id;
+    if (fs.stat(init) != null && run_quiet([ init, "status" ]))
+        return true;
+    return id == backend_id() && run_quiet([ "pgrep", "-f", "sing-box" ]);
+}
+
+function zapret_running_backends() {
+    let result = [];
+    for (let id in [ "tachyon", "forkop", "podkop" ])
+        if (zapret_backend_running(id))
+            push(result, id);
+    return result;
+}
+
+function zapret_service_running(id) {
+    let init = "/etc/init.d/" + id;
+    return fs.stat(init) != null && run_quiet([ init, "status" ]);
+}
+
+function zapret_stop_service(id) {
+    let init = "/etc/init.d/" + id;
+    if (fs.stat(init) != null)
+        return run_quiet([ init, "stop" ]);
+    let binary = zapret_backend_binary(id);
+    return binary != "" && fs.stat(binary) != null && run_quiet([ binary, "stop" ]);
+}
+
+function zapret_start_service(id) {
+    if (id == "zapret-service" || id == "zapret2-service") {
+        let name = id == "zapret-service" ? "zapret" : "zapret2";
+        let init = "/etc/init.d/" + name;
+        return fs.stat(init) != null && run_quiet([ init, "start" ]);
+    }
+    let init = "/etc/init.d/" + id;
+    if (fs.stat(init) != null)
+        return run_quiet([ init, "start" ]);
+    let binary = zapret_backend_binary(id);
+    return binary != "" && fs.stat(binary) != null && run_quiet([ binary, "start" ]);
+}
+
+function zapret_restore_services(items) {
+    let success = true;
+    for (let id in array_or_empty(items))
+        if (!zapret_start_service(as_string(id)))
+            success = false;
+    return success;
+}
+
+function zapret_find_blockcheck(provider) {
+    let candidates = provider == "zapret2"
+        ? [
+            getenv("FORKOP_SC_BLOCKCHECK2"),
+            "/opt/zapret2/blockcheck2.sh",
+            "/opt/zapret/blockcheck2.sh",
+            "/usr/share/zapret2/blockcheck2.sh"
+        ]
+        : [
+            getenv("FORKOP_SC_BLOCKCHECK"),
+            "/opt/zapret/blockcheck.sh",
+            "/usr/share/zapret/blockcheck.sh"
+        ];
+    for (let path in candidates) {
+        path = trim(as_string(path));
+        if (path != "" && fs.stat(path) != null)
+            return path;
+    }
+    return "";
+}
+
+function zapret_strategy_capabilities() {
+    cleanup_jobs();
+    let running = zapret_running_backends();
+    let zapret_path = zapret_find_blockcheck("zapret");
+    let zapret2_path = zapret_find_blockcheck("zapret2");
+    let active_job = "";
+    for (let path in fs.glob(STATE_DIR + "/zapret-*.json")) {
+        let state = object_or_empty(read_json_file(path));
+        if (as_string(state.kind) == "zapret_strategy" && state.running === true) {
+            active_job = as_string(state.job_id);
+            break;
+        }
+    }
+    return {
+        success: true,
+        ready: zapret_path != "" || zapret2_path != "",
+        providers: {
+            zapret: { ready: zapret_path != "", blockcheck: zapret_path, label: "Zapret" },
+            zapret2: { ready: zapret2_path != "", blockcheck: zapret2_path, label: "Zapret2" }
+        },
+        dependencies: {
+            curl: command_exists("curl"),
+            nft: command_exists("nft"),
+            conntrack: command_exists("conntrack")
+        },
+        running_backends: running,
+        backend_must_stop: length(running) > 0,
+        worker_ready: fs.stat(ZAPRET_STRATEGY_WORKER) != null,
+        active_job,
+        targets: ZAPRET_STRATEGY_TARGETS,
+        message: zapret_path == "" && zapret2_path == ""
+            ? "Не найден штатный blockcheck Zapret или Zapret2"
+            : (length(running) > 0
+                ? "Перед подбором активный backend будет временно остановлен и затем восстановлен"
+                : "Backend уже остановлен; подбор можно запускать")
+    };
+}
+
+function zapret_job_log_path(job_id) {
+    return job_id_valid(job_id) ? STATE_DIR + "/" + as_string(job_id) + ".zapret.log" : "";
+}
+
+function zapret_job_done_path(job_id) {
+    return job_id_valid(job_id) ? STATE_DIR + "/" + as_string(job_id) + ".zapret.done" : "";
+}
+
+function zapret_strategy_hosts() {
+    let result = [];
+    for (let target in ZAPRET_STRATEGY_TARGETS)
+        push(result, as_string(target.host));
+    return join(" ", result);
+}
+
+function zapret_stop_for_test() {
+    let restore = [];
+    let running = zapret_running_backends();
+    for (let id in running) {
+        if (!zapret_stop_service(id)) {
+            zapret_restore_services(restore);
+            return { success: false, restore, message: "Не удалось остановить " + backend_name(id) };
+        }
+        push(restore, id);
+    }
+
+    for (let provider in [ "zapret", "zapret2" ]) {
+        if (!zapret_service_running(provider))
+            continue;
+        if (!run_quiet([ "/etc/init.d/" + provider, "stop" ])) {
+            zapret_restore_services(restore);
+            return { success: false, restore, message: "Не удалось остановить самостоятельный сервис " + provider };
+        }
+        push(restore, provider + "-service");
+    }
+
+    run_quiet([ "sleep", "1" ]);
+    let remaining = zapret_running_backends();
+    if (length(remaining) > 0 || zapret_service_running("zapret") || zapret_service_running("zapret2")) {
+        zapret_restore_services(restore);
+        return {
+            success: false,
+            restore,
+            message: "Проверка остановки не пройдена: активны " + join(", ", remaining)
+        };
+    }
+
+    return { success: true, restore, message: "Все конфликтующие сервисы остановлены" };
+}
+
+function zapret_active_job() {
+    for (let path in fs.glob(STATE_DIR + "/zapret-*.json")) {
+        let state = object_or_empty(read_json_file(path));
+        if (as_string(state.kind) == "zapret_strategy" && state.running === true)
+            return as_string(state.job_id);
+    }
+    return "";
+}
+
+function zapret_strategy_start(provider, scan_level) {
+    ensure_state_dir();
+    cleanup_jobs();
+    provider = lc(trim(as_string(provider)));
+    scan_level = lc(trim(as_string(scan_level)));
+    if (provider != "zapret" && provider != "zapret2") {
+        write_json({ success: false, message: "Выберите Zapret или Zapret2" });
+        return 1;
+    }
+    if (scan_level != "quick" && scan_level != "standard" && scan_level != "force") {
+        write_json({ success: false, message: "Неизвестная глубина подбора" });
+        return 1;
+    }
+    if (fs.stat(ZAPRET_STRATEGY_WORKER) == null) {
+        write_json({ success: false, message: "Скрипт подбора отсутствует в пакете" });
+        return 1;
+    }
+    if (!command_exists("curl") || !command_exists("nft")) {
+        write_json({ success: false, message: "Для blockcheck требуются curl и nftables" });
+        return 1;
+    }
+    let blockcheck = zapret_find_blockcheck(provider);
+    if (blockcheck == "") {
+        write_json({ success: false, message: "Штатный blockcheck для " + provider + " не найден" });
+        return 1;
+    }
+    let active = zapret_active_job();
+    if (active != "") {
+        write_json({ success: false, message: "Подбор уже выполняется", job_id: active });
+        return 1;
+    }
+
+    let stopped = zapret_stop_for_test();
+    if (!stopped.success) {
+        write_json(stopped);
+        return 1;
+    }
+
+    let job_id = sprintf("zapret-%d-%d", now_seconds(), int(now_ms() % 100000));
+    let path = job_path(job_id);
+    let pid_path = job_pid_path(job_id);
+    let log_path = zapret_job_log_path(job_id);
+    let done_path = zapret_job_done_path(job_id);
+    let timeout_seconds = scan_level == "quick" ? 600 : (scan_level == "standard" ? 1200 : 3600);
+    let state = {
+        kind: "zapret_strategy",
+        job_id,
+        running: true,
+        success: false,
+        started_at: now_seconds(),
+        finished_at: 0,
+        provider,
+        scan_level,
+        blockcheck,
+        restore_services: stopped.restore,
+        services_restored: false,
+        progress: { done: 0, total: length(ZAPRET_STRATEGY_TARGETS) * 3 },
+        message: "Подготовка blockcheck"
+    };
+    if (!write_state(path, state)) {
+        zapret_restore_services(stopped.restore);
+        write_json({ success: false, message: "Не удалось записать состояние подбора" });
+        return 1;
+    }
+
+    let launch = command_from_args([
+        "sh", "-c", "pid_file=$1; shift; echo $$ > \"$pid_file\"; exec \"$@\"",
+        "zapret-strategy-worker", pid_path,
+        "sh", ZAPRET_STRATEGY_WORKER, path, log_path, done_path, provider,
+        scan_level, blockcheck, zapret_strategy_hosts(), join(",", stopped.restore),
+        as_string(timeout_seconds)
+    ]);
+    system("(" + launch + " >/dev/null 2>&1 &)");
+    write_json({ success: true, job_id, provider, scan_level, progress: state.progress, message: stopped.message });
+    return 0;
+}
+
+function zapret_target_for_host(host) {
+    host = lc(trim(as_string(host)));
+    for (let target in ZAPRET_STRATEGY_TARGETS)
+        if (lc(as_string(target.host)) == host)
+            return target;
+    return null;
+}
+
+function zapret_unsafe_option(base, provider) {
+    if (base == "--qnum" || base == "--pidfile" || base == "--user" || base == "--uid" ||
+        base == "--daemon" || base == "--dry-run" || base == "--version" || base == "--fuzz")
+        return true;
+    if (base == "--dpi-desync-fwmark" || base == "--fwmark")
+        return true;
+    if (index(base, "--hostlist") == 0 || index(base, "--ipset") == 0)
+        return true;
+    if (base == "--filter-tcp" || base == "--filter-udp" || base == "--filter-l7" || base == "--payload")
+        return true;
+    if (provider == "zapret2" && (base == "--lua-init" || base == "--intercept"))
+        return true;
+    return false;
+}
+
+function zapret_clean_strategy(value, provider) {
+    let result = [];
+    let skip_value = false;
+    for (let token in words(value)) {
+        if (skip_value) {
+            skip_value = false;
+            continue;
+        }
+        if (substr(token, 0, 1) == "@" || substr(token, 0, 1) == "$")
+            continue;
+        let base = replace(token, /=.*$/, "");
+        if (zapret_unsafe_option(base, provider)) {
+            if (token == base && (base == "--qnum" || base == "--pidfile" || base == "--user" ||
+                base == "--uid" || base == "--dpi-desync-fwmark" || base == "--fwmark" ||
+                index(base, "--hostlist") == 0 || index(base, "--ipset") == 0 ||
+                base == "--filter-tcp" || base == "--filter-udp" || base == "--filter-l7" ||
+                base == "--payload" || base == "--lua-init"))
+                skip_value = true;
+            continue;
+        }
+        if (base != "--new")
+            push(result, token);
+    }
+    return join(" ", result);
+}
+
+function zapret_profile(provider, protocol, strategy) {
+    strategy = zapret_clean_strategy(strategy, provider);
+    if (strategy == "")
+        return "";
+    if (provider == "zapret2")
+        return protocol == "quic"
+            ? "--filter-udp=443 --filter-l7=quic --payload=quic_initial " + strategy
+            : "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello " + strategy;
+    return (protocol == "quic" ? "--filter-udp=443 " : "--filter-tcp=443 ") + strategy;
+}
+
+function zapret_candidate(map, strategy, provider, protocol) {
+    strategy = zapret_clean_strategy(strategy, provider);
+    if (strategy == "")
+        return null;
+    if (map[strategy] == null)
+        map[strategy] = { strategy, protocol, hits: {}, attempts: 0, failures: 0 };
+    return map[strategy];
+}
+
+function zapret_parse_log(path, provider) {
+    let data = as_string(fs.readfile(path));
+    let successes = { tls: {}, quic: {} };
+    let attempts = { tls: {}, quic: {} };
+    let direct = {};
+    let current = null;
+    let completed = {};
+    let last_line = "";
+
+    for (let line in split(data, "\n")) {
+        line = trim(as_string(line));
+        if (line != "")
+            last_line = length(line) > 240 ? substr(line, 0, 240) + "…" : line;
+
+        let running = match(line, /^- (curl_test_https_tls12|curl_test_https_tls13|curl_test_http3) ipv4 ([^ ]+) : (nfqws2?) (.*)$/);
+        if (running != null) {
+            let protocol = running[1] == "curl_test_http3" ? "quic" : "tls";
+            let candidate = zapret_candidate(attempts[protocol], running[4], provider, protocol);
+            if (candidate != null) {
+                candidate.attempts++;
+                current = candidate;
+            }
+            continue;
+        }
+        if (index(line, "UNAVAILABLE") >= 0) {
+            if (current != null)
+                current.failures++;
+            current = null;
+            continue;
+        }
+        if (index(line, "!!!!! AVAILABLE !!!!!") >= 0) {
+            current = null;
+            continue;
+        }
+
+        let finished = match(line, /^!!!!! (curl_test_https_tls12|curl_test_https_tls13|curl_test_http3): working strategy found for ipv4 ([^ ]+)/);
+        if (finished != null) {
+            let completion_key = finished[1] + ":" + finished[2];
+            completed[completion_key] = true;
+        }
+        let not_found = match(line, /^(curl_test_https_tls12|curl_test_https_tls13|curl_test_http3): nfqws2? strategy for ipv4 ([^ ]+) not found/);
+        if (not_found != null)
+            completed[not_found[1] + ":" + not_found[2]] = true;
+
+        let summary = match(line, /^(curl_test_https_tls12|curl_test_https_tls13|curl_test_http3) ipv4 ([^ ]+) : (.*)$/);
+        if (summary == null)
+            continue;
+        let target = zapret_target_for_host(summary[2]);
+        if (target == null)
+            continue;
+        completed[summary[1] + ":" + summary[2]] = true;
+        let value = as_string(summary[3]);
+        if (value == "working without bypass") {
+            direct[as_string(target.id)] = true;
+            continue;
+        }
+        let daemon = provider == "zapret2" ? "nfqws2 " : "nfqws ";
+        if (index(value, daemon) != 0 || index(value, daemon + "not working") == 0)
+            continue;
+        let protocol = summary[1] == "curl_test_http3" ? "quic" : "tls";
+        let candidate = zapret_candidate(successes[protocol], substr(value, length(daemon)), provider, protocol);
+        if (candidate != null)
+            candidate.hits[as_string(target.id)] = true;
+    }
+
+    return {
+        successes,
+        attempts,
+        direct,
+        completed: length(keys(completed)),
+        last_line
+    };
+}
+
+function zapret_service_metrics(hits) {
+    let result = [];
+    for (let service in [
+        { id: "youtube", title: "YouTube" },
+        { id: "discord", title: "Discord" },
+        { id: "telegram", title: "Telegram" }
+    ]) {
+        let ok = 0;
+        let total = 0;
+        for (let target in ZAPRET_STRATEGY_TARGETS) {
+            if (target.service != service.id)
+                continue;
+            total++;
+            if (hits[as_string(target.id)])
+                ok++;
+        }
+        push(result, { id: service.id, title: service.title, ok, total });
+    }
+    return result;
+}
+
+function zapret_hit_count(hits) {
+    return length(keys(object_or_empty(hits)));
+}
+
+function zapret_ranked_candidates(map) {
+    let result = [];
+    for (let key in keys(map)) {
+        let item = map[key];
+        let score = zapret_hit_count(item.hits);
+        let inserted = false;
+        for (let i = 0; i < length(result); i++) {
+            if (score > zapret_hit_count(result[i].hits)) {
+                let next = [];
+                for (let j = 0; j < i; j++) push(next, result[j]);
+                push(next, item);
+                for (let j = i; j < length(result); j++) push(next, result[j]);
+                result = next;
+                inserted = true;
+                break;
+            }
+        }
+        if (!inserted)
+            push(result, item);
+    }
+    return result;
+}
+
+function zapret_raw_format(provider, strategy) {
+    let variable = provider == "zapret2" ? "NFQWS2_OPT" : "NFQWS_OPT";
+    return variable + "=\"\n" + replace(strategy, / --new /g, "\n--new\n") + "\n\"";
+}
+
+function zapret_results(parsed, provider) {
+    let tls = zapret_ranked_candidates(parsed.successes.tls);
+    let quic = zapret_ranked_candidates(parsed.successes.quic);
+    let best_quic = length(quic) > 0 ? quic[0] : null;
+    let variants = [];
+    let limit = length(tls) < 12 ? length(tls) : 12;
+    for (let i = 0; i < limit; i++) {
+        let tcp_profile = zapret_profile(provider, "tls", tls[i].strategy);
+        let udp_profile = best_quic == null ? "" : zapret_profile(provider, "quic", best_quic.strategy);
+        let forkop = tcp_profile + (udp_profile == "" ? "" : " --new " + udp_profile);
+        let score = zapret_hit_count(tls[i].hits);
+        push(variants, {
+            id: "strategy-" + as_string(i + 1),
+            provider,
+            score,
+            total: length(ZAPRET_STRATEGY_TARGETS),
+            complete: score == length(ZAPRET_STRATEGY_TARGETS),
+            services: zapret_service_metrics(tls[i].hits),
+            quic_coverage: best_quic == null ? 0 : zapret_hit_count(best_quic.hits),
+            forkop_strategy: forkop,
+            raw_strategy: zapret_raw_format(provider, forkop)
+        });
+    }
+
+    let failed = [];
+    let failed_total = 0;
+    for (let protocol in [ "tls", "quic" ]) {
+        for (let key in keys(parsed.attempts[protocol])) {
+            if (parsed.successes[protocol][key] != null)
+                continue;
+            let item = parsed.attempts[protocol][key];
+            if (item.failures < 1)
+                continue;
+            failed_total++;
+            if (length(failed) < 40)
+                push(failed, {
+                    protocol,
+                    attempts: item.attempts,
+                    strategy: zapret_profile(provider, protocol, item.strategy)
+                });
+        }
+    }
+
+    return {
+        variants,
+        failed,
+        failed_total,
+        direct: parsed.direct,
+        best_quic_coverage: best_quic == null ? 0 : zapret_hit_count(best_quic.hits)
+    };
+}
+
+function zapret_strategy_status(job_id) {
+    let path = job_path(job_id);
+    if (path == "" || fs.stat(path) == null) {
+        write_json({ success: false, running: false, message: "Задание подбора не найдено" });
+        return 1;
+    }
+    let state = object_or_empty(read_json_file(path));
+    if (as_string(state.kind) != "zapret_strategy") {
+        write_json({ success: false, running: false, message: "Это не задание подбора Zapret" });
+        return 1;
+    }
+    let parsed = zapret_parse_log(zapret_job_log_path(job_id), as_string(state.provider));
+    let done = trim(as_string(fs.readfile(zapret_job_done_path(job_id))));
+    state.progress = { done: parsed.completed, total: length(ZAPRET_STRATEGY_TARGETS) * 3 };
+    state.current = parsed.last_line;
+    if (done != "" && state.running === true) {
+        let parts = split(done, "\t");
+        state.running = false;
+        state.cancelled = parts[0] == "cancelled";
+        state.success = parts[0] == "complete" && int(parts[1]) == 0;
+        state.timed_out = parts[0] == "timeout";
+        state.finished_at = now_seconds();
+        state.services_restored = length(parts) < 3 || int(parts[2]) == 0;
+        state.message = state.cancelled ? "Подбор остановлен" :
+            (state.timed_out ? "Подбор завершён по таймауту; показаны найденные результаты" :
+                (state.success ? "Подбор завершён" : "Blockcheck завершился с ошибкой"));
+        if (!state.services_restored)
+            state.message += "; не все ранее активные сервисы удалось восстановить";
+        fs.unlink(job_pid_path(job_id));
+        write_state(path, state);
+    }
+    let results = zapret_results(parsed, as_string(state.provider));
+    state.results = results.variants;
+    state.failed_strategies = results.failed;
+    state.failed_total = results.failed_total;
+    state.direct = results.direct;
+    state.best_quic_coverage = results.best_quic_coverage;
+    write_json(state);
+    return 0;
+}
+
+function zapret_strategy_cancel(job_id) {
+    let path = job_path(job_id);
+    let state = object_or_empty(read_json_file(path));
+    if (path == "" || as_string(state.kind) != "zapret_strategy") {
+        write_json({ success: false, running: false, message: "Задание подбора не найдено" });
+        return 1;
+    }
+    if (!state.running) {
+        write_json(state);
+        return 0;
+    }
+
+    state.cancel_requested = true;
+    state.message = "Останавливаем blockcheck и восстанавливаем сервисы";
+    write_state(path, state);
+
+    let pid_path = job_pid_path(job_id);
+    let pid = trim(as_string(fs.readfile(pid_path)));
+    let cmdline = match(pid, /^[0-9]+$/) != null
+        ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
+    let owned = cmdline != "" && index(cmdline, path) >= 0 &&
+        index(cmdline, ZAPRET_STRATEGY_WORKER) >= 0;
+    if (owned) {
+        run_quiet([ "kill", "-TERM", pid ]);
+    } else {
+        let restored = zapret_restore_services(state.restore_services);
+        state.running = false;
+        state.cancelled = true;
+        state.success = false;
+        state.finished_at = now_seconds();
+        state.services_restored = restored;
+        state.message = restored
+            ? "Подбор остановлен; worker уже не выполнялся"
+            : "Подбор остановлен; не все ранее активные сервисы удалось восстановить";
+        write_state(path, state);
+        fs.unlink(pid_path);
+    }
+    write_json(state);
+    return 0;
+}
+
+function zapret_parse_log_command(path, provider) {
+    provider = as_string(provider) == "zapret2" ? "zapret2" : "zapret";
+    let parsed = zapret_parse_log(path, provider);
+    let results = zapret_results(parsed, provider);
+    write_json({ success: true, parsed, results });
+    return 0;
+}
 let mode = as_string(ARGV[0]);
 
 if (mode == "list")
@@ -3246,6 +3887,18 @@ else if (mode == "vpn-create")
     exit(vpn_create(ARGV[1], ARGV[2], ARGV[3], ARGV[4]));
 else if (mode == "vpn-check")
     exit(vpn_check(ARGV[1], ARGV[2]));
+else if (mode == "zapret-capabilities") {
+    write_json(zapret_strategy_capabilities());
+    exit(0);
+}
+else if (mode == "zapret-start")
+    exit(zapret_strategy_start(ARGV[1], ARGV[2]));
+else if (mode == "zapret-status")
+    exit(zapret_strategy_status(ARGV[1]));
+else if (mode == "zapret-cancel")
+    exit(zapret_strategy_cancel(ARGV[1]));
+else if (mode == "zapret-parse-log")
+    exit(zapret_parse_log_command(ARGV[1], ARGV[2]));
 else if (mode == "custom") {
     let result = custom_check(ARGV[1], ARGV[2], ARGV[3], ARGV[4]);
     write_json(result);

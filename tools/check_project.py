@@ -102,6 +102,10 @@ def main() -> int:
         ".github/workflows/ci.yml",
         ".github/workflows/release.yml",
         "files/usr/lib/forkop-servicecheck/repair.sh",
+        "files/usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
+        "src/backend/95_zapret_strategy.part",
+        "src/luci/58_zapret_strategy.part",
+        "tools/test_zapret_strategy_worker.sh",
     ]
     for relative in required:
         if not (ROOT / relative).is_file():

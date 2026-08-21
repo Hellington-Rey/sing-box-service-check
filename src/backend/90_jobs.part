@@ -100,7 +100,7 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1112.js" ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1120.js" ],
         [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
         [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
     ];
@@ -113,6 +113,12 @@ function doctor() {
     let shell_ok = capture_args([ "sh", "-n", "/usr/bin/sing-box-service-check" ], true).status == 0;
     push(checks, { id: "shell_syntax", ok: shell_ok, critical: true, message: shell_ok ? "CLI: синтаксис корректен" : "CLI: синтаксическая ошибка" });
     healthy = healthy && shell_ok;
+
+    let zapret_worker_ok = fs.stat(ZAPRET_STRATEGY_WORKER) != null &&
+        capture_args([ "sh", "-n", ZAPRET_STRATEGY_WORKER ], true).status == 0;
+    push(checks, { id: "zapret_worker_syntax", ok: zapret_worker_ok, critical: true,
+        message: zapret_worker_ok ? "worker подбора Zapret: синтаксис корректен" : "worker подбора Zapret отсутствует или повреждён" });
+    healthy = healthy && zapret_worker_ok;
 
     let ucode_check = capture_args([ "ucode", "-c", "-o", "/dev/null", ENGINE ], true);
     let ucode_ok = ucode_check.status == 0 || index(lc(ucode_check.output), "invalid option") >= 0;
@@ -175,18 +181,25 @@ function cleanup_jobs() {
     for (let path in fs.glob(STATE_DIR + "/*.json")) {
         let state = object_or_empty(read_json_file(path));
         let started = int(state.started_at || 0);
-        if (started > 0 && now - started > JOB_MAX_AGE) {
+        let max_age = as_string(state.kind) == "zapret_strategy" ? ZAPRET_JOB_MAX_AGE : JOB_MAX_AGE;
+        if (started > 0 && now - started > max_age) {
             let job_id = as_string(state.job_id);
             let pid_path = job_pid_path(job_id);
             let pid = trim(as_string(fs.readfile(pid_path)));
             let cmdline = match(pid, /^[0-9]+$/) != null
                 ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
-            if (cmdline != "" && index(cmdline, ENGINE) >= 0 && index(cmdline, path) >= 0)
+            let owned = cmdline != "" && index(cmdline, path) >= 0 &&
+                (index(cmdline, ENGINE) >= 0 || index(cmdline, ZAPRET_STRATEGY_WORKER) >= 0);
+            if (owned)
                 run_quiet([ "kill", "-TERM", pid ]);
             if (as_string(state.mode) == "netns")
                 netns_teardown();
             if (pid_path != "")
                 fs.unlink(pid_path);
+            if (as_string(state.kind) == "zapret_strategy") {
+                fs.unlink(STATE_DIR + "/" + job_id + ".zapret.log");
+                fs.unlink(STATE_DIR + "/" + job_id + ".zapret.done");
+            }
             fs.unlink(path);
         }
     }
@@ -385,7 +398,10 @@ function cancel_job(job_id) {
     state.success = false;
     state.finished_at = now_seconds();
     state.message = as_string(state.kind) == "dns_test"
-        ? "тест DNS остановлен пользователем" : "проверка остановлена пользователем";
+        ? "тест DNS остановлен пользователем"
+        : (as_string(state.kind) == "zapret_strategy"
+            ? "подбор стратегии остановлен пользователем"
+            : "проверка остановлена пользователем");
     let record_history = as_string(state.kind) == "service_check";
     state.history_saved = record_history;
     write_state(path, state);
@@ -393,7 +409,9 @@ function cancel_job(job_id) {
     let pid = trim(as_string(fs.readfile(pid_path)));
     let cmdline = match(pid, /^[0-9]+$/) != null
         ? as_string(fs.readfile("/proc/" + pid + "/cmdline")) : "";
-    if (cmdline != "" && index(cmdline, ENGINE) >= 0 && index(cmdline, path) >= 0)
+    let owned = cmdline != "" && index(cmdline, path) >= 0 &&
+        (index(cmdline, ENGINE) >= 0 || index(cmdline, ZAPRET_STRATEGY_WORKER) >= 0);
+    if (owned)
         run_quiet([ "kill", "-TERM", pid ]);
     if (pid_path != "")
         fs.unlink(pid_path);

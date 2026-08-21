@@ -47,6 +47,10 @@ Available commands:
     vpn-create NAME PROTOCOL CONFIG [TARGET]
                             Создать VPN-интерфейс, отправить пакет и проверить туннель
     vpn-check NAME [TARGET] Проверить созданный модулем туннель; TARGET по умолчанию 1.1.1.1
+    zapret-capabilities     Проверить готовность автоподбора Zapret/Zapret2
+    zapret-start TYPE LEVEL Запустить подбор; TYPE zapret/zapret2, LEVEL quick/standard/force
+    zapret-status JOB_ID    Показать прогресс и найденные стратегии
+    zapret-cancel JOB_ID    Остановить подбор и восстановить остановленные сервисы
     netns_teardown          Снести временный network namespace
 
 IDS  - список id сервисов через запятую либо 'all'
@@ -77,7 +81,7 @@ command -v ucode >/dev/null 2>&1 || {
 }
 
 case "$COMMAND" in
-    list|capabilities|fixes|cleanup|doctor|repair|history|history-clear|profiles-get|profiles-reset|vpn-packages|vpn-interfaces|update-check|update-status)
+    list|capabilities|fixes|cleanup|doctor|repair|history|history-clear|profiles-get|profiles-reset|vpn-packages|vpn-interfaces|zapret-capabilities|update-check|update-status)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND"
         ;;
     update-start)
@@ -137,6 +141,12 @@ case "$COMMAND" in
         ;;
     vpn-check)
         exec ucode -L "$LIB_DIR" "$ENGINE" vpn-check "${2:-}" "${3:-1.1.1.1}"
+        ;;
+    zapret-start)
+        exec ucode -L "$LIB_DIR" "$ENGINE" zapret-start "${2:-}" "${3:-standard}"
+        ;;
+    zapret-status|zapret-cancel)
+        exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND" "${2:-}"
         ;;
     custom)
         exec ucode -L "$LIB_DIR" "$ENGINE" custom "${2:-}" "${3:-}" "${4:-}" "${5:-}"

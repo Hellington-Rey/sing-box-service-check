@@ -32,6 +32,7 @@ const NETNS_VETH_HOST = "fkpsc0";
 const NETNS_VETH_PEER = "fkpsc1";
 const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
 const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
+const ZAPRET_STRATEGY_WORKER = LIB_DIR + "/zapret_strategy_worker.sh";
 const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
 const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
 const REPAIR_SCRIPT = LIB_DIR + "/repair.sh";
@@ -45,6 +46,22 @@ const TOTAL_TIMEOUT = 15;
 const SLOW_THRESHOLD_MS = 5000;
 const JOB_MAX_AGE = 1800;
 const DNS_MATRIX_TIMEOUT = 5;
+const ZAPRET_JOB_MAX_AGE = 3900;
+
+const ZAPRET_STRATEGY_TARGETS = [
+    { id: "youtube_web", service: "youtube", title: "YouTube Web", host: "www.youtube.com" },
+    { id: "youtube_api", service: "youtube", title: "YouTube API", host: "youtubei.googleapis.com" },
+    { id: "youtube_images", service: "youtube", title: "YouTube Images", host: "i.ytimg.com" },
+    { id: "youtube_video", service: "youtube", title: "Google Video", host: "redirector.googlevideo.com" },
+    { id: "discord_web", service: "discord", title: "Discord Web", host: "discord.com" },
+    { id: "discord_gateway", service: "discord", title: "Discord Gateway", host: "gateway.discord.gg" },
+    { id: "discord_cdn", service: "discord", title: "Discord CDN", host: "cdn.discordapp.com" },
+    { id: "discord_media", service: "discord", title: "Discord Media", host: "media.discordapp.net" },
+    { id: "telegram_web", service: "telegram", title: "Telegram Web", host: "web.telegram.org" },
+    { id: "telegram_site", service: "telegram", title: "Telegram", host: "telegram.org" },
+    { id: "telegram_api", service: "telegram", title: "Telegram API", host: "api.telegram.org" },
+    { id: "telegram_links", service: "telegram", title: "Telegram Links", host: "t.me" }
+];
 
 // Набор резолверов перенесён из checkdns.sh проекта clarkxkent/checkdns.
 // Храним его локально: проверка не зависит от GitHub и не исполняет удалённый код.
