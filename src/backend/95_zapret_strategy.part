@@ -9,8 +9,20 @@ function zapret_backend_binary(id) {
     return "";
 }
 
+function zapret_backend_init(id) {
+    return id == "homeproxy" ? HOME_PROXY_INIT : "/etc/init.d/" + id;
+}
+
 function zapret_backend_running(id) {
     let binary = zapret_backend_binary(id);
+    let init = zapret_backend_init(id);
+    if (id == "homeproxy") {
+        if (fs.stat(init) == null)
+            return false;
+        if (run_quiet([ init, "status" ]))
+            return true;
+        return id == backend_id() && run_quiet([ "pgrep", "-f", "sing-box" ]);
+    }
     if (binary == "" || fs.stat(binary) == null)
         return false;
 
@@ -24,7 +36,6 @@ function zapret_backend_running(id) {
             return false;
     }
 
-    let init = "/etc/init.d/" + id;
     if (fs.stat(init) != null && run_quiet([ init, "status" ]))
         return true;
     return id == backend_id() && run_quiet([ "pgrep", "-f", "sing-box" ]);
@@ -32,7 +43,7 @@ function zapret_backend_running(id) {
 
 function zapret_running_backends() {
     let result = [];
-    for (let id in [ "tachyon", "forkop", "podkop" ])
+    for (let id in [ "tachyon", "homeproxy", "forkop", "podkop" ])
         if (zapret_backend_running(id))
             push(result, id);
     return result;
@@ -44,7 +55,7 @@ function zapret_service_running(id) {
 }
 
 function zapret_stop_service(id) {
-    let init = "/etc/init.d/" + id;
+    let init = zapret_backend_init(id);
     let stopped = fs.stat(init) != null && run_quiet([ init, "stop" ]);
     let binary = zapret_backend_binary(id);
     if (!stopped && binary != "" && fs.stat(binary) != null)
@@ -58,7 +69,7 @@ function zapret_start_service(id) {
         let init = "/etc/init.d/" + name;
         return fs.stat(init) != null && run_quiet([ init, "start" ]);
     }
-    let init = "/etc/init.d/" + id;
+    let init = zapret_backend_init(id);
     if (fs.stat(init) != null)
         return run_quiet([ init, "start" ]);
     let binary = zapret_backend_binary(id);

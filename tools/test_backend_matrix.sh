@@ -205,6 +205,8 @@ proto_config_add_string "awg_i1"
 proto_config_add_string "awg_h1"
 proto_config_add_string "awg_header_protection_key"
 proto_config_add_string "awg_content_padding_addition"
+proto_config_add_string "awg_random_trailers"
+proto_config_add_string "awg_disable_cookies"
 EOF
 
 run_engine() {
@@ -220,6 +222,10 @@ run_engine() {
     VPN_PING_LOG="$TMP/vpn-ping.log" \
     BACKEND_RUNNING_STATE="$TMP/backend-running" \
     TACHYON_BIN="$TMP/tachyon" \
+    HOME_PROXY_INIT="$TMP/homeproxy" \
+    HOME_PROXY_CONFIG="$TMP/config.json" \
+    HOME_PROXY_ALT_CONFIG="$TMP/missing-homeproxy-config.json" \
+    HOME_PROXY_CORE_INFO="$TMP/homeproxy-core.info" \
     FORKOP_BIN="$TMP/forkop" \
     PODKOP_BIN="$TMP/podkop" \
     MALFORMED_CLASH="${MALFORMED_CLASH:-0}" \
@@ -249,12 +255,17 @@ PY
 }
 
 cp "$TMP/backend" "$TMP/tachyon"
+cp "$TMP/backend" "$TMP/homeproxy"
 cp "$TMP/backend" "$TMP/forkop"
 cp "$TMP/backend" "$TMP/podkop"
+printf '%s\n' '{"version":"sing-box 1.12.5-test"}' > "$TMP/homeproxy-core.info"
 printf '1\n' > "$TMP/backend-running"
 assert_caps tachyon
 
 rm "$TMP/tachyon"
+assert_caps homeproxy
+
+rm "$TMP/homeproxy"
 assert_caps forkop
 
 rm "$TMP/forkop"
@@ -446,11 +457,15 @@ I4 = <b 0x2112a442><r 21><t><rc 14><r 58>
 I5 = <rd 10><t><b 0xcc2cc1e0ae6892><r 82>
 HeaderProtectionKey = $private_key
 ContentPaddingAddition = 0-124
+RandomTrailers = on
+DisableCookies = off
 
 [Peer]
 PublicKey = $public_key
 AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = vpn.example.com:51820"
+Endpoint = vpn.example.com:51820
+PersistentKeepalive = 20-30
+AdvancedSecurity = on"
 : > "$TMP/uci.log"
 if ! output="$(run_engine vpn-create awg0 auto "$amneziawg_config")"; then
     echo "AmneziaWG VPN creation failed: $output" >&2
@@ -461,7 +476,7 @@ import json, os
 data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is True, data
 assert data["protocol"] == data["detected"] == "amneziawg", data
-assert data["awg_version"] == "3.0", data
+assert data["awg_version"] == "3.1", data
 assert data["safe_mode"] is True, data
 assert data["dns_applied"] is False and data["ignored_dns"] == 4, data
 assert data["routes_enabled"] is False, data
@@ -481,6 +496,10 @@ assert_uci 'set network.awg0.awg_h1=100020792-100020892'
 assert_uci 'set network.awg0.awg_i1=<b 0x0123456789abcdef0123456789abcdef><t><rc 30><r 144>'
 assert_uci "set network.awg0.awg_header_protection_key=$private_key"
 assert_uci 'set network.awg0.awg_content_padding_addition=0-124'
+assert_uci 'set network.awg0.awg_random_trailers=on'
+assert_uci 'set network.awg0.awg_disable_cookies=off'
+assert_uci 'set network.amneziawg_awg0_1.persistent_keepalive=20-30'
+assert_uci 'set network.amneziawg_awg0_1.advanced_security=on'
 assert_vpn_ping '-I awg0 -c 1 -W 3 1.1.1.1'
 
 amneziawg_range_config="[Interface]
@@ -738,7 +757,7 @@ assert data["parsed"]["scan"] == {
 }, data["parsed"]["scan"]
 assert data["parsed"]["discovery"] == {"tls13": 3, "tls12": 2, "common": 1, "quic": 2}, data
 PY
-rm -f "$TMP/tachyon" "$TMP/podkop"
+rm -f "$TMP/tachyon" "$TMP/homeproxy" "$TMP/podkop"
 cp "$TMP/backend" "$TMP/forkop"
 printf '1\n' > "$TMP/backend-running"
 

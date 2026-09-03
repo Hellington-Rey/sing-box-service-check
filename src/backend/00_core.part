@@ -1,6 +1,6 @@
 #!/usr/bin/env ucode
 
-// Sing-box Service Check - probe engine for Tachyon, Forkop and Podkop.
+// Sing-box Service Check - probe engine for Tachyon, HomeProxy, Forkop and Podkop.
 //
 // Проверяет доступность сервисов так, как это делает клиент сети: имя резолвится
 // через тот же dnsmasq -> sing-box, а соединение уходит из роутера и попадает в
@@ -19,6 +19,10 @@ const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
 const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
 const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
 const TACHYON_BIN = getenv("TACHYON_BIN") || "/usr/bin/tachyon";
+const HOME_PROXY_INIT = getenv("HOME_PROXY_INIT") || "/etc/init.d/homeproxy";
+const HOME_PROXY_CONFIG = getenv("HOME_PROXY_CONFIG") || "/var/run/homeproxy/hiddify-c.json";
+const HOME_PROXY_ALT_CONFIG = getenv("HOME_PROXY_ALT_CONFIG") || "/var/run/homeproxy/sing-box-c.json";
+const HOME_PROXY_CORE_INFO = getenv("HOME_PROXY_CORE_INFO") || "/var/run/homeproxy/core.info";
 const FORKOP_BIN = getenv("FORKOP_BIN") || "/usr/bin/forkop";
 const PODKOP_BIN = getenv("PODKOP_BIN") || "/usr/bin/podkop";
 const DEFAULT_SING_BOX_CONFIG = "/etc/sing-box/config.json";
@@ -233,12 +237,14 @@ function icmp_tproxy_patch() {
 
 function backend_id() {
     let override = lc(trim(as_string(getenv("FORKOP_SC_BACKEND"))));
-    if (override == "tachyon" || override == "forkop" || override == "podkop")
+    if (override == "tachyon" || override == "homeproxy" || override == "forkop" || override == "podkop")
         return override;
     // Tachyon may coexist with binaries left after migration from Forkop/Podkop.
     // Prefer the active successor so UCI, status and Clash API come from one backend.
     if (fs.stat(TACHYON_BIN) != null)
         return "tachyon";
+    if (fs.stat(HOME_PROXY_INIT) != null)
+        return "homeproxy";
     if (fs.stat(FORKOP_BIN) != null)
         return "forkop";
     if (fs.stat(PODKOP_BIN) != null)
@@ -250,6 +256,8 @@ function backend_name(id) {
     id = as_string(id);
     if (id == "tachyon")
         return "Tachyon";
+    if (id == "homeproxy")
+        return "HomeProxy";
     if (id == "forkop")
         return "Forkop";
     if (id == "podkop")
@@ -259,7 +267,7 @@ function backend_name(id) {
 
 function available_fixes() {
     // Эти исправления меняют внутренние файлы Forkop и не должны предлагаться
-    // на Tachyon/Podkop, даже если после миграции остался бинарник Forkop.
+    // на Tachyon/HomeProxy/Podkop, даже если после миграции остался бинарник Forkop.
     if (backend_id() != "forkop" || fs.stat(FORKOP_BIN) == null)
         return [];
 

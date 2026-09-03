@@ -768,7 +768,7 @@ function renderSummary(services) {
 
 function renderRunMeta(state) {
   var lines = [];
-  var backendName = state.backend_name || (state.backend === "tachyon" ? "Tachyon" : (state.backend === "podkop" ? "Podkop" : "Forkop"));
+  var backendName = state.backend_name || (state.backend === "tachyon" ? "Tachyon" : (state.backend === "homeproxy" ? "HomeProxy" : (state.backend === "podkop" ? "Podkop" : "Forkop")));
   var backendRunning = state.backend_running;
   if (backendRunning === undefined) {
     backendRunning = state.forkop_running;
@@ -1172,7 +1172,7 @@ return view.extend({
     }
 
     var backendId = capabilities.backend || "forkop";
-    var backendName = capabilities.backend_name || (backendId === "tachyon" ? "Tachyon" : (backendId === "podkop" ? "Podkop" : "Forkop"));
+    var backendName = capabilities.backend_name || (backendId === "tachyon" ? "Tachyon" : (backendId === "homeproxy" ? "HomeProxy" : (backendId === "podkop" ? "Podkop" : "Forkop")));
     var moduleVersion = capabilities.module_version || "unknown";
     var backendRunning = capabilities.backend_running;
     if (backendRunning === undefined) {
@@ -2940,7 +2940,7 @@ function vlessUriFromOutbound(document) {
       E("option", { value:"amneziawg" }, "AWG Tools (AWG 1.5/2.0/3.0)"),
     ]);
     var vpnConfig = E("textarea", { class:"cbi-input-text fkpsc-vpn-config", spellcheck:"false",
-      placeholder:"[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nAllowedIPs = 0.0.0.0/0\nEndpoint = host:port\nPersistentKeepalive = 25\n\nДля AmneziaWG поддерживаются диапазоны H1-H4, составные I1-I5 и поля HeaderProtectionKey / ContentPaddingAddition из AWG 3.0." });
+      placeholder:"[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nAllowedIPs = 0.0.0.0/0\nEndpoint = host:port\nPersistentKeepalive = 25\n\nПоддерживаются актуальные конфигурации AmneziaWG 1.x–3.1, включая диапазоны, RandomTrailers, DisableCookies и AdvancedSecurity." });
     var vpnFileInput = E("input", { type:"file", accept:".conf,.wg,text/plain,application/octet-stream", style:"display:none" });
     var vpnFileButton = E("button", { class:"cbi-button", type:"button" }, "Загрузить файл конфигурации");
     var vpnFileName = E("span", { class:"fkpsc-vpn-filename" }, "Можно выбрать файл .conf или .wg до 16 КиБ.");
@@ -2954,7 +2954,7 @@ function vlessUriFromOutbound(document) {
     var vpnPackageNote = E("div", {});
 
     function vpnDetectedProtocol() {
-      return /^\s*(?:Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I[1-5]|HeaderProtectionKey|ContentPaddingAddition|RekeyAfterTime|RekeyTimeout|RejectAfterTime|KeepaliveTimeout|MaxHandshakeAttempts)\s*=/mi.test(vpnConfig.value) ? "amneziawg" : "wireguard";
+      return /^\s*(?:Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I[1-5]|HeaderProtectionKey|ContentPaddingAddition|RekeyAfterTime|RekeyTimeout|RejectAfterTime|KeepaliveTimeout|MaxHandshakeAttempts|RandomTrailers|DisableCookies)\s*=/mi.test(vpnConfig.value) ? "amneziawg" : "wireguard";
     }
     function vpnSelectedProtocol() { return vpnProtocol.value === "auto" ? vpnDetectedProtocol() : vpnProtocol.value; }
     function vpnProtocolLabel(protocol) { return protocol === "amneziawg" ? "AWG Tools" : "WireGuard"; }

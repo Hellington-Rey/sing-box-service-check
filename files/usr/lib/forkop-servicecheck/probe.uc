@@ -1,6 +1,6 @@
 #!/usr/bin/env ucode
 
-// Sing-box Service Check - probe engine for Tachyon, Forkop and Podkop.
+// Sing-box Service Check - probe engine for Tachyon, HomeProxy, Forkop and Podkop.
 //
 // Проверяет доступность сервисов так, как это делает клиент сети: имя резолвится
 // через тот же dnsmasq -> sing-box, а соединение уходит из роутера и попадает в
@@ -19,6 +19,10 @@ const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
 const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
 const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
 const TACHYON_BIN = getenv("TACHYON_BIN") || "/usr/bin/tachyon";
+const HOME_PROXY_INIT = getenv("HOME_PROXY_INIT") || "/etc/init.d/homeproxy";
+const HOME_PROXY_CONFIG = getenv("HOME_PROXY_CONFIG") || "/var/run/homeproxy/hiddify-c.json";
+const HOME_PROXY_ALT_CONFIG = getenv("HOME_PROXY_ALT_CONFIG") || "/var/run/homeproxy/sing-box-c.json";
+const HOME_PROXY_CORE_INFO = getenv("HOME_PROXY_CORE_INFO") || "/var/run/homeproxy/core.info";
 const FORKOP_BIN = getenv("FORKOP_BIN") || "/usr/bin/forkop";
 const PODKOP_BIN = getenv("PODKOP_BIN") || "/usr/bin/podkop";
 const DEFAULT_SING_BOX_CONFIG = "/etc/sing-box/config.json";
@@ -233,12 +237,14 @@ function icmp_tproxy_patch() {
 
 function backend_id() {
     let override = lc(trim(as_string(getenv("FORKOP_SC_BACKEND"))));
-    if (override == "tachyon" || override == "forkop" || override == "podkop")
+    if (override == "tachyon" || override == "homeproxy" || override == "forkop" || override == "podkop")
         return override;
     // Tachyon may coexist with binaries left after migration from Forkop/Podkop.
     // Prefer the active successor so UCI, status and Clash API come from one backend.
     if (fs.stat(TACHYON_BIN) != null)
         return "tachyon";
+    if (fs.stat(HOME_PROXY_INIT) != null)
+        return "homeproxy";
     if (fs.stat(FORKOP_BIN) != null)
         return "forkop";
     if (fs.stat(PODKOP_BIN) != null)
@@ -250,6 +256,8 @@ function backend_name(id) {
     id = as_string(id);
     if (id == "tachyon")
         return "Tachyon";
+    if (id == "homeproxy")
+        return "HomeProxy";
     if (id == "forkop")
         return "Forkop";
     if (id == "podkop")
@@ -259,7 +267,7 @@ function backend_name(id) {
 
 function available_fixes() {
     // Эти исправления меняют внутренние файлы Forkop и не должны предлагаться
-    // на Tachyon/Podkop, даже если после миграции остался бинарник Forkop.
+    // на Tachyon/HomeProxy/Podkop, даже если после миграции остался бинарник Forkop.
     if (backend_id() != "forkop" || fs.stat(FORKOP_BIN) == null)
         return [];
 
@@ -441,6 +449,12 @@ function sing_box_config_path() {
         return overridden;
 
     let backend = backend_id();
+    if (backend == "homeproxy") {
+        if (fs.stat(HOME_PROXY_CONFIG) != null)
+            return HOME_PROXY_CONFIG;
+        if (fs.stat(HOME_PROXY_ALT_CONFIG) != null)
+            return HOME_PROXY_ALT_CONFIG;
+    }
     if (backend == "tachyon" || backend == "podkop") {
         let configured = trim(uci_get(backend + ".settings.config_path"));
         if (configured != "")
@@ -452,6 +466,12 @@ function sing_box_config_path() {
 
 function lan_interface() {
     let backend = backend_id();
+    if (backend == "homeproxy") {
+        let configured = words(uci_get("homeproxy.control.listen_interfaces"));
+        let network = length(configured) > 0 ? configured[0] : "lan";
+        let device = trim(uci_get("network." + network + ".device"));
+        return device != "" ? device : network;
+    }
     let namespace = backend == "tachyon" ? "tachyon" : (backend == "podkop" ? "podkop" : "forkop");
     let configured = words(uci_get(namespace + ".settings.source_network_interfaces"));
     if (length(configured) > 0)
@@ -498,6 +518,8 @@ function backend_running() {
 
     if (backend == "tachyon")
         result = capture_args([ TACHYON_BIN, "get_status" ], false);
+    else if (backend == "homeproxy")
+        result = capture_args([ HOME_PROXY_INIT, "status" ], false);
     else if (backend == "forkop")
         result = capture_args([ FORKOP_BIN, "get_status" ], false);
     else if (backend == "podkop")
@@ -506,12 +528,14 @@ function backend_running() {
         return false;
 
     if (result.status != 0) {
-        if (backend == "tachyon" || backend == "podkop")
+        if (backend == "tachyon" || backend == "homeproxy" || backend == "podkop")
             return run_quiet([ "pgrep", "-f", "sing-box" ]);
         return false;
     }
     let status = object_or_empty(parse_json(result.output));
     if (status.running === true || int(status.running) == 1)
+        return true;
+    if (backend == "homeproxy" && result.status == 0)
         return true;
     if ((backend == "tachyon" || backend == "podkop") && status.running == null)
         return run_quiet([ "pgrep", "-f", "sing-box" ]);
@@ -520,6 +544,11 @@ function backend_running() {
 
 function backend_version(id) {
     id = as_string(id);
+    if (id == "homeproxy") {
+        let info = object_or_empty(read_json_file(HOME_PROXY_CORE_INFO));
+        let value = trim(as_string(info.version || info.core_version));
+        return value != "" ? substr(value, 0, 160) : "unknown";
+    }
     let binary = id == "tachyon" ? TACHYON_BIN : (id == "forkop" ? FORKOP_BIN : (id == "podkop" ? PODKOP_BIN : ""));
     if (binary == "")
         return "unknown";
@@ -537,7 +566,7 @@ function clash_api_diagnostic() {
         response = capture_args([ TACHYON_BIN, "clash_api", "get_connections" ], false);
     else if (backend == "forkop")
         response = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
-    else if (backend == "podkop") {
+    else if (backend == "podkop" || backend == "homeproxy") {
         let config = object_or_empty(read_json_file(sing_box_config_path()));
         let clash = object_or_empty(object_or_empty(config.experimental).clash_api);
         let controller = trim(as_string(clash.external_controller));
@@ -549,7 +578,7 @@ function clash_api_diagnostic() {
         if (index(controller, "http://") != 0 && index(controller, "https://") != 0)
             controller = "http://" + controller;
         result.controller = controller;
-        if (secret == "")
+        if (secret == "" && backend == "podkop")
             secret = uci_get("podkop.settings.yacd_secret_key");
         let args = [ "curl", "-sS", "--connect-timeout", "2", "--max-time", "4" ];
         if (secret != "") {
@@ -694,7 +723,9 @@ function vpn_status(protocol) {
         index(proto_source, "proto_config_add_string \"awg_h1\"") >= 0;
     let awg3_ready = protocol != "amneziawg" ||
         (awg_ranges_ready && index(proto_source, "awg_header_protection_key") >= 0 &&
-            index(proto_source, "awg_content_padding_addition") >= 0);
+            index(proto_source, "awg_content_padding_addition") >= 0 &&
+            index(proto_source, "awg_random_trailers") >= 0 &&
+            index(proto_source, "awg_disable_cookies") >= 0);
     let issues = [];
     if (length(missing)) push(issues, "пакеты: " + join(", ", missing));
     if (!tool_ready) push(issues, protocol == "wireguard" ? "не найдена команда wg" : "не найдена команда awg");
@@ -801,8 +832,9 @@ function vpn_awg_i(value) {
 function vpn_endpoint(value) { let p = match(as_string(value), /^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+):([0-9]{1,5})$/); return p != null && int(p[2]) > 0 && int(p[2]) <= 65535; }
 function vpn_value(config, section, key) { return as_string(object_or_empty(config[section])[lc(key)]); }
 function vpn_peer_value(peer, key) { return as_string(object_or_empty(peer)[lc(key)]); }
-function vpn_detect_protocol(config) { for (let key in keys(config.interface)) if (index(" jc jmin jmax s1 s2 s3 s4 h1 h2 h3 h4 i1 i2 i3 i4 i5 headerprotectionkey contentpaddingaddition rekeyaftertime rekeytimeout rejectaftertime keepalivetimeout maxhandshakeattempts ", " " + key + " ") >= 0) return "amneziawg"; return "wireguard"; }
+function vpn_detect_protocol(config) { for (let key in keys(config.interface)) if (index(" jc jmin jmax s1 s2 s3 s4 h1 h2 h3 h4 i1 i2 i3 i4 i5 headerprotectionkey contentpaddingaddition rekeyaftertime rekeytimeout rejectaftertime keepalivetimeout maxhandshakeattempts randomtrailers disablecookies ", " " + key + " ") >= 0) return "amneziawg"; return "wireguard"; }
 function vpn_awg_version(config) {
+    if (vpn_value(config,"interface","RandomTrailers") != "" || vpn_value(config,"interface","DisableCookies") != "") return "3.1";
     if (vpn_value(config,"interface","HeaderProtectionKey") != "") return "3.0";
     let i1 = vpn_value(config,"interface","I1");
     return match(i1,/^<b 0x[0-9A-Fa-f]+>$/) != null ? "1.5" : (i1 != "" ? "2.0" : "1.0");
@@ -811,8 +843,8 @@ function vpn_awg_version(config) {
 function vpn_validate(name, protocol, config) {
     if (match(as_string(name), /^[A-Za-z][A-Za-z0-9_]{0,14}$/) == null) return "некорректное имя интерфейса: нужны 1–15 символов, первая буква, затем буквы, цифры или _";
     if (protocol != "wireguard" && protocol != "amneziawg") return "неизвестный VPN-протокол";
-    let base = { privatekey:true, address:true, dns:true, listenport:true, mtu:true, fwmark:true, jc:true, jmin:true, jmax:true, s1:true, s2:true, s3:true, s4:true, h1:true, h2:true, h3:true, h4:true, i1:true, i2:true, i3:true, i4:true, i5:true, headerprotectionkey:true, contentpaddingaddition:true, rekeyaftertime:true, rekeytimeout:true, rejectaftertime:true, keepalivetimeout:true, maxhandshakeattempts:true };
-    let peer = { publickey:true, presharedkey:true, allowedips:true, endpoint:true, persistentkeepalive:true };
+    let base = { privatekey:true, address:true, dns:true, listenport:true, mtu:true, fwmark:true, jc:true, jmin:true, jmax:true, s1:true, s2:true, s3:true, s4:true, h1:true, h2:true, h3:true, h4:true, i1:true, i2:true, i3:true, i4:true, i5:true, headerprotectionkey:true, contentpaddingaddition:true, rekeyaftertime:true, rekeytimeout:true, rejectaftertime:true, keepalivetimeout:true, maxhandshakeattempts:true, randomtrailers:true, disablecookies:true };
+    let peer = { publickey:true, presharedkey:true, allowedips:true, endpoint:true, persistentkeepalive:true, advancedsecurity:true };
     for (let key in keys(config.interface)) if (!base[key]) return "неподдерживаемый параметр [Interface]: " + key;
     if (!vpn_key(vpn_value(config,"interface","PrivateKey"))) return "некорректный PrivateKey";
     for (let value in vpn_split(vpn_value(config,"interface","Address"))) if (vpn_address(value) == "") return "некорректный Address";
@@ -825,8 +857,12 @@ function vpn_validate(name, protocol, config) {
         let endpoint = vpn_peer_value(item,"Endpoint");
         if (endpoint != "" && !vpn_endpoint(endpoint)) return "Endpoint должен иметь вид host:port";
         if (vpn_peer_value(item,"PresharedKey") != "" && !vpn_key(vpn_peer_value(item,"PresharedKey"))) return "некорректный PresharedKey";
-        let keepalive = vpn_peer_value(item,"PersistentKeepalive");
-        if (keepalive != "" && !vpn_number(keepalive)) return "некорректный PersistentKeepalive";
+        let keepalive = trim(vpn_peer_value(item,"PersistentKeepalive"));
+        if (keepalive != "" && lc(keepalive) != "off" && vpn_unsigned_range(keepalive,65535) == null) return "некорректный PersistentKeepalive: ожидается off, число или диапазон 0–65535";
+        if (protocol == "wireguard" && index(keepalive,"-") >= 0) return "диапазон PersistentKeepalive допустим только для AmneziaWG";
+        let advanced = lc(trim(vpn_peer_value(item,"AdvancedSecurity")));
+        if (advanced != "" && advanced != "on" && advanced != "off" && advanced != "true" && advanced != "false" && advanced != "1" && advanced != "0") return "некорректный AdvancedSecurity: ожидается on/off";
+        if (protocol == "wireguard" && advanced != "") return "AdvancedSecurity допустим только для AmneziaWG";
     }
     for (let value in vpn_split(vpn_value(config,"interface","DNS"))) if (!vpn_ip(value)) return "некорректный DNS";
     let listen_port = vpn_value(config,"interface","ListenPort");
@@ -850,6 +886,11 @@ function vpn_validate(name, protocol, config) {
     for (let field in [ "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts" ]) {
         let value = vpn_value(config,"interface",field);
         if (value != "" && vpn_unsigned_range(value, 65535) == null) return "некорректный " + field + ": ожидается число или диапазон 0–65535";
+        if (protocol == "wireguard" && value != "") return field + " допустим только для AWG Tools";
+    }
+    for (let field in [ "RandomTrailers", "DisableCookies" ]) {
+        let value = lc(trim(vpn_value(config,"interface",field)));
+        if (value != "" && value != "on" && value != "off" && value != "true" && value != "false" && value != "1" && value != "0") return "некорректный " + field + ": ожидается on/off";
         if (protocol == "wireguard" && value != "") return field + " допустим только для AWG Tools";
     }
     if (protocol == "amneziawg" && int(vpn_value(config,"interface","Jmin")) > int(vpn_value(config,"interface","Jmax"))) return "Jmin не может быть больше Jmax";
@@ -997,7 +1038,7 @@ function vpn_create(name, protocol, payload, probe_target) {
     for (let field in [ "H1", "H2", "H3", "H4" ]) if (index(vpn_value(parsed.config,"interface",field), "-") >= 0) ranged_headers = true;
     if (protocol == "amneziawg" && ranged_headers && !status.awg_ranges_ready) { write_json({ success:false, message:"установленный netifd-протокол AmneziaWG не поддерживает диапазоны H1-H4; обновите пакет luci-proto-amneziawg", status }); return 1; }
     let awg3_config = false;
-    for (let field in [ "HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts" ]) if (vpn_value(parsed.config,"interface",field) != "") awg3_config = true;
+    for (let field in [ "HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts", "RandomTrailers", "DisableCookies" ]) if (vpn_value(parsed.config,"interface",field) != "") awg3_config = true;
     if (protocol == "amneziawg" && awg3_config && !status.awg3_ready) { write_json({ success:false, message:"установленный netifd-протокол AmneziaWG не поддерживает поля AWG 3.0; обновите AWG Tools и luci-proto-amneziawg", status }); return 1; }
     let peer_type = vpn_peer_type(protocol,name), peer_sections = [];
     for (let index=0; index<length(peers); index++) {
@@ -1015,16 +1056,17 @@ function vpn_create(name, protocol, payload, probe_target) {
     if (protocol == "amneziawg") {
         for (let field in ["jc","jmin","jmax","s1","s2","s3","s4","h1","h2","h3","h4"]) { let value=vpn_value(parsed.config,"interface",field); if (value != "") created = created && vpn_set(name,"awg_" + field,value); }
         for (let i=1;i<=5;i++) { let value=vpn_value(parsed.config,"interface","i"+i); if (value != "") created = created && vpn_set(name,"awg_i"+i,value); }
-        let awg3_fields = { headerprotectionkey:"header_protection_key", contentpaddingaddition:"content_padding_addition", rekeyaftertime:"rekey_after_time", rekeytimeout:"rekey_timeout", rejectaftertime:"reject_after_time", keepalivetimeout:"keepalive_timeout", maxhandshakeattempts:"max_handshake_attempts" };
+        let awg3_fields = { headerprotectionkey:"header_protection_key", contentpaddingaddition:"content_padding_addition", rekeyaftertime:"rekey_after_time", rekeytimeout:"rekey_timeout", rejectaftertime:"reject_after_time", keepalivetimeout:"keepalive_timeout", maxhandshakeattempts:"max_handshake_attempts", randomtrailers:"random_trailers", disablecookies:"disable_cookies" };
         for (let field in keys(awg3_fields)) { let value=as_string(iface[field]); if (value != "") created = created && vpn_set(name,"awg_" + awg3_fields[field],value); }
     }
     for (let index=0; index<length(peers); index++) {
         let peer = peers[index], section = peer_sections[index];
-        let endpoint = vpn_peer_value(peer,"Endpoint"), preshared = vpn_peer_value(peer,"PresharedKey"), keepalive = vpn_peer_value(peer,"PersistentKeepalive");
+        let endpoint = vpn_peer_value(peer,"Endpoint"), preshared = vpn_peer_value(peer,"PresharedKey"), keepalive = vpn_peer_value(peer,"PersistentKeepalive"), advanced = vpn_peer_value(peer,"AdvancedSecurity");
         created = created && run_quiet(["uci","set","network." + section + "=" + peer_type]) && vpn_set(section,"public_key",vpn_peer_value(peer,"PublicKey")) && vpn_set(section,"route_allowed_ips","0") && vpn_set(section,"fkpsc_managed","1");
         if (endpoint != "") created = created && vpn_set(section,"endpoint_host",vpn_host(endpoint)) && vpn_set(section,"endpoint_port",vpn_port(endpoint));
         if (preshared != "") created = created && vpn_set(section,"preshared_key",preshared);
-        if (keepalive != "") created = created && vpn_set(section,"persistent_keepalive",keepalive);
+        if (keepalive != "") created = created && vpn_set(section,"persistent_keepalive",lc(trim(keepalive)) == "off" ? "0" : keepalive);
+        if (advanced != "") created = created && vpn_set(section,"advanced_security",advanced);
         for (let value in vpn_split(vpn_peer_value(peer,"AllowedIPs"))) created = created && vpn_list(section,"allowed_ips",value);
     }
     if (!created || !run_quiet(["uci","commit","network"])) { for (let section in peer_sections) run_quiet(["uci","delete","network."+section]); run_quiet(["uci","delete","network."+name]); run_quiet(["uci","commit","network"]); write_json({success:false,message:"ошибка UCI, изменения отменены"}); return 1; }
@@ -1067,6 +1109,7 @@ function capabilities() {
         backend_installed: backend != "none",
         backend_running: running,
         tachyon_installed: fs.stat(TACHYON_BIN) != null,
+        homeproxy_installed: fs.stat(HOME_PROXY_INIT) != null,
         forkop_installed: fs.stat(FORKOP_BIN) != null,
         podkop_installed: fs.stat(PODKOP_BIN) != null,
         fixes_available: backend == "forkop" && fs.stat(FORKOP_BIN) != null,
@@ -1714,7 +1757,7 @@ function clash_connections() {
     else if (backend == "forkop") {
         result = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
     }
-    else if (backend == "podkop") {
+    else if (backend == "podkop" || backend == "homeproxy") {
         let config = object_or_empty(read_json_file(sing_box_config_path()));
         let clash = object_or_empty(object_or_empty(config.experimental).clash_api);
         let controller = trim(as_string(clash.external_controller));
@@ -1728,7 +1771,7 @@ function clash_connections() {
             controller = "http://" + controller;
 
         let args = [ "curl", "-sS", "--connect-timeout", "2", "--max-time", "4" ];
-        if (secret == "")
+        if (secret == "" && backend == "podkop")
             secret = uci_get("podkop.settings.yacd_secret_key");
         if (secret != "") {
             push(args, "-H");
@@ -2911,7 +2954,7 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1125.js" ],
+        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1130.js" ],
         [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
         [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
     ];
@@ -3313,8 +3356,20 @@ function zapret_backend_binary(id) {
     return "";
 }
 
+function zapret_backend_init(id) {
+    return id == "homeproxy" ? HOME_PROXY_INIT : "/etc/init.d/" + id;
+}
+
 function zapret_backend_running(id) {
     let binary = zapret_backend_binary(id);
+    let init = zapret_backend_init(id);
+    if (id == "homeproxy") {
+        if (fs.stat(init) == null)
+            return false;
+        if (run_quiet([ init, "status" ]))
+            return true;
+        return id == backend_id() && run_quiet([ "pgrep", "-f", "sing-box" ]);
+    }
     if (binary == "" || fs.stat(binary) == null)
         return false;
 
@@ -3328,7 +3383,6 @@ function zapret_backend_running(id) {
             return false;
     }
 
-    let init = "/etc/init.d/" + id;
     if (fs.stat(init) != null && run_quiet([ init, "status" ]))
         return true;
     return id == backend_id() && run_quiet([ "pgrep", "-f", "sing-box" ]);
@@ -3336,7 +3390,7 @@ function zapret_backend_running(id) {
 
 function zapret_running_backends() {
     let result = [];
-    for (let id in [ "tachyon", "forkop", "podkop" ])
+    for (let id in [ "tachyon", "homeproxy", "forkop", "podkop" ])
         if (zapret_backend_running(id))
             push(result, id);
     return result;
@@ -3348,7 +3402,7 @@ function zapret_service_running(id) {
 }
 
 function zapret_stop_service(id) {
-    let init = "/etc/init.d/" + id;
+    let init = zapret_backend_init(id);
     let stopped = fs.stat(init) != null && run_quiet([ init, "stop" ]);
     let binary = zapret_backend_binary(id);
     if (!stopped && binary != "" && fs.stat(binary) != null)
@@ -3362,7 +3416,7 @@ function zapret_start_service(id) {
         let init = "/etc/init.d/" + name;
         return fs.stat(init) != null && run_quiet([ init, "start" ]);
     }
-    let init = "/etc/init.d/" + id;
+    let init = zapret_backend_init(id);
     if (fs.stat(init) != null)
         return run_quiet([ init, "start" ]);
     let binary = zapret_backend_binary(id);

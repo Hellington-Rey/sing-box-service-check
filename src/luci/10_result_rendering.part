@@ -345,7 +345,7 @@ function renderSummary(services) {
 
 function renderRunMeta(state) {
   var lines = [];
-  var backendName = state.backend_name || (state.backend === "tachyon" ? "Tachyon" : (state.backend === "podkop" ? "Podkop" : "Forkop"));
+  var backendName = state.backend_name || (state.backend === "tachyon" ? "Tachyon" : (state.backend === "homeproxy" ? "HomeProxy" : (state.backend === "podkop" ? "Podkop" : "Forkop")));
   var backendRunning = state.backend_running;
   if (backendRunning === undefined) {
     backendRunning = state.forkop_running;

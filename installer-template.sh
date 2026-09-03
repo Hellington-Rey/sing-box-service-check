@@ -3,7 +3,7 @@
 # Sing-box Service Check - установщик модуля проверки доступности сервисов.
 #
 # Скрипт самодостаточный: полезная нагрузка лежит внутри в base64.
-# Поддерживаются Tachyon, Forkop и оригинальный Podkop. Их файлы при установке
+# Поддерживаются Tachyon, HomeProxy, Forkop и оригинальный Podkop. Их файлы при установке
 # модуля не изменяются; Forkop-фиксы доступны отдельно только на Forkop.
 #
 # Установка:   sh install-sing-box-service-check.sh
@@ -265,6 +265,13 @@ command -v sha256sum >/dev/null 2>&1 || fail "Не найдена утилита
 if [ -x /usr/bin/tachyon ]; then
     BACKEND="Tachyon"
     BACKEND_VERSION="$(/usr/bin/tachyon show_version 2>/dev/null || echo unknown)"
+elif [ -x /etc/init.d/homeproxy ]; then
+    BACKEND="HomeProxy"
+    if [ -r /var/run/homeproxy/core.info ] && command -v jsonfilter >/dev/null 2>&1; then
+        BACKEND_VERSION="$(jsonfilter -i /var/run/homeproxy/core.info -e '@.version' 2>/dev/null || echo unknown)"
+    else
+        BACKEND_VERSION="unknown"
+    fi
 elif [ -x /usr/bin/forkop ]; then
     BACKEND="Forkop"
     BACKEND_VERSION="$(/usr/bin/forkop show_version 2>/dev/null || echo unknown)"
@@ -272,7 +279,7 @@ elif [ -x /usr/bin/podkop ]; then
     BACKEND="Podkop"
     BACKEND_VERSION="$(/usr/bin/podkop show_version 2>/dev/null || echo unknown)"
 else
-    fail "Не найден ни Tachyon, ни Forkop, ни Podkop. Сначала установите один из поддерживаемых backend."
+    fail "Не найден ни Tachyon, ни HomeProxy, ни Forkop, ни Podkop. Сначала установите один из поддерживаемых backend."
 fi
 log "Обнаружен $BACKEND $BACKEND_VERSION"
 

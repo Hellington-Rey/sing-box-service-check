@@ -1,6 +1,6 @@
 # Sing-box Service Check
 
-LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик [Tachyon](https://github.com/Dushnilin/tachyon), Forkop или оригинального [Podkop](https://github.com/itdoginfo/podkop).
+LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик [Tachyon](https://github.com/Dushnilin/tachyon), [HomeProxy](https://github.com/immortalwrt/homeproxy), Forkop или оригинального [Podkop](https://github.com/itdoginfo/podkop).
 
 Установленный backend определяется автоматически. Для совместимости с существующими установками имя пакета остаётся `luci-app-forkop-servicecheck`, а старая команда `forkop-servicecheck` работает как полный синоним новой `sing-box-service-check`.
 
@@ -32,7 +32,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 - Проверка популярных сервисов: Telegram, YouTube, Instagram, Discord, WhatsApp, GitHub и других.
 - Отдельная геопроверка Gemini API по ответу Google с локальной настройкой собственного API-ключа.
 - Проверка DNS через локальный dnsmasq и sing-box.
-- HTTPS-проверки через Tachyon/Forkop/Podkop и tproxy.
+- HTTPS-проверки через Tachyon/HomeProxy/Forkop/Podkop и tproxy.
 - TCP-проверки и best-effort проверки UDP/QUIC.
 - Режим проверки с роутера и режим проверки от имени клиента через временный network namespace.
 - Отображение fakeip, времени DNS/TCP/TLS/HTTP и выбранного outbound через Clash API.
@@ -60,7 +60,7 @@ LuCI-модуль для OpenWrt, который проверяет доступ
 
 ```text
 LuCI → sing-box-service-check → probe.uc
-                         → dnsmasq → sing-box → Tachyon/Forkop/Podkop tproxy → сервис
+                         → dnsmasq → sing-box → Tachyon/HomeProxy/Forkop/Podkop tproxy → сервис
 ```
 
 В режиме `netns` создаётся временный network namespace с отдельным IP-адресом в LAN. Это позволяет воспроизвести правила маршрутизации, зависящие от source IP клиента.
@@ -72,13 +72,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-forkop-servicecheck_1.12.5-r1_all.ipk
+opkg install luci-app-forkop-servicecheck_1.13.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.12.5-r1.apk
+apk add --allow-untrusted ./luci-app-forkop-servicecheck-1.13.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
@@ -118,9 +118,9 @@ sing-box-service-check update-start --install-missing
 sing-box-service-check update-start --skip-missing
 ```
 
-## Поддержка Tachyon, Forkop и Podkop
+## Поддержка Tachyon, HomeProxy, Forkop и Podkop
 
-Модуль автоматически выбирает backend по установленному исполняемому файлу. Сначала проверяется `/usr/bin/tachyon`, затем `/usr/bin/forkop` и `/usr/bin/podkop`. Такой порядок нужен после миграции, когда старые бинарники могут остаться рядом с активным Tachyon. Для отладки выбор можно переопределить переменной `FORKOP_SC_BACKEND=tachyon`, `FORKOP_SC_BACKEND=forkop` или `FORKOP_SC_BACKEND=podkop`.
+Модуль автоматически выбирает backend. Сначала проверяется `/usr/bin/tachyon`, затем `/etc/init.d/homeproxy`, `/usr/bin/forkop` и `/usr/bin/podkop`. Такой порядок нужен после миграции, когда старые компоненты могут остаться рядом с активным backend. Для отладки выбор можно переопределить переменной `FORKOP_SC_BACKEND=tachyon`, `FORKOP_SC_BACKEND=homeproxy`, `FORKOP_SC_BACKEND=forkop` или `FORKOP_SC_BACKEND=podkop`.
 
 На Tachyon модуль:
 
@@ -138,7 +138,15 @@ sing-box-service-check update-start --skip-missing
 - читает активные соединения через штатный Clash API Sing-box, включая настроенный секрет YACD;
 - не показывает вкладку и кнопки исправлений Forkop.
 
-Если одновременно найдены несколько backend, автоматически выбирается Tachyon, затем Forkop, затем Podkop.
+На HomeProxy модуль:
+
+- определяет состояние через `/etc/init.d/homeproxy status`;
+- читает активный конфиг из `/var/run/homeproxy/hiddify-c.json` или `/var/run/homeproxy/sing-box-c.json`;
+- использует `homeproxy.control.listen_interfaces`, преобразуя имя UCI-сети в Linux-устройство;
+- получает активные соединения из Clash API, указанного в сгенерированном конфиге sing-box;
+- показывает версию ядра из `/var/run/homeproxy/core.info` и скрывает специфичные исправления Forkop.
+
+Если одновременно найдены несколько backend, автоматически выбирается Tachyon, затем HomeProxy, Forkop и Podkop.
 
 На основной вкладке можно ввести домен или IPv4-адрес, указать TCP-порт и нажать **«Проверить IP/домен»**. Модуль проверит DNS и TCP-доступность, затем сопоставит удерживаемое тестовое соединение с Clash API sing-box. Для доменов FakeIP также используется как подтверждение маршрута через sing-box.
 
@@ -215,7 +223,7 @@ sing-box-service-check vpn-check awg0 1.1.1.1
 
 Пользовательские списки можно экспортировать в JSON и импортировать обратно. Перед записью backend проверяет идентификаторы, типы целей, адреса, порты и `expected_route`; невалидный документ не заменяет рабочую конфигурацию.
 
-Блок диагностики показывает выбранный Tachyon/Forkop/Podkop, его состояние, путь конфигурации, доступность и корректность ответа Clash API, DNS-настройки и FakeIP. Команда `doctor` только читает состояние установки. Команда `repair` восстанавливает файлы той же версии из локального recovery-архива, проверяет контрольную сумму и не загружает код из сети.
+Блок диагностики показывает выбранный Tachyon/HomeProxy/Forkop/Podkop, его состояние, путь конфигурации, доступность и корректность ответа Clash API, DNS-настройки и FakeIP. Команда `doctor` только читает состояние установки. Команда `repair` восстанавливает файлы той же версии из локального recovery-архива, проверяет контрольную сумму и не загружает код из сети.
 
 ```sh
 sing-box-service-check dns-diagnostics example.com
@@ -302,7 +310,7 @@ python3 build_packages.py
 
 ## Требования
 
-- OpenWrt и установленный Tachyon, Forkop либо оригинальный Podkop;
+- OpenWrt и установленный Tachyon, HomeProxy, Forkop либо оригинальный Podkop;
 - LuCI и ucode;
 - `curl` требуется для обновления из интерфейса и рекомендуется для точных измерений;
 - `sha256sum` требуется для установки обновления;

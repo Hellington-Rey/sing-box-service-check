@@ -12,7 +12,7 @@ function clash_connections() {
     else if (backend == "forkop") {
         result = capture_args([ FORKOP_BIN, "clash_api", "get_connections" ], false);
     }
-    else if (backend == "podkop") {
+    else if (backend == "podkop" || backend == "homeproxy") {
         let config = object_or_empty(read_json_file(sing_box_config_path()));
         let clash = object_or_empty(object_or_empty(config.experimental).clash_api);
         let controller = trim(as_string(clash.external_controller));
@@ -26,7 +26,7 @@ function clash_connections() {
             controller = "http://" + controller;
 
         let args = [ "curl", "-sS", "--connect-timeout", "2", "--max-time", "4" ];
-        if (secret == "")
+        if (secret == "" && backend == "podkop")
             secret = uci_get("podkop.settings.yacd_secret_key");
         if (secret != "") {
             push(args, "-H");
