@@ -19,6 +19,7 @@ const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
 const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
 const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
 const TACHYON_BIN = getenv("TACHYON_BIN") || "/usr/bin/tachyon";
+const TACHYON_INIT = getenv("TACHYON_INIT") || "/etc/init.d/tachyon";
 const HOME_PROXY_INIT = getenv("HOME_PROXY_INIT") || "/etc/init.d/homeproxy";
 const HOME_PROXY_CONFIG = getenv("HOME_PROXY_CONFIG") || "/var/run/homeproxy/hiddify-c.json";
 const HOME_PROXY_ALT_CONFIG = getenv("HOME_PROXY_ALT_CONFIG") || "/var/run/homeproxy/sing-box-c.json";
@@ -31,9 +32,12 @@ const UPDATE_RELEASE_BASE = "https://github.com/Hellington-Rey/sing-box-service-
 const UPDATE_INSTALLER = "install-sing-box-service-check.sh";
 const UPDATE_STATE_FILE = STATE_DIR + "/update.json";
 const HISTORY_FILE = STATE_DIR + "/history.json";
-const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "fkpsc";
-const NETNS_VETH_HOST = "fkpsc0";
-const NETNS_VETH_PEER = "fkpsc1";
+// Tachyon 1.3.x has its own Service Check and reserves fkpsc/fkpsc0/fkpsc1.
+// A separate namespace prevents either implementation from tearing down the
+// other's live client-mode probe when both LuCI pages are open.
+const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "sbsvcchk";
+const NETNS_VETH_HOST = getenv("FORKOP_SC_NETNS_VETH_HOST") || "sbsvcchk0";
+const NETNS_VETH_PEER = getenv("FORKOP_SC_NETNS_VETH_PEER") || "sbsvcchk1";
 const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
 const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
 const ZAPRET_STRATEGY_WORKER = LIB_DIR + "/zapret_strategy_worker.sh";
@@ -512,12 +516,100 @@ function fakeip_ranges() {
     return ranges;
 }
 
+function tachyon_cli_json(command) {
+    if (fs.stat(TACHYON_BIN) == null)
+        return null;
+    let result = capture_args([ TACHYON_BIN, as_string(command) ], false);
+    if (result.status != 0)
+        return null;
+    let parsed = parse_json(result.output);
+    return type(parsed) == "object" ? parsed : null;
+}
+
+function tachyon_active_service_action_from_state(state) {
+    let actions = array_or_empty(object_or_empty(object_or_empty(state).actions).service);
+    for (let item in actions) {
+        item = object_or_empty(item);
+        if (item.running === true || int(item.running) == 1)
+            return as_string(item.action || item.kind || "service_action");
+    }
+    return "";
+}
+
+function tachyon_active_service_action() {
+    return tachyon_active_service_action_from_state(tachyon_cli_json("get_ui_state"));
+}
+
+function tachyon_provider_runtime(command, label, process_name) {
+    let state = tachyon_cli_json(command);
+    let known = type(state) == "object";
+    state = object_or_empty(state);
+    let shape_known = state.running_process_count != null || state.supervisor_process_count != null || state.running != null;
+    let processes = int(state.running_process_count || 0);
+    let supervisors = int(state.supervisor_process_count || 0);
+    let active = processes > 0 || supervisors > 0 || state.running === true || int(state.running) == 1;
+    if (!shape_known && as_string(process_name) != "")
+        active = run_quiet([ "pgrep", "-x", as_string(process_name) ]);
+    return {
+        label: as_string(label),
+        known,
+        shape_known,
+        active,
+        running_process_count: processes,
+        supervisor_process_count: supervisors,
+        standalone_service_running: state.standalone_service_running === true || int(state.standalone_service_running) == 1
+    };
+}
+
+function tachyon_provider_runtimes() {
+    if (fs.stat(TACHYON_BIN) == null)
+        return {};
+    return {
+        zapret: tachyon_provider_runtime("get_zapret_status", "Zapret", "nfqws"),
+        zapret2: tachyon_provider_runtime("get_zapret2_status", "Zapret2", "nfqws2"),
+        byedpi: tachyon_provider_runtime("get_byedpi_status", "ByeDPI", "ciadpi")
+    };
+}
+
+function tachyon_runtime_conflicts() {
+    let result = [];
+    for (let id, state in tachyon_provider_runtimes())
+        if (object_or_empty(state).active)
+            push(result, "tachyon-" + as_string(id));
+    return result;
+}
+
+function tachyon_integration_diagnostic() {
+    let installed = fs.stat(TACHYON_BIN) != null;
+    if (!installed)
+        return { installed: false, current_api: false, active_action: "", providers: {} };
+    let status = tachyon_cli_json("get_status");
+    let ui_state = tachyon_cli_json("get_ui_state");
+    return {
+        installed: true,
+        current_api: type(status) == "object" && type(ui_state) == "object",
+        status_api: type(status) == "object",
+        ui_state_api: type(ui_state) == "object",
+        active_action: tachyon_active_service_action_from_state(ui_state),
+        providers: tachyon_provider_runtimes()
+    };
+}
+
 function backend_running() {
     let backend = backend_id();
     let result;
 
-    if (backend == "tachyon")
+    if (backend == "tachyon") {
         result = capture_args([ TACHYON_BIN, "get_status" ], false);
+        if (result.status == 0) {
+            let status = object_or_empty(parse_json(result.output));
+            if (status.running === true || int(status.running) == 1)
+                return true;
+            if (status.running === false || (status.running != null && int(status.running) == 0))
+                return false;
+        }
+        return fs.stat(TACHYON_INIT) != null && run_quiet([ TACHYON_INIT, "status" ]);
+    }
     else if (backend == "homeproxy")
         result = capture_args([ HOME_PROXY_INIT, "status" ], false);
     else if (backend == "forkop")
@@ -528,7 +620,7 @@ function backend_running() {
         return false;
 
     if (result.status != 0) {
-        if (backend == "tachyon" || backend == "homeproxy" || backend == "podkop")
+        if (backend == "homeproxy" || backend == "podkop")
             return run_quiet([ "pgrep", "-f", "sing-box" ]);
         return false;
     }
@@ -537,7 +629,7 @@ function backend_running() {
         return true;
     if (backend == "homeproxy" && result.status == 0)
         return true;
-    if ((backend == "tachyon" || backend == "podkop") && status.running == null)
+    if (backend == "podkop" && status.running == null)
         return run_quiet([ "pgrep", "-f", "sing-box" ]);
     return false;
 }
@@ -1109,6 +1201,7 @@ function capabilities() {
         backend_installed: backend != "none",
         backend_running: running,
         tachyon_installed: fs.stat(TACHYON_BIN) != null,
+        tachyon: tachyon_integration_diagnostic(),
         homeproxy_installed: fs.stat(HOME_PROXY_INIT) != null,
         forkop_installed: fs.stat(FORKOP_BIN) != null,
         podkop_installed: fs.stat(PODKOP_BIN) != null,
@@ -3357,6 +3450,7 @@ function zapret_backend_binary(id) {
 }
 
 function zapret_backend_init(id) {
+    if (id == "tachyon") return TACHYON_INIT;
     return id == "homeproxy" ? HOME_PROXY_INIT : "/etc/init.d/" + id;
 }
 
@@ -3385,6 +3479,8 @@ function zapret_backend_running(id) {
 
     if (fs.stat(init) != null && run_quiet([ init, "status" ]))
         return true;
+    if (id == "tachyon")
+        return false;
     return id == backend_id() && run_quiet([ "pgrep", "-f", "sing-box" ]);
 }
 
@@ -3401,6 +3497,10 @@ function zapret_service_running(id) {
     return fs.stat(init) != null && run_quiet([ init, "status" ]);
 }
 
+function zapret_standalone_providers() {
+    return [ "zapret", "zapret2", "byedpi" ];
+}
+
 function zapret_stop_service(id) {
     let init = zapret_backend_init(id);
     let stopped = fs.stat(init) != null && run_quiet([ init, "stop" ]);
@@ -3411,8 +3511,8 @@ function zapret_stop_service(id) {
 }
 
 function zapret_start_service(id) {
-    if (id == "zapret-service" || id == "zapret2-service") {
-        let name = id == "zapret-service" ? "zapret" : "zapret2";
+    if (id == "zapret-service" || id == "zapret2-service" || id == "byedpi-service") {
+        let name = replace(as_string(id), /-service$/, "");
         let init = "/etc/init.d/" + name;
         return fs.stat(init) != null && run_quiet([ init, "start" ]);
     }
@@ -3843,9 +3943,11 @@ function zapret_strategy_capabilities() {
     cleanup_jobs();
     let running = zapret_running_backends();
     let running_services = [];
-    for (let provider in [ "zapret", "zapret2" ])
+    for (let provider in zapret_standalone_providers())
         if (zapret_service_running(provider))
             push(running_services, provider);
+    let tachyon_action = tachyon_active_service_action();
+    let tachyon_conflicts = tachyon_runtime_conflicts();
     let zapret = zapret_find_install("zapret");
     let zapret2 = zapret_find_install("zapret2");
     let active_job = "";
@@ -3869,16 +3971,21 @@ function zapret_strategy_capabilities() {
         },
         running_backends: running,
         running_services,
-        backend_must_stop: length(running) > 0,
+        tachyon_installed: fs.stat(TACHYON_BIN) != null,
+        tachyon_action,
+        tachyon_runtime_conflicts: tachyon_conflicts,
+        backend_must_stop: length(running) > 0 || length(tachyon_conflicts) > 0,
         worker_ready: fs.stat(ZAPRET_STRATEGY_WORKER) != null,
         catalog_ready: fs.stat(ZAPRET_STRATEGY_CATALOG) != null,
         active_job,
         targets: ZAPRET_STRATEGY_TARGETS,
-        message: !zapret.ready && !zapret2.ready
+        message: tachyon_action != ""
+            ? "Tachyon выполняет операцию " + tachyon_action + "; дождитесь её завершения"
+            : (!zapret.ready && !zapret2.ready
             ? "Не найден готовый к запуску nfqws/nfqws2 с локальными ресурсами"
-            : (length(running) > 0
+            : (length(running) > 0 || length(tachyon_conflicts) > 0
                 ? "Перед тестом активный backend будет временно остановлен и затем восстановлен"
-                : "Backend уже остановлен; готовые профили можно проверять")
+                : "Backend уже остановлен; готовые профили можно проверять"))
     };
 }
 
@@ -3899,9 +4006,12 @@ function zapret_strategy_targets_spec(targets) {
 
 function zapret_remaining_services() {
     let result = zapret_running_backends();
-    for (let provider in [ "zapret", "zapret2" ])
+    for (let provider in zapret_standalone_providers())
         if (zapret_service_running(provider))
             push(result, provider + "-service");
+    for (let conflict in tachyon_runtime_conflicts())
+        if (index(result, conflict) < 0)
+            push(result, conflict);
     return result;
 }
 
@@ -3913,17 +4023,33 @@ function zapret_stop_timeout() {
 }
 
 function zapret_stop_for_test() {
+    let tachyon_action = tachyon_active_service_action();
+    if (tachyon_action != "") {
+        return {
+            success: false,
+            restore: [],
+            remaining: [ "tachyon-action-" + tachyon_action ],
+            message: "Tachyon сейчас выполняет " + tachyon_action +
+                "; дождитесь завершения операции и повторите подбор"
+        };
+    }
+
     let restore = [];
     let running = zapret_running_backends();
     for (let id in running)
         push(restore, id);
-    for (let provider in [ "zapret", "zapret2" ])
+    for (let provider in zapret_standalone_providers())
         if (zapret_service_running(provider))
             push(restore, provider + "-service");
 
     for (let id in running)
         zapret_stop_service(id);
-    for (let provider in [ "zapret", "zapret2" ])
+    // A failed/partial Tachyon start may leave managed DPI workers alive while
+    // get_status already reports the service as stopped. Stop its lifecycle in
+    // that case too, but do not add it to restore unless it was originally up.
+    if (length(tachyon_runtime_conflicts()) > 0 && index(running, "tachyon") < 0)
+        zapret_stop_service("tachyon");
+    for (let provider in zapret_standalone_providers())
         if (index(restore, provider + "-service") >= 0)
             run_quiet([ "/etc/init.d/" + provider, "stop" ]);
 
@@ -3936,10 +4062,12 @@ function zapret_stop_for_test() {
         if (stable_checks >= 2) break;
         if (waited == 3 && length(remaining) > 0) {
             for (let id in remaining) {
-                if (id == "zapret-service" || id == "zapret2-service") {
-                    let provider = id == "zapret-service" ? "zapret" : "zapret2";
+                if (match(id, /-service$/) != null) {
+                    let provider = replace(as_string(id), /-service$/, "");
                     run_quiet([ "/etc/init.d/" + provider, "stop" ]);
                 }
+                else if (match(id, /^tachyon-/) != null)
+                    zapret_stop_service("tachyon");
                 else zapret_stop_service(id);
             }
         }
@@ -4027,6 +4155,15 @@ function zapret_strategy_start(provider, selection_mode, scan_level, selected_pa
     let active = zapret_active_job();
     if (active != "") {
         write_json({ success: false, message: "Подбор уже выполняется", job_id: active });
+        return 1;
+    }
+    let tachyon_action = tachyon_active_service_action();
+    if (tachyon_action != "") {
+        write_json({
+            success: false,
+            message: "Tachyon сейчас выполняет " + tachyon_action +
+                "; дождитесь завершения операции и повторите подбор"
+        });
         return 1;
     }
 

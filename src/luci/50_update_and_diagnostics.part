@@ -152,6 +152,13 @@
 
     var clashDiagnostic = capabilities.clash_api || {};
     var dnsDiagnostic = capabilities.dns || {};
+    var tachyonDiagnostic = capabilities.tachyon || {};
+    var tachyonProviders = tachyonDiagnostic.providers || {};
+    var activeTachyonProviders = Object.keys(tachyonProviders).filter(function (id) {
+      return tachyonProviders[id] && tachyonProviders[id].active;
+    }).map(function (id) {
+      return (tachyonProviders[id] && tachyonProviders[id].label) || id;
+    });
     function diagnosticCell(title, value) {
       return E("div", { class: "fkpsc-diagnostic-cell" }, [
         E("b", {}, title),
@@ -173,6 +180,8 @@
         diagnosticCell("LAN-интерфейс", capabilities.lan_interface || "не определён"),
         diagnosticCell("DNS-серверы", (dnsDiagnostic.server_count || 0) + " · " + ((dnsDiagnostic.server_types || []).join(", ") || "тип не определён")),
         diagnosticCell("FakeIP", dnsDiagnostic.fakeip_enabled ? "включён · " + (dnsDiagnostic.fakeip_ranges || []).join(", ") : "не обнаружен"),
+        diagnosticCell("Интеграция Tachyon", !tachyonDiagnostic.installed ? "не установлен" : (tachyonDiagnostic.current_api ? "актуальный status/UI API" : "режим обратной совместимости")),
+        diagnosticCell("Tachyon DPI runtime", !tachyonDiagnostic.installed ? "не используется" : (activeTachyonProviders.length ? "активны: " + activeTachyonProviders.join(", ") : "конфликтующих процессов нет")),
         diagnosticCell("Инструменты", [capabilities.curl ? "curl" : "без curl", capabilities.dig ? "dig" : ((capabilities.dig_status || {}).available ? "dig сломан" : "без dig"), capabilities.nc ? "nc" : "без nc", capabilities.netns ? "netns" : "без netns"].join(" · ")),
       ]),
       dnsChainButton,

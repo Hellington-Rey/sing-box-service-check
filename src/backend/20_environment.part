@@ -76,12 +76,100 @@ function fakeip_ranges() {
     return ranges;
 }
 
+function tachyon_cli_json(command) {
+    if (fs.stat(TACHYON_BIN) == null)
+        return null;
+    let result = capture_args([ TACHYON_BIN, as_string(command) ], false);
+    if (result.status != 0)
+        return null;
+    let parsed = parse_json(result.output);
+    return type(parsed) == "object" ? parsed : null;
+}
+
+function tachyon_active_service_action_from_state(state) {
+    let actions = array_or_empty(object_or_empty(object_or_empty(state).actions).service);
+    for (let item in actions) {
+        item = object_or_empty(item);
+        if (item.running === true || int(item.running) == 1)
+            return as_string(item.action || item.kind || "service_action");
+    }
+    return "";
+}
+
+function tachyon_active_service_action() {
+    return tachyon_active_service_action_from_state(tachyon_cli_json("get_ui_state"));
+}
+
+function tachyon_provider_runtime(command, label, process_name) {
+    let state = tachyon_cli_json(command);
+    let known = type(state) == "object";
+    state = object_or_empty(state);
+    let shape_known = state.running_process_count != null || state.supervisor_process_count != null || state.running != null;
+    let processes = int(state.running_process_count || 0);
+    let supervisors = int(state.supervisor_process_count || 0);
+    let active = processes > 0 || supervisors > 0 || state.running === true || int(state.running) == 1;
+    if (!shape_known && as_string(process_name) != "")
+        active = run_quiet([ "pgrep", "-x", as_string(process_name) ]);
+    return {
+        label: as_string(label),
+        known,
+        shape_known,
+        active,
+        running_process_count: processes,
+        supervisor_process_count: supervisors,
+        standalone_service_running: state.standalone_service_running === true || int(state.standalone_service_running) == 1
+    };
+}
+
+function tachyon_provider_runtimes() {
+    if (fs.stat(TACHYON_BIN) == null)
+        return {};
+    return {
+        zapret: tachyon_provider_runtime("get_zapret_status", "Zapret", "nfqws"),
+        zapret2: tachyon_provider_runtime("get_zapret2_status", "Zapret2", "nfqws2"),
+        byedpi: tachyon_provider_runtime("get_byedpi_status", "ByeDPI", "ciadpi")
+    };
+}
+
+function tachyon_runtime_conflicts() {
+    let result = [];
+    for (let id, state in tachyon_provider_runtimes())
+        if (object_or_empty(state).active)
+            push(result, "tachyon-" + as_string(id));
+    return result;
+}
+
+function tachyon_integration_diagnostic() {
+    let installed = fs.stat(TACHYON_BIN) != null;
+    if (!installed)
+        return { installed: false, current_api: false, active_action: "", providers: {} };
+    let status = tachyon_cli_json("get_status");
+    let ui_state = tachyon_cli_json("get_ui_state");
+    return {
+        installed: true,
+        current_api: type(status) == "object" && type(ui_state) == "object",
+        status_api: type(status) == "object",
+        ui_state_api: type(ui_state) == "object",
+        active_action: tachyon_active_service_action_from_state(ui_state),
+        providers: tachyon_provider_runtimes()
+    };
+}
+
 function backend_running() {
     let backend = backend_id();
     let result;
 
-    if (backend == "tachyon")
+    if (backend == "tachyon") {
         result = capture_args([ TACHYON_BIN, "get_status" ], false);
+        if (result.status == 0) {
+            let status = object_or_empty(parse_json(result.output));
+            if (status.running === true || int(status.running) == 1)
+                return true;
+            if (status.running === false || (status.running != null && int(status.running) == 0))
+                return false;
+        }
+        return fs.stat(TACHYON_INIT) != null && run_quiet([ TACHYON_INIT, "status" ]);
+    }
     else if (backend == "homeproxy")
         result = capture_args([ HOME_PROXY_INIT, "status" ], false);
     else if (backend == "forkop")
@@ -92,7 +180,7 @@ function backend_running() {
         return false;
 
     if (result.status != 0) {
-        if (backend == "tachyon" || backend == "homeproxy" || backend == "podkop")
+        if (backend == "homeproxy" || backend == "podkop")
             return run_quiet([ "pgrep", "-f", "sing-box" ]);
         return false;
     }
@@ -101,7 +189,7 @@ function backend_running() {
         return true;
     if (backend == "homeproxy" && result.status == 0)
         return true;
-    if ((backend == "tachyon" || backend == "podkop") && status.running == null)
+    if (backend == "podkop" && status.running == null)
         return run_quiet([ "pgrep", "-f", "sing-box" ]);
     return false;
 }
@@ -673,6 +761,7 @@ function capabilities() {
         backend_installed: backend != "none",
         backend_running: running,
         tachyon_installed: fs.stat(TACHYON_BIN) != null,
+        tachyon: tachyon_integration_diagnostic(),
         homeproxy_installed: fs.stat(HOME_PROXY_INIT) != null,
         forkop_installed: fs.stat(FORKOP_BIN) != null,
         podkop_installed: fs.stat(PODKOP_BIN) != null,

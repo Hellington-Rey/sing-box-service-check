@@ -38,7 +38,7 @@ MAINTAINER = "Sing-box Service Check"
 URL = "https://github.com/Hellington-Rey/sing-box-service-check"
 DEPENDS = ["luci-base", "ucode"]
 DESCRIPTION = (
-    "Sing-box Service Check для Tachyon, Forkop и оригинального Podkop. Добавляет в LuCI страницу с "
+    "Sing-box Service Check для Tachyon, HomeProxy, Forkop и оригинального Podkop. Добавляет в LuCI страницу с "
     "кнопкой проверки: Telegram, YouTube, Instagram и другие сервисы проверяются "
     "тем же путём, которым идёт трафик клиента сети - через dnsmasq, sing-box и "
     "tproxy. Показывает DNS, TCP, TLS, код ответа и выбранный outbound."
@@ -86,6 +86,8 @@ POSTINST = """#!/bin/sh
 # не появится до перезагрузки.
 rm -rf /tmp/luci-modulecache 2>/dev/null
 rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -f /www/luci-static/resources/view/forkop/servicecheck-v1130.js 2>/dev/null
+rm -f /www/luci-static/resources/view/forkop/servicecheck-v1125.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1124.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1123.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1122.js 2>/dev/null

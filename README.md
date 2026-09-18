@@ -126,9 +126,14 @@ sing-box-service-check update-start --skip-missing
 
 - берёт путь к конфигурации Sing-box из `tachyon.settings.config_path`;
 - использует `tachyon.settings.source_network_interfaces` для режима клиента;
-- проверяет состояние через `tachyon get_status`;
+- проверяет полное стабильное состояние через `tachyon get_status` и понимает актуальный JSON API Tachyon 1.3.x;
+- учитывает асинхронные операции `start`, `stop`, `restart` и `reload` из `tachyon get_ui_state`;
 - читает активные соединения через `tachyon clash_api get_connections`;
+- перед подбором Zapret проверяет завершение встроенных процессов Zapret, Zapret2 и ByeDPI, а затем восстанавливает только исходно активные службы;
+- использует отдельный network namespace `sbsvcchk`, поэтому не конфликтует со встроенной проверкой сервисов Tachyon (`fkpsc`);
 - не показывает и не разрешает запуск специфичных исправлений Forkop, даже если после миграции остался старый `/usr/bin/forkop`.
+
+Интеграция проверена с актуальным Tachyon 1.3.29. Для более ранних выпусков сохранены fallback-проверки через init-скрипт и прежние CLI-команды.
 
 На Podkop модуль:
 

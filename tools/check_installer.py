@@ -22,6 +22,16 @@ APK_MAKER = ROOT / "dist" / "make-apk.sh"
 CHECKSUMS = ROOT / "dist" / "SHA256SUMS.txt"
 FEED_DIR = ROOT / "dist" / "feed"
 MARKER = "__FORKOP_SC_PAYLOAD__"
+STALE_LUCI_VIEWS = [
+    "servicecheck-v1130.js",
+    "servicecheck-v1125.js",
+    "servicecheck-v1124.js",
+    "servicecheck-v1123.js",
+    "servicecheck-v1122.js",
+    "servicecheck-v1121.js",
+    "servicecheck-v1120.js",
+    "servicecheck-v1112.js",
+]
 
 
 def assert_shell(name, shell_script):
@@ -34,12 +44,18 @@ def main():
     assert f'VERSION="{VERSION}"' in script
     assert f'VIEW_NAME="{LUCI_VIEW_NAME}"' in script
     assert "@@LUCI_VIEW_NAME@@" not in script
-    assert 'PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1124.js"' in script
-    assert 'OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1123.js"' in script
-    assert 'ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1122.js"' in script
-    assert 'HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"' in script
-    assert 'LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"' in script
-    assert 'OLDER_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"' in script
+    stale_variables = {
+        "PREVIOUS_VIEW_FILE": STALE_LUCI_VIEWS[0],
+        "OLDER_VIEW_FILE": STALE_LUCI_VIEWS[1],
+        "ANCIENT_VIEW_FILE": STALE_LUCI_VIEWS[2],
+        "HISTORIC_VIEW_FILE": STALE_LUCI_VIEWS[3],
+        "LEGACY_CACHE_VIEW_FILE": STALE_LUCI_VIEWS[4],
+        "OLDER_CACHE_VIEW_FILE": STALE_LUCI_VIEWS[5],
+        "EARLY_CACHE_VIEW_FILE": STALE_LUCI_VIEWS[6],
+        "OLDEST_CACHE_VIEW_FILE": STALE_LUCI_VIEWS[7],
+    }
+    for variable, filename in stale_variables.items():
+        assert f'{variable}="/www/luci-static/resources/view/forkop/{filename}"' in script
     assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
@@ -47,6 +63,7 @@ def main():
     assert "install_update_dependencies()" in script
     assert 'Установить недостающие пакеты сейчас? [Y/n]' in script
     assert '--install-missing' in script and '--skip-missing' in script
+    assert 'NETNS_DIR="/etc/netns/sbsvcchk"' in script
     assert 'opkg install --force-reinstall bind-libs bind-dig' in script
     assert 'apk fix --upgrade bind-libs bind-dig' in script
     assert 'command -v dig >/dev/null 2>&1 && dig -v >/dev/null 2>&1' in script
@@ -108,7 +125,7 @@ def main():
         "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
         "usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv",
     }
-    assert "www/luci-static/resources/view/forkop/servicecheck-v1124.js" not in names
+    assert not any(f"www/luci-static/resources/view/forkop/{name}" in names for name in STALE_LUCI_VIEWS)
     assert menu["admin/services/forkop_servicecheck"]["action"]["path"] == f"forkop/{LUCI_VIEW_NAME[:-3]}"
     assert_shell("installer CLI", cli_raw)
     assert_shell("installer xHTTP fix", xhttp_fix)
@@ -140,7 +157,7 @@ def main():
         )
         assert recovery_tar.getmember(recovery_worker_name).mode == 0o755
         assert recovery_tar.extractfile(recovery_worker_name).read() == zapret_worker
-        assert not any(name.endswith("/servicecheck-v1124.js") for name in recovery_names)
+        assert not any(any(name.endswith("/" + stale) for stale in STALE_LUCI_VIEWS) for name in recovery_names)
         assert not any(name.startswith("/") or "../" in name for name in recovery_names)
     assert payload_modes["usr/lib/forkop-servicecheck/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
@@ -149,6 +166,11 @@ def main():
     assert 'else if (mode == "custom")' in engine
     assert 'else if (mode == "cancel")' in engine
     assert 'function cancel_job(job_id)' in engine
+    assert 'const TACHYON_INIT = getenv("TACHYON_INIT") || "/etc/init.d/tachyon";' in engine
+    assert 'getenv("FORKOP_SC_NETNS") || "sbsvcchk"' in engine
+    assert 'function tachyon_active_service_action()' in engine
+    assert 'function tachyon_runtime_conflicts()' in engine
+    assert 'get_zapret_status' in engine and 'get_zapret2_status' in engine and 'get_byedpi_status' in engine
     assert 'callBin(["cancel", runState.jobId])' in view
     assert 'callBin(["cancel", jobId])' in view
     assert 'cancel JOB_ID' in cli
@@ -331,6 +353,8 @@ def main():
     assert '"Свои сервисы и домены"' in view
     assert '"Сохранённый результат"' in view
     assert '"Discord Voice — профиль загружен"' in view
+    assert '"Интеграция Tachyon"' in view
+    assert '"Tachyon занят: "' in view
     assert '"Проверено всего"' in view
     assert '"HTTPS-проверки"' in view
     assert '"Корень установки"' in view
@@ -343,13 +367,14 @@ def main():
         postinst = control_tar.extractfile("./postinst").read().decode("utf-8")
         assert "Depends: luci-base, ucode" in control
         assert f"Version: {VERSION}-r1" in control
-        assert "для Tachyon, Forkop и оригинального Podkop" in control
+        assert "для Tachyon, HomeProxy, Forkop и оригинального Podkop" in control
         assert "оригинального Podkop" in control
-        assert "rm -f /www/luci-static/resources/view/forkop/servicecheck-v1124.js" in postinst
+        for stale in STALE_LUCI_VIEWS:
+            assert f"rm -f /www/luci-static/resources/view/forkop/{stale}" in postinst
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
         data_names = set(data_tar.getnames())
         assert f"./{LUCI_VIEW_PATH}" in data_names
-        assert "./www/luci-static/resources/view/forkop/servicecheck-v1124.js" not in data_names
+        assert not any(f"./www/luci-static/resources/view/forkop/{name}" in data_names for name in STALE_LUCI_VIEWS)
         assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
         assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
         assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())
@@ -364,14 +389,14 @@ def main():
 
     feed_packages = (FEED_DIR / "Packages").read_text(encoding="utf-8")
     assert f"Version: {VERSION}-r1" in feed_packages
-    assert "для Tachyon, Forkop и оригинального Podkop" in feed_packages
+    assert "для Tachyon, HomeProxy, Forkop и оригинального Podkop" in feed_packages
     assert (FEED_DIR / PACKAGE.name).read_bytes() == PACKAGE.read_bytes()
     with gzip.open(FEED_DIR / "Packages.gz", "rt", encoding="utf-8") as compressed_feed:
         assert compressed_feed.read() == feed_packages
 
     apk_maker = APK_MAKER.read_text(encoding="utf-8")
     assert f'VERSION="{VERSION}-r1"' in apk_maker
-    assert "для Tachyon, Forkop и оригинального Podkop" in apk_maker
+    assert "для Tachyon, HomeProxy, Forkop и оригинального Podkop" in apk_maker
 
     artifact_by_name = {
         path.name: path

@@ -31,12 +31,25 @@ case "${1:-}" in
             echo '{"running":false}'
         fi
         ;;
+    get_ui_state)
+        action="${TACHYON_ACTION:-}"
+        if [ -n "$action" ]; then
+            printf '{"service":{"tachyon":{"running":1}},"actions":{"service":[{"running":true,"action":"%s"}]}}\n' "$action"
+        else
+            echo '{"service":{"tachyon":{"running":1}},"actions":{"service":[]}}'
+        fi
+        ;;
+    get_zapret_status|get_zapret2_status|get_byedpi_status)
+        count="$(cat "${TACHYON_PROVIDER_RUNNING_STATE:-/dev/null}" 2>/dev/null || echo 0)"
+        printf '{"running_process_count":%s,"supervisor_process_count":0,"standalone_service_running":false}\n' "$count"
+        ;;
     stop)
         [ "${BACKEND_STOP_FAIL:-0}" != "1" ] || exit 1
         if [ -n "${BACKEND_STOP_DELAY:-}" ]; then
-            (sleep "$BACKEND_STOP_DELAY"; printf '0\n' > "${BACKEND_RUNNING_STATE:?}") &
+            (sleep "$BACKEND_STOP_DELAY"; printf '0\n' > "${BACKEND_RUNNING_STATE:?}"; [ -z "${TACHYON_PROVIDER_RUNNING_STATE:-}" ] || printf '0\n' > "$TACHYON_PROVIDER_RUNNING_STATE") &
         else
             printf '0\n' > "${BACKEND_RUNNING_STATE:?}"
+            [ -z "${TACHYON_PROVIDER_RUNNING_STATE:-}" ] || printf '0\n' > "$TACHYON_PROVIDER_RUNNING_STATE"
         fi
         [ "${BACKEND_STOP_NONZERO:-0}" != "1" ] || exit 1
         ;;
@@ -221,7 +234,10 @@ run_engine() {
     VPN_PROBE_STATE="$TMP/vpn-probe-count" \
     VPN_PING_LOG="$TMP/vpn-ping.log" \
     BACKEND_RUNNING_STATE="$TMP/backend-running" \
+    TACHYON_PROVIDER_RUNNING_STATE="$TMP/tachyon-provider-running" \
+    TACHYON_ACTION="${TACHYON_ACTION:-}" \
     TACHYON_BIN="$TMP/tachyon" \
+    TACHYON_INIT="$TMP/tachyon-init" \
     HOME_PROXY_INIT="$TMP/homeproxy" \
     HOME_PROXY_CONFIG="$TMP/config.json" \
     HOME_PROXY_ALT_CONFIG="$TMP/missing-homeproxy-config.json" \
@@ -255,12 +271,51 @@ PY
 }
 
 cp "$TMP/backend" "$TMP/tachyon"
+cp "$TMP/backend" "$TMP/tachyon-init"
 cp "$TMP/backend" "$TMP/homeproxy"
 cp "$TMP/backend" "$TMP/forkop"
 cp "$TMP/backend" "$TMP/podkop"
 printf '%s\n' '{"version":"sing-box 1.12.5-test"}' > "$TMP/homeproxy-core.info"
 printf '1\n' > "$TMP/backend-running"
+printf '0\n' > "$TMP/tachyon-provider-running"
 assert_caps tachyon
+
+output="$(run_engine capabilities)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["tachyon"]["current_api"] is True, data
+assert data["tachyon"]["active_action"] == "", data
+assert set(data["tachyon"]["providers"]) == {"zapret", "zapret2", "byedpi"}, data
+PY
+
+printf '1\n' > "$TMP/tachyon-provider-running"
+output="$(run_engine zapret-capabilities)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert set(data["tachyon_runtime_conflicts"]) == {
+    "tachyon-zapret", "tachyon-zapret2", "tachyon-byedpi"
+}, data
+PY
+
+output="$(TACHYON_ACTION=reload run_engine zapret-capabilities)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["tachyon_action"] == "reload", data
+assert "дождитесь" in data["message"].lower(), data
+PY
+if TACHYON_ACTION=restart run_engine zapret-start zapret2 ready quick '["youtube"]' >"$TMP/tachyon-action.json" 2>/dev/null; then
+    echo "Zapret scan started during an active Tachyon lifecycle action" >&2
+    exit 1
+fi
+JSON_DATA="$(cat "$TMP/tachyon-action.json")" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["success"] is False and "restart" in data["message"], data
+PY
+printf '0\n' > "$TMP/tachyon-provider-running"
 
 rm "$TMP/tachyon"
 assert_caps homeproxy

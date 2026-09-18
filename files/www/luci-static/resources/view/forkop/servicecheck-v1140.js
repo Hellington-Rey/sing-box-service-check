@@ -1830,6 +1830,13 @@ return view.extend({
 
     var clashDiagnostic = capabilities.clash_api || {};
     var dnsDiagnostic = capabilities.dns || {};
+    var tachyonDiagnostic = capabilities.tachyon || {};
+    var tachyonProviders = tachyonDiagnostic.providers || {};
+    var activeTachyonProviders = Object.keys(tachyonProviders).filter(function (id) {
+      return tachyonProviders[id] && tachyonProviders[id].active;
+    }).map(function (id) {
+      return (tachyonProviders[id] && tachyonProviders[id].label) || id;
+    });
     function diagnosticCell(title, value) {
       return E("div", { class: "fkpsc-diagnostic-cell" }, [
         E("b", {}, title),
@@ -1851,6 +1858,8 @@ return view.extend({
         diagnosticCell("LAN-интерфейс", capabilities.lan_interface || "не определён"),
         diagnosticCell("DNS-серверы", (dnsDiagnostic.server_count || 0) + " · " + ((dnsDiagnostic.server_types || []).join(", ") || "тип не определён")),
         diagnosticCell("FakeIP", dnsDiagnostic.fakeip_enabled ? "включён · " + (dnsDiagnostic.fakeip_ranges || []).join(", ") : "не обнаружен"),
+        diagnosticCell("Интеграция Tachyon", !tachyonDiagnostic.installed ? "не установлен" : (tachyonDiagnostic.current_api ? "актуальный status/UI API" : "режим обратной совместимости")),
+        diagnosticCell("Tachyon DPI runtime", !tachyonDiagnostic.installed ? "не используется" : (activeTachyonProviders.length ? "активны: " + activeTachyonProviders.join(", ") : "конфликтующих процессов нет")),
         diagnosticCell("Инструменты", [capabilities.curl ? "curl" : "без curl", capabilities.dig ? "dig" : ((capabilities.dig_status || {}).available ? "dig сломан" : "без dig"), capabilities.nc ? "nc" : "без nc", capabilities.netns ? "netns" : "без netns"].join(" · ")),
       ]),
       dnsChainButton,
@@ -2570,6 +2579,9 @@ function vlessUriFromOutbound(document) {
       zapretProviderOptions(caps);
       var deps = caps.dependencies || {}, running = Array.isArray(caps.running_backends) ? caps.running_backends : [];
       var standalone = Array.isArray(caps.running_services) ? caps.running_services : [];
+      var tachyonInstalled = caps.tachyon_installed === true;
+      var tachyonAction = String(caps.tachyon_action || "");
+      var tachyonConflicts = Array.isArray(caps.tachyon_runtime_conflicts) ? caps.tachyon_runtime_conflicts : [];
       var selected = ((caps.providers || {})[zapretProviderSelect.value]) || {};
       var modeReady = zapretProviderReady(selected);
       var selectedIds = zapretSelectedIds();
@@ -2582,13 +2594,15 @@ function vlessUriFromOutbound(document) {
         zapretChip(caps.catalog_ready === false ? "каталог отсутствует" : "каталог готов", caps.catalog_ready === false ? "err" : "ok"),
         zapretChip(zapretMode === "auto" ? (selected.blockcheck ? "blockcheck найден" : "blockcheck не найден") : "blockcheck не требуется", zapretMode === "auto" ? (selected.blockcheck ? "ok" : "err") : "ok"),
         zapretChip(discordSelected ? "Discord Voice профиль включён" : "Discord Voice не требуется", "ok"),
+        zapretChip(!tachyonInstalled ? "Tachyon не установлен" : (tachyonAction ? ("Tachyon занят: " + tachyonAction) : "Tachyon без активной операции"), tachyonAction ? "err" : "ok"),
+        zapretChip(!tachyonInstalled ? "Tachyon runtime не используется" : (tachyonConflicts.length ? ("Будут остановлены DPI-процессы Tachyon: " + tachyonConflicts.join(", ")) : "DPI-процессы Tachyon не конфликтуют"), tachyonConflicts.length ? "warn" : "ok"),
         zapretChip(running.length ? ("Будет остановлен: " + running.join(", ")) : "Backend остановлен", running.length ? "warn" : "ok"),
-        zapretChip(standalone.length ? ("Будет остановлен отдельный: " + standalone.join(", ")) : "Отдельный Zapret остановлен", standalone.length ? "warn" : "ok"),
+        zapretChip(standalone.length ? ("Будут остановлены отдельные DPI-сервисы: " + standalone.join(", ")) : "Отдельные DPI-сервисы остановлены", standalone.length ? "warn" : "ok"),
         zapretChip(modeReady ? "движок готов" : "движок не готов", modeReady ? "ok" : "err")
       );
       renderZapretLocation(caps);
-      zapretStartButton.disabled = !modeReady || !selectedIds.length || deps.curl === false || deps.nft === false || deps.dns === false || !!zapretRunState.jobId;
-      zapretStartButton.title = selectedIds.length ? "" : "Выберите хотя бы один сервис";
+      zapretStartButton.disabled = !modeReady || !selectedIds.length || !!tachyonAction || deps.curl === false || deps.nft === false || deps.dns === false || !!zapretRunState.jobId;
+      zapretStartButton.title = tachyonAction ? "Дождитесь завершения операции Tachyon" : (selectedIds.length ? "" : "Выберите хотя бы один сервис");
     }
     function applyZapretMode(mode, force) {
       if (!force && zapretRunState.jobId) return;
@@ -2846,7 +2860,7 @@ function vlessUriFromOutbound(document) {
       }
       var modeDescription = mode === "auto" ? "Штатный blockcheck выполнит проходы TLS 1.3, TLS 1.2 и QUIC, после чего составные варианты будут проверены." : "Будут проверены локальные готовые составные профили.";
       modeDescription += " Сервисы: " + selectedTitles.join(", ") + ".";
-      if (!window.confirm("На время проверки Forkop/Tachyon/Podkop и самостоятельный Zapret будут остановлены. " + modeDescription + " Конфиги не изменяются, ранее активные сервисы после завершения запустятся снова. Продолжить?")) return;
+      if (!window.confirm("На время проверки Forkop/Tachyon/HomeProxy/Podkop и самостоятельные DPI-сервисы будут остановлены. " + modeDescription + " Конфиги не изменяются, ранее активные сервисы после завершения запустятся снова. Продолжить?")) return;
       zapretStartButton.disabled = true;
       zapretStartButton.textContent = "Проверяю остановку...";
       if (zapretSettingsSaveTimer) {
