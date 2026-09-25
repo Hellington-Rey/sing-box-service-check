@@ -2,7 +2,7 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-WORKER="$ROOT/files/usr/lib/forkop-servicecheck/zapret_strategy_worker.sh"
+WORKER="$ROOT/files/usr/lib/sing-box-service-check/zapret_strategy_worker.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 

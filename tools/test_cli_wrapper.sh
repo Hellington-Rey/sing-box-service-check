@@ -2,7 +2,7 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-WRAPPER="$ROOT/files/usr/bin/forkop-servicecheck"
+WRAPPER="$ROOT/files/usr/bin/sing-box-service-check"
 TMP="$(mktemp -d)"
 
 cleanup() {

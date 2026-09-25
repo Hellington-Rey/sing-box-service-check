@@ -18,7 +18,7 @@ def fail(message: str) -> None:
 
 
 def validate_profiles() -> None:
-    path = ROOT / "files/usr/share/forkop-servicecheck/profiles.json"
+    path = ROOT / "files/usr/share/sing-box-service-check/profiles.json"
     document = json.loads(path.read_text(encoding="utf-8"))
     profiles = document.get("profiles")
     if not isinstance(profiles, list) or not profiles:
@@ -53,7 +53,7 @@ def validate_profiles() -> None:
 
 
 def validate_zapret_catalog() -> None:
-    path = ROOT / "files/usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv"
+    path = ROOT / "files/usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv"
     counts = {"zapret": 0, "zapret2": 0}
     identifiers: set[str] = set()
     forbidden = ("--qnum", "--fwmark", "--dpi-desync-fwmark", "--hostlist", "--ipset", "pornhub")
@@ -100,7 +100,7 @@ def validate_documentation(version: str) -> None:
 
 def validate_luci_source(version: str) -> None:
     view_name = luci_view_name(version)
-    view_directory = ROOT / "files/www/luci-static/resources/view/forkop"
+    view_directory = ROOT / "files/www/luci-static/resources/view/sing-box-service-check"
     view_path = view_directory / view_name
     source = view_path.read_text(encoding="utf-8")
     if "UI_VERSION" in source:
@@ -110,15 +110,15 @@ def validate_luci_source(version: str) -> None:
     if versioned_views != [view_name]:
         fail(f"LuCI view must use only the current cache-busting name {view_name}: {versioned_views}")
 
-    menu_path = ROOT / "files/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json"
+    menu_path = ROOT / "files/usr/share/luci/menu.d/luci-app-sing-box-service-check.json"
     menu = json.loads(menu_path.read_text(encoding="utf-8"))
-    action = menu["admin/services/forkop_servicecheck"]["action"]
-    expected_path = f"forkop/{view_name.removesuffix('.js')}"
+    action = menu["admin/services/sing_box_service_check"]["action"]
+    expected_path = f"sing-box-service-check/{view_name.removesuffix('.js')}"
     if action.get("path") != expected_path:
         fail(f"LuCI menu path {action.get('path')!r} does not match {expected_path!r}")
 
-    repair = (ROOT / "files/usr/lib/forkop-servicecheck/repair.sh").read_text(encoding="utf-8")
-    if f"www/luci-static/resources/view/forkop/{view_name}" not in repair:
+    repair = (ROOT / "files/usr/lib/sing-box-service-check/repair.sh").read_text(encoding="utf-8")
+    if f"www/luci-static/resources/view/sing-box-service-check/{view_name}" not in repair:
         fail("repair.sh does not contain the current versioned LuCI view")
 
 
@@ -136,12 +136,15 @@ def main() -> int:
     required = [
         ".github/workflows/ci.yml",
         ".github/workflows/release.yml",
-        "files/usr/lib/forkop-servicecheck/repair.sh",
-        "files/usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
-        "files/usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv",
+        "files/usr/lib/sing-box-service-check/repair.sh",
+        "files/usr/lib/sing-box-service-check/zapret_strategy_worker.sh",
+        "files/usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv",
         "src/backend/95_zapret_strategy.part",
         "src/luci/58_zapret_strategy.part",
         "tools/test_installer_runtime_layout.sh",
+        "tools/test_migration.sh",
+        "files/usr/lib/sing-box-service-check/migrate.sh",
+        "docs/release-notes.md",
         "tools/test_zapret_strategy_worker.sh",
     ]
     for relative in required:

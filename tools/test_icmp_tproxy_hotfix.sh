@@ -2,7 +2,7 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-HOTFIX="$ROOT/files/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh"
+HOTFIX="$ROOT/files/usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh"
 TMP="$(mktemp -d)"
 
 cleanup() {

@@ -251,6 +251,7 @@
       var standalone = Array.isArray(caps.running_services) ? caps.running_services : [];
       var tachyonInstalled = caps.tachyon_installed === true;
       var tachyonAction = String(caps.tachyon_action || "");
+      var tachyonEngine = String(caps.tachyon_engine || "");
       var tachyonConflicts = Array.isArray(caps.tachyon_runtime_conflicts) ? caps.tachyon_runtime_conflicts : [];
       var selected = ((caps.providers || {})[zapretProviderSelect.value]) || {};
       var modeReady = zapretProviderReady(selected);
@@ -264,7 +265,7 @@
         zapretChip(caps.catalog_ready === false ? "каталог отсутствует" : "каталог готов", caps.catalog_ready === false ? "err" : "ok"),
         zapretChip(zapretMode === "auto" ? (selected.blockcheck ? "blockcheck найден" : "blockcheck не найден") : "blockcheck не требуется", zapretMode === "auto" ? (selected.blockcheck ? "ok" : "err") : "ok"),
         zapretChip(discordSelected ? "Discord Voice профиль включён" : "Discord Voice не требуется", "ok"),
-        zapretChip(!tachyonInstalled ? "Tachyon не установлен" : (tachyonAction ? ("Tachyon занят: " + tachyonAction) : "Tachyon без активной операции"), tachyonAction ? "err" : "ok"),
+        zapretChip(!tachyonInstalled ? "Tachyon не установлен" : (tachyonAction ? ("Tachyon занят: " + tachyonAction) : "Tachyon · " + (tachyonEngine || "движок неизвестен") + " · без активной операции"), tachyonAction ? "err" : "ok"),
         zapretChip(!tachyonInstalled ? "Tachyon runtime не используется" : (tachyonConflicts.length ? ("Будут остановлены DPI-процессы Tachyon: " + tachyonConflicts.join(", ")) : "DPI-процессы Tachyon не конфликтуют"), tachyonConflicts.length ? "warn" : "ok"),
         zapretChip(running.length ? ("Будет остановлен: " + running.join(", ")) : "Backend остановлен", running.length ? "warn" : "ok"),
         zapretChip(standalone.length ? ("Будут остановлены отдельные DPI-сервисы: " + standalone.join(", ")) : "Отдельные DPI-сервисы остановлены", standalone.length ? "warn" : "ok"),

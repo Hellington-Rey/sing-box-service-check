@@ -8,8 +8,8 @@ UCODE_BIN="$(command -v ucode || true)"
 }
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-ENGINE="$ROOT/files/usr/lib/forkop-servicecheck/probe.uc"
-LIB="$ROOT/files/usr/lib/forkop-servicecheck"
+ENGINE="$ROOT/files/usr/lib/sing-box-service-check/probe.uc"
+LIB="$ROOT/files/usr/lib/sing-box-service-check"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/bin" "$TMP/state"
@@ -33,11 +33,18 @@ case "${1:-}" in
         ;;
     get_ui_state)
         action="${TACHYON_ACTION:-}"
-        if [ -n "$action" ]; then
-            printf '{"service":{"tachyon":{"running":1}},"actions":{"service":[{"running":true,"action":"%s"}]}}\n' "$action"
-        else
-            echo '{"service":{"tachyon":{"running":1}},"actions":{"service":[]}}'
-        fi
+        component="${TACHYON_COMPONENT_ACTION:-}"
+        service_actions="[]"
+        component_actions="[]"
+        [ -z "$action" ] || service_actions="[{\"running\":true,\"action\":\"$action\"}]"
+        [ -z "$component" ] || component_actions="[{\"running\":true,\"component\":\"engine\",\"action\":\"$component\"}]"
+        printf '{"active_engine":"%s","service":{"tachyon":{"running":1}},"actions":{"service":%s,"component":%s}}\n' "${TACHYON_ENGINE:-sing-box}" "$service_actions" "$component_actions"
+        ;;
+    get_engine_status)
+        printf '{"engine":"%s","running":true}\n' "${TACHYON_ENGINE:-sing-box}"
+        ;;
+    engine_explain)
+        printf '%s -> output "direct" -> direct\n' "${2:-example.com}"
         ;;
     get_zapret_status|get_zapret2_status|get_byedpi_status)
         count="$(cat "${TACHYON_PROVIDER_RUNNING_STATE:-/dev/null}" 2>/dev/null || echo 0)"
@@ -60,6 +67,13 @@ case "${1:-}" in
     *) exit 1 ;;
 esac
 EOF
+
+cat > "$TMP/steer-zapret" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = "status" ] && [ "${TACHYON_STEER_ZAPRET_RUNNING:-0}" = "1" ]
+EOF
+chmod +x "$TMP/steer-zapret"
+printf '%s\n' '{"outputs":{}}' > "$TMP/steer-spec.json"
 
 cat > "$TMP/bin/uci" <<'EOF'
 #!/bin/sh
@@ -236,6 +250,11 @@ run_engine() {
     BACKEND_RUNNING_STATE="$TMP/backend-running" \
     TACHYON_PROVIDER_RUNNING_STATE="$TMP/tachyon-provider-running" \
     TACHYON_ACTION="${TACHYON_ACTION:-}" \
+    TACHYON_ENGINE="${TACHYON_ENGINE:-sing-box}" \
+    TACHYON_COMPONENT_ACTION="${TACHYON_COMPONENT_ACTION:-}" \
+    TACHYON_STEER_ZAPRET_RUNNING="${TACHYON_STEER_ZAPRET_RUNNING:-0}" \
+    TACHYON_STEER_ZAPRET_INIT="$TMP/steer-zapret" \
+    TACHYON_STEER_SPEC="$TMP/steer-spec.json" \
     TACHYON_BIN="$TMP/tachyon" \
     TACHYON_INIT="$TMP/tachyon-init" \
     HOME_PROXY_INIT="$TMP/homeproxy" \
@@ -316,6 +335,34 @@ data = json.loads(os.environ["JSON_DATA"])
 assert data["success"] is False and "restart" in data["message"], data
 PY
 printf '0\n' > "$TMP/tachyon-provider-running"
+
+output="$(TACHYON_ENGINE=steer TACHYON_STEER_ZAPRET_RUNNING=1 run_engine capabilities)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["routing_engine"] == "steer", data
+assert data["tachyon"]["active_engine"] == "steer", data
+assert data["tachyon"]["engine_status_api"] is True, data
+assert data["clash_api"]["applicable"] is False, data
+assert data["dns"]["engine"] == "steer" and data["dns"]["config_readable"], data
+PY
+output="$(TACHYON_ENGINE=steer TACHYON_STEER_ZAPRET_RUNNING=1 run_engine zapret-capabilities)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["tachyon_engine"] == "steer", data
+assert "tachyon-steer-zapret" in data["tachyon_runtime_conflicts"], data
+PY
+output="$(TACHYON_COMPONENT_ACTION=switch run_engine zapret-capabilities)"
+JSON_DATA="$output" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["JSON_DATA"])
+assert data["tachyon_action"] == "engine:switch", data
+PY
+if TACHYON_COMPONENT_ACTION=switch run_engine zapret-start zapret2 ready quick '["youtube"]' >"$TMP/engine-switch.json" 2>/dev/null; then
+    echo "Zapret scan started during a Tachyon engine switch" >&2
+    exit 1
+fi
 
 rm "$TMP/tachyon"
 assert_caps homeproxy

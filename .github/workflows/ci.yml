@@ -44,10 +44,10 @@ jobs:
         run: |
           view="$(python -c 'from tools.project_version import luci_view_name; print(luci_view_name())')"
           python tools/check_ucode.py \
-            files/usr/bin/forkop-servicecheck \
-            files/usr/lib/forkop-servicecheck/probe.uc \
-            "files/www/luci-static/resources/view/forkop/$view" \
-            files/usr/share/forkop-servicecheck/profiles.json
+            files/usr/bin/sing-box-service-check \
+            files/usr/lib/sing-box-service-check/probe.uc \
+            "files/www/luci-static/resources/view/sing-box-service-check/$view" \
+            files/usr/share/sing-box-service-check/profiles.json
 
       - name: Test VLESS converter
         run: node tools/test_vless_converter.js
@@ -56,15 +56,16 @@ jobs:
         run: |
           sh -n installer-template.sh
           sh -n install-sing-box-service-check.sh
-          sh -n install-forkop-servicecheck.sh
           sh -n make-apk-template.sh
           sh -n dist/make-apk.sh
-          sh -n files/usr/bin/forkop-servicecheck
-          sh -n files/usr/lib/forkop-servicecheck/xhttp_hotfix.sh
-          sh -n files/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh
-          sh -n files/usr/lib/forkop-servicecheck/repair.sh
-          sh -n files/usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
+          sh -n files/usr/bin/sing-box-service-check
+          sh -n files/usr/lib/sing-box-service-check/xhttp_hotfix.sh
+          sh -n files/usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh
+          sh -n files/usr/lib/sing-box-service-check/repair.sh
+          sh -n files/usr/lib/sing-box-service-check/migrate.sh
+          sh -n files/usr/lib/sing-box-service-check/zapret_strategy_worker.sh
           sh -n tools/test_installer_runtime_layout.sh
+          sh -n tools/test_migration.sh
           sh -n tools/test_zapret_strategy_worker.sh
 
       - name: Build the OpenWrt ucode runtime
@@ -81,6 +82,7 @@ jobs:
       - name: Run shell integration tests
         run: |
           sh tools/test_installer_runtime_layout.sh
+          sh tools/test_migration.sh
           sh tools/test_cli_wrapper.sh
           sh tools/test_zapret_strategy_worker.sh
           sh tools/test_icmp_tproxy_hotfix.sh
@@ -89,9 +91,9 @@ jobs:
       - name: Check reproducible build
         shell: pwsh
         run: |
-          $before = Get-FileHash -Algorithm SHA256 install-sing-box-service-check.sh, install-forkop-servicecheck.sh, dist/*.ipk, dist/make-apk.sh, dist/SHA256SUMS.txt
+          $before = Get-FileHash -Algorithm SHA256 install-sing-box-service-check.sh, dist/*.ipk, dist/make-apk.sh, dist/SHA256SUMS.txt
           ./build.ps1
-          $after = Get-FileHash -Algorithm SHA256 install-sing-box-service-check.sh, install-forkop-servicecheck.sh, dist/*.ipk, dist/make-apk.sh, dist/SHA256SUMS.txt
+          $after = Get-FileHash -Algorithm SHA256 install-sing-box-service-check.sh, dist/*.ipk, dist/make-apk.sh, dist/SHA256SUMS.txt
           if (Compare-Object $before.Hash $after.Hash) { throw 'Build is not reproducible' }
 
       - name: Upload test artifacts
@@ -101,7 +103,6 @@ jobs:
           if-no-files-found: error
           path: |
             install-sing-box-service-check.sh
-            install-forkop-servicecheck.sh
             dist/*.ipk
             dist/make-apk.sh
             dist/SHA256SUMS.txt

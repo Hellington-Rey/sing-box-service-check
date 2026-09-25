@@ -17,24 +17,32 @@ BUILT_AT="@@BUILT_AT@@"
 
 BIN_PATH="/usr/bin/sing-box-service-check"
 LEGACY_BIN_PATH="/usr/bin/forkop-servicecheck"
-LIB_DIR="/usr/lib/forkop-servicecheck"
-SHARE_DIR="/usr/share/forkop-servicecheck"
+LIB_DIR="/usr/lib/sing-box-service-check"
+SHARE_DIR="/usr/share/sing-box-service-check"
 VERSION_FILE="$SHARE_DIR/version"
 VIEW_NAME="@@LUCI_VIEW_NAME@@"
-VIEW_FILE="/www/luci-static/resources/view/forkop/$VIEW_NAME"
-PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1130.js"
-OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1125.js"
-ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1124.js"
-HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1123.js"
-LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1122.js"
-OLDER_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"
-EARLY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"
-OLDEST_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1112.js"
+VIEW_FILE="/www/luci-static/resources/view/sing-box-service-check/$VIEW_NAME"
+OLD_CURRENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1141.js"
+PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1140.js"
+OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1130.js"
+ANCIENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1125.js"
+HISTORIC_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1124.js"
+LEGACY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1123.js"
+OLDER_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1122.js"
+EARLY_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1121.js"
+OLDEST_CACHE_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1120.js"
 LEGACY_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck.js"
 BROKEN_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-1.1.0.js"
-MENU_FILE="/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json"
-ACL_FILE="/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json"
-STATE_DIR="/var/run/forkop-servicecheck"
+MENU_FILE="/usr/share/luci/menu.d/luci-app-sing-box-service-check.json"
+ACL_FILE="/usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json"
+STATE_DIR="/var/run/sing-box-service-check"
+MIGRATE_SCRIPT="$LIB_DIR/migrate.sh"
+OLD_PACKAGE="luci-app-forkop-servicecheck"
+NEW_PACKAGE="luci-app-sing-box-service-check"
+OLD_LIB_DIR="/usr/lib/forkop-servicecheck"
+OLD_SHARE_DIR="/usr/share/forkop-servicecheck"
+OLD_MENU_FILE="/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json"
+OLD_ACL_FILE="/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json"
 NETNS_DIR="/etc/netns/sbsvcchk"
 DEPENDENCY_MODE="prompt"
 
@@ -95,8 +103,22 @@ do_uninstall() {
         "$LEGACY_BIN_PATH" netns_teardown >/dev/null 2>&1 || true
     fi
 
-    rm -f "$BIN_PATH" "$LEGACY_BIN_PATH" "$VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLDER_VIEW_FILE" "$ANCIENT_VIEW_FILE" "$HISTORIC_VIEW_FILE" "$LEGACY_CACHE_VIEW_FILE" "$OLDER_CACHE_VIEW_FILE" "$EARLY_CACHE_VIEW_FILE" "$OLDEST_CACHE_VIEW_FILE" "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$MENU_FILE" "$ACL_FILE"
-    rm -rf "$LIB_DIR" "$SHARE_DIR" "$STATE_DIR" "$NETNS_DIR"
+    if command -v opkg >/dev/null 2>&1; then
+        for package in "$NEW_PACKAGE" "$OLD_PACKAGE"; do
+            if opkg status "$package" 2>/dev/null | grep -q "^Status:.*installed"; then
+                opkg remove "$package" || fail "Не удалось удалить пакет $package через opkg"
+            fi
+        done
+    elif command -v apk >/dev/null 2>&1; then
+        for package in "$NEW_PACKAGE" "$OLD_PACKAGE"; do
+            if apk info -v "$package" 2>/dev/null | grep -q "^$package-[0-9]"; then
+                apk del "$package" || fail "Не удалось удалить пакет $package через apk"
+            fi
+        done
+    fi
+
+    rm -f "$BIN_PATH" "$LEGACY_BIN_PATH" "$VIEW_FILE" "$OLD_CURRENT_VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLDER_VIEW_FILE" "$ANCIENT_VIEW_FILE" "$HISTORIC_VIEW_FILE" "$LEGACY_CACHE_VIEW_FILE" "$OLDER_CACHE_VIEW_FILE" "$EARLY_CACHE_VIEW_FILE" "$OLDEST_CACHE_VIEW_FILE" "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$MENU_FILE" "$ACL_FILE" "$OLD_MENU_FILE" "$OLD_ACL_FILE"
+    rm -rf "$LIB_DIR" "$SHARE_DIR" "$STATE_DIR" "$NETNS_DIR" "$OLD_LIB_DIR" "$OLD_SHARE_DIR"
 
     clear_luci_cache
     reload_rpcd
@@ -126,8 +148,11 @@ detect_installed_version() {
     fi
 
     if command -v opkg >/dev/null 2>&1; then
-        PACKAGE_VERSION="$(opkg status luci-app-forkop-servicecheck 2>/dev/null |
+        PACKAGE_VERSION="$(opkg status "$NEW_PACKAGE" 2>/dev/null |
             sed -n 's/^Version: //p' | head -n 1)"
+        if [ -z "$PACKAGE_VERSION" ]; then
+            PACKAGE_VERSION="$(opkg status "$OLD_PACKAGE" 2>/dev/null | sed -n 's/^Version: //p' | head -n 1)"
+        fi
         if [ -n "$PACKAGE_VERSION" ]; then
             printf '%s\n' "$PACKAGE_VERSION"
             return
@@ -135,8 +160,13 @@ detect_installed_version() {
     fi
 
     if command -v apk >/dev/null 2>&1 &&
-        apk info -e luci-app-forkop-servicecheck >/dev/null 2>&1; then
-        apk info -v luci-app-forkop-servicecheck 2>/dev/null | head -n 1
+        apk info -e "$NEW_PACKAGE" >/dev/null 2>&1; then
+        apk info -v "$NEW_PACKAGE" 2>/dev/null | head -n 1
+        return
+    fi
+
+    if command -v apk >/dev/null 2>&1 && apk info -v "$OLD_PACKAGE" 2>/dev/null | grep -q "^$OLD_PACKAGE-[0-9]"; then
+        apk info -v "$OLD_PACKAGE" 2>/dev/null | grep "^$OLD_PACKAGE-[0-9]" | head -n 1
         return
     fi
 
@@ -289,7 +319,7 @@ log "Обнаружен $BACKEND $BACKEND_VERSION"
 
 # --- Распаковка во временный каталог ----------------------------------------
 
-TMP_DIR="$(mktemp -d /tmp/forkop-servicecheck.XXXXXX)"
+TMP_DIR="$(mktemp -d /tmp/sing-box-service-check.XXXXXX)"
 BACKUP_ARCHIVE="$TMP_DIR/rollback.tar"
 TRANSACTION_ACTIVE=0
 
@@ -300,13 +330,14 @@ $LEGACY_BIN_PATH
 EOF
     # Runtime-файлы берём из самой распакованной нагрузки. Так новый файл не
     # сможет попасть в пакет, но выпасть из установки или отката.
-    runtime_payload_paths "$TMP_DIR/usr/lib/forkop-servicecheck" "$LIB_DIR"
+    runtime_payload_paths "$TMP_DIR/usr/lib/sing-box-service-check" "$LIB_DIR"
     cat <<EOF
 $SHARE_DIR/profiles.json
 $SHARE_DIR/version
 $SHARE_DIR/recovery.tar.gz
 $SHARE_DIR/recovery.sha256
 $VIEW_FILE
+$OLD_CURRENT_VIEW_FILE
 $PREVIOUS_VIEW_FILE
 $OLDER_VIEW_FILE
 $ANCIENT_VIEW_FILE
@@ -371,8 +402,8 @@ __FORKOP_SC_PAYLOAD__
 
 extract_payload || fail "Не удалось распаковать полезную нагрузку."
 
-for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh zapret_strategy_catalog.tsv; do
-    [ -f "$TMP_DIR/usr/lib/forkop-servicecheck/$runtime_file" ] ||
+for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh migrate.sh zapret_strategy_worker.sh zapret_strategy_catalog.tsv; do
+    [ -f "$TMP_DIR/usr/lib/sing-box-service-check/$runtime_file" ] ||
         fail "В архиве нет runtime-файла $runtime_file."
 done
 
@@ -387,9 +418,9 @@ if ucode -c -o /dev/null "$TMP_DIR/.syntax-probe.uc" >/dev/null 2>&1; then
 fi
 
 if [ "$SYNTAX_CHECK_WORKS" = "1" ]; then
-    if ! ucode -c -o /dev/null "$TMP_DIR/usr/lib/forkop-servicecheck/probe.uc" >/dev/null 2>&1; then
+    if ! ucode -c -o /dev/null "$TMP_DIR/usr/lib/sing-box-service-check/probe.uc" >/dev/null 2>&1; then
         printf '\n'
-        ucode -c -o /dev/null "$TMP_DIR/usr/lib/forkop-servicecheck/probe.uc" || true
+        ucode -c -o /dev/null "$TMP_DIR/usr/lib/sing-box-service-check/probe.uc" || true
         fail "Синтаксическая ошибка в probe.uc - установка отменена, система не тронута."
     fi
     log "Синтаксис ucode-файлов в порядке"
@@ -397,10 +428,10 @@ else
     log "Внимание: ucode -c недоступен, пропускаю проверку синтаксиса"
 fi
 
-if ! sh -n "$TMP_DIR/usr/bin/forkop-servicecheck" >/dev/null 2>&1; then
+if ! sh -n "$TMP_DIR/usr/bin/sing-box-service-check" >/dev/null 2>&1; then
     fail "Синтаксическая ошибка в CLI - установка отменена, система не тронута."
 fi
-for runtime_script in "$TMP_DIR/usr/lib/forkop-servicecheck/"*.sh; do
+for runtime_script in "$TMP_DIR/usr/lib/sing-box-service-check/"*.sh; do
     [ -f "$runtime_script" ] || continue
     if ! sh -n "$runtime_script" >/dev/null 2>&1; then
         fail "Синтаксическая ошибка в ${runtime_script##*/} - установка отменена, система не тронута."
@@ -415,19 +446,19 @@ begin_transaction
 
 mkdir -p "$LIB_DIR" "$SHARE_DIR" "$STATE_DIR"
 mkdir -p /usr/share/luci/menu.d /usr/share/rpcd/acl.d
-mkdir -p /www/luci-static/resources/view/forkop
+mkdir -p /www/luci-static/resources/view/sing-box-service-check
 
-cp -f "$TMP_DIR/usr/bin/forkop-servicecheck" "$BIN_PATH"
-cp -f "$TMP_DIR/usr/bin/forkop-servicecheck" "$LEGACY_BIN_PATH"
-install_runtime_payload "$TMP_DIR/usr/lib/forkop-servicecheck" "$LIB_DIR" ||
+cp -f "$TMP_DIR/usr/bin/sing-box-service-check" "$BIN_PATH"
+cp -f "$TMP_DIR/usr/bin/sing-box-service-check" "$LEGACY_BIN_PATH"
+install_runtime_payload "$TMP_DIR/usr/lib/sing-box-service-check" "$LIB_DIR" ||
     fail "Не удалось установить runtime-файлы модуля"
-cp -f "$TMP_DIR/usr/share/forkop-servicecheck/profiles.json" "$SHARE_DIR/profiles.json"
-cp -f "$TMP_DIR/usr/share/forkop-servicecheck/recovery.tar.gz" "$SHARE_DIR/recovery.tar.gz"
-cp -f "$TMP_DIR/usr/share/forkop-servicecheck/recovery.sha256" "$SHARE_DIR/recovery.sha256"
-cp -f "$TMP_DIR/www/luci-static/resources/view/forkop/$VIEW_NAME" "$VIEW_FILE"
-rm -f "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$OLDEST_CACHE_VIEW_FILE" "$EARLY_CACHE_VIEW_FILE" "$OLDER_CACHE_VIEW_FILE" "$LEGACY_CACHE_VIEW_FILE" "$HISTORIC_VIEW_FILE" "$ANCIENT_VIEW_FILE" "$OLDER_VIEW_FILE" "$PREVIOUS_VIEW_FILE"
-cp -f "$TMP_DIR/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" "$MENU_FILE"
-cp -f "$TMP_DIR/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" "$ACL_FILE"
+cp -f "$TMP_DIR/usr/share/sing-box-service-check/profiles.json" "$SHARE_DIR/profiles.json"
+cp -f "$TMP_DIR/usr/share/sing-box-service-check/recovery.tar.gz" "$SHARE_DIR/recovery.tar.gz"
+cp -f "$TMP_DIR/usr/share/sing-box-service-check/recovery.sha256" "$SHARE_DIR/recovery.sha256"
+cp -f "$TMP_DIR/www/luci-static/resources/view/sing-box-service-check/$VIEW_NAME" "$VIEW_FILE"
+rm -f "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$OLDEST_CACHE_VIEW_FILE" "$EARLY_CACHE_VIEW_FILE" "$OLDER_CACHE_VIEW_FILE" "$LEGACY_CACHE_VIEW_FILE" "$HISTORIC_VIEW_FILE" "$ANCIENT_VIEW_FILE" "$OLDER_VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLD_CURRENT_VIEW_FILE"
+cp -f "$TMP_DIR/usr/share/luci/menu.d/luci-app-sing-box-service-check.json" "$MENU_FILE"
+cp -f "$TMP_DIR/usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json" "$ACL_FILE"
 
 chmod 0755 "$BIN_PATH" "$LEGACY_BIN_PATH"
 chmod 0644 "$LIB_DIR/probe.uc" "$SHARE_DIR/profiles.json" "$SHARE_DIR/recovery.tar.gz" "$SHARE_DIR/recovery.sha256" "$VIEW_FILE" "$MENU_FILE" "$ACL_FILE"
@@ -442,7 +473,7 @@ reload_rpcd
 
 log "Проверяю установку"
 
-for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh zapret_strategy_catalog.tsv; do
+for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh migrate.sh zapret_strategy_worker.sh zapret_strategy_catalog.tsv; do
     [ -f "$LIB_DIR/$runtime_file" ] || fail "После установки отсутствует $LIB_DIR/$runtime_file"
 done
 [ -x "$LIB_DIR/zapret_strategy_worker.sh" ] || fail "Worker подбора Zapret установлен без права запуска"
@@ -460,7 +491,18 @@ if ! (cd "$SHARE_DIR" && sha256sum -c recovery.sha256 >/dev/null 2>&1); then
     fail "Локальный архив восстановления не прошёл проверку SHA-256"
 fi
 
+"$MIGRATE_SCRIPT" || fail "Не удалось перенести пользовательские настройки"
 TRANSACTION_ACTIVE=0
+
+# Старый пакет удаляется только после проверки новой установки.
+if command -v opkg >/dev/null 2>&1 && opkg status "$OLD_PACKAGE" 2>/dev/null | grep -q "^Status:.*installed"; then
+    opkg remove "$OLD_PACKAGE" || fail "Новая версия установлена, но не удалось удалить старый opkg-пакет"
+elif command -v apk >/dev/null 2>&1 && apk info -v "$OLD_PACKAGE" 2>/dev/null | grep -q "^$OLD_PACKAGE-[0-9]"; then
+    apk del "$OLD_PACKAGE" || fail "Новая версия установлена, но не удалось удалить старый apk-пакет"
+fi
+cp -f "$BIN_PATH" "$LEGACY_BIN_PATH"
+rm -f "$OLD_MENU_FILE" "$OLD_ACL_FILE" "$OLD_CURRENT_VIEW_FILE"
+rm -rf "$OLD_LIB_DIR" "$OLD_SHARE_DIR"
 
 log "Модуль отвечает, профилей сервисов: $PROFILES"
 

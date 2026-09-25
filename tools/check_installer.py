@@ -13,16 +13,16 @@ from project_version import luci_view_name, project_version
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "install-sing-box-service-check.sh"
-LEGACY_INSTALLER = ROOT / "install-forkop-servicecheck.sh"
 VERSION = project_version()
 LUCI_VIEW_NAME = luci_view_name(VERSION)
-LUCI_VIEW_PATH = f"www/luci-static/resources/view/forkop/{LUCI_VIEW_NAME}"
-PACKAGE = ROOT / "dist" / f"luci-app-forkop-servicecheck_{VERSION}-r1_all.ipk"
+LUCI_VIEW_PATH = f"www/luci-static/resources/view/sing-box-service-check/{LUCI_VIEW_NAME}"
+PACKAGE = ROOT / "dist" / f"luci-app-sing-box-service-check_{VERSION}-r1_all.ipk"
 APK_MAKER = ROOT / "dist" / "make-apk.sh"
 CHECKSUMS = ROOT / "dist" / "SHA256SUMS.txt"
 FEED_DIR = ROOT / "dist" / "feed"
 MARKER = "__FORKOP_SC_PAYLOAD__"
 STALE_LUCI_VIEWS = [
+    "servicecheck-v1140.js",
     "servicecheck-v1130.js",
     "servicecheck-v1125.js",
     "servicecheck-v1124.js",
@@ -30,7 +30,6 @@ STALE_LUCI_VIEWS = [
     "servicecheck-v1122.js",
     "servicecheck-v1121.js",
     "servicecheck-v1120.js",
-    "servicecheck-v1112.js",
 ]
 
 
@@ -56,7 +55,10 @@ def main():
     }
     for variable, filename in stale_variables.items():
         assert f'{variable}="/www/luci-static/resources/view/forkop/{filename}"' in script
-    assert LEGACY_INSTALLER.read_bytes() == INSTALLER.read_bytes()
+    assert 'OLD_CURRENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1141.js"' in script
+    assert '"$MIGRATE_SCRIPT" || fail' in script
+    assert 'opkg remove "$OLD_PACKAGE"' in script
+    assert 'apk del "$OLD_PACKAGE"' in script
     assert "detect_installed_version()" in script
     assert 'INSTALLED_VERSION="$(detect_installed_version || true)"' in script
     assert "offer_update_dependencies()" in script
@@ -68,9 +70,9 @@ def main():
     assert 'apk fix --upgrade bind-libs bind-dig' in script
     assert 'command -v dig >/dev/null 2>&1 && dig -v >/dev/null 2>&1' in script
     assert "sed -n '/^__PAYLOAD_BELOW__$/,$p' \"$0\"" not in script
-    assert 'runtime_payload_paths "$TMP_DIR/usr/lib/forkop-servicecheck" "$LIB_DIR"' in script
-    assert 'install_runtime_payload "$TMP_DIR/usr/lib/forkop-servicecheck" "$LIB_DIR"' in script
-    assert 'for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh zapret_strategy_worker.sh zapret_strategy_catalog.tsv; do' in script
+    assert 'runtime_payload_paths "$TMP_DIR/usr/lib/sing-box-service-check" "$LIB_DIR"' in script
+    assert 'install_runtime_payload "$TMP_DIR/usr/lib/sing-box-service-check" "$LIB_DIR"' in script
+    assert 'for runtime_file in probe.uc xhttp_hotfix.sh icmp_tproxy_hotfix.sh repair.sh migrate.sh zapret_strategy_worker.sh zapret_strategy_catalog.tsv; do' in script
     assert '[ -x "$LIB_DIR/zapret_strategy_worker.sh" ]' in script
 
     chunks = script.split(MARKER)
@@ -81,85 +83,90 @@ def main():
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         names = set(tar.getnames())
         payload_modes = {name: tar.getmember(name).mode for name in names}
-        cli_raw = tar.extractfile("usr/bin/forkop-servicecheck").read()
-        xhttp_fix = tar.extractfile("usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read()
-        icmp_fix = tar.extractfile("usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read()
-        repair_script = tar.extractfile("usr/lib/forkop-servicecheck/repair.sh").read()
-        zapret_worker = tar.extractfile("usr/lib/forkop-servicecheck/zapret_strategy_worker.sh").read()
-        zapret_catalog = tar.extractfile("usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv").read()
-        recovery_archive = tar.extractfile("usr/share/forkop-servicecheck/recovery.tar.gz").read()
-        recovery_checksum = tar.extractfile("usr/share/forkop-servicecheck/recovery.sha256").read().decode("ascii")
+        cli_raw = tar.extractfile("usr/bin/sing-box-service-check").read()
+        xhttp_fix = tar.extractfile("usr/lib/sing-box-service-check/xhttp_hotfix.sh").read()
+        icmp_fix = tar.extractfile("usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh").read()
+        repair_script = tar.extractfile("usr/lib/sing-box-service-check/repair.sh").read()
+        migrate_script = tar.extractfile("usr/lib/sing-box-service-check/migrate.sh").read()
+        zapret_worker = tar.extractfile("usr/lib/sing-box-service-check/zapret_strategy_worker.sh").read()
+        zapret_catalog = tar.extractfile("usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv").read()
+        recovery_archive = tar.extractfile("usr/share/sing-box-service-check/recovery.tar.gz").read()
+        recovery_checksum = tar.extractfile("usr/share/sing-box-service-check/recovery.sha256").read().decode("ascii")
         cli = cli_raw.decode("utf-8")
-        engine = tar.extractfile("usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8")
-        profiles = tar.extractfile("usr/share/forkop-servicecheck/profiles.json").read().decode("utf-8")
-        version_marker = tar.extractfile("usr/share/forkop-servicecheck/version").read().decode("utf-8").strip()
-        menu = json.loads(tar.extractfile("usr/share/luci/menu.d/luci-app-forkop-servicecheck.json").read())
+        engine = tar.extractfile("usr/lib/sing-box-service-check/probe.uc").read().decode("utf-8")
+        profiles = tar.extractfile("usr/share/sing-box-service-check/profiles.json").read().decode("utf-8")
+        version_marker = tar.extractfile("usr/share/sing-box-service-check/version").read().decode("utf-8").strip()
+        menu = json.loads(tar.extractfile("usr/share/luci/menu.d/luci-app-sing-box-service-check.json").read())
         view = tar.extractfile(LUCI_VIEW_PATH).read().decode("utf-8")
 
     runtime_names = {
         name for name in names
-        if name.startswith("usr/lib/forkop-servicecheck/") and not name.endswith("/")
+        if name.startswith("usr/lib/sing-box-service-check/") and not name.endswith("/")
     }
 
     required = {
-        "usr/bin/forkop-servicecheck",
-        "usr/lib/forkop-servicecheck/probe.uc",
-        "usr/lib/forkop-servicecheck/xhttp_hotfix.sh",
-        "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh",
-        "usr/lib/forkop-servicecheck/repair.sh",
-        "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
-        "usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv",
-        "usr/share/forkop-servicecheck/recovery.tar.gz",
-        "usr/share/forkop-servicecheck/recovery.sha256",
-        "usr/share/forkop-servicecheck/profiles.json",
-        "usr/share/forkop-servicecheck/version",
+        "usr/bin/sing-box-service-check",
+        "usr/lib/sing-box-service-check/probe.uc",
+        "usr/lib/sing-box-service-check/xhttp_hotfix.sh",
+        "usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh",
+        "usr/lib/sing-box-service-check/repair.sh",
+        "usr/lib/sing-box-service-check/migrate.sh",
+        "usr/lib/sing-box-service-check/zapret_strategy_worker.sh",
+        "usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv",
+        "usr/share/sing-box-service-check/recovery.tar.gz",
+        "usr/share/sing-box-service-check/recovery.sha256",
+        "usr/share/sing-box-service-check/profiles.json",
+        "usr/share/sing-box-service-check/version",
         LUCI_VIEW_PATH,
     }
     missing = required - names
     assert not missing, f"missing payload files: {sorted(missing)}"
     assert runtime_names == {
-        "usr/lib/forkop-servicecheck/probe.uc",
-        "usr/lib/forkop-servicecheck/xhttp_hotfix.sh",
-        "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh",
-        "usr/lib/forkop-servicecheck/repair.sh",
-        "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh",
-        "usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv",
+        "usr/lib/sing-box-service-check/probe.uc",
+        "usr/lib/sing-box-service-check/xhttp_hotfix.sh",
+        "usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh",
+        "usr/lib/sing-box-service-check/repair.sh",
+        "usr/lib/sing-box-service-check/migrate.sh",
+        "usr/lib/sing-box-service-check/zapret_strategy_worker.sh",
+        "usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv",
     }
     assert not any(f"www/luci-static/resources/view/forkop/{name}" in names for name in STALE_LUCI_VIEWS)
-    assert menu["admin/services/forkop_servicecheck"]["action"]["path"] == f"forkop/{LUCI_VIEW_NAME[:-3]}"
+    assert menu["admin/services/sing_box_service_check"]["action"]["path"] == f"sing-box-service-check/{LUCI_VIEW_NAME[:-3]}"
     assert_shell("installer CLI", cli_raw)
     assert_shell("installer xHTTP fix", xhttp_fix)
     assert_shell("installer ICMP fix", icmp_fix)
     assert_shell("installer repair", repair_script)
+    assert_shell("installer migration", migrate_script)
     assert_shell("installer Zapret strategy worker", zapret_worker)
     repair_text = repair_script.decode("utf-8")
     for runtime_name in runtime_names:
         assert runtime_name in repair_text, f"repair transaction misses {runtime_name}"
-    assert payload_modes["usr/bin/forkop-servicecheck"] == 0o755
-    assert payload_modes["usr/lib/forkop-servicecheck/xhttp_hotfix.sh"] == 0o755
-    assert payload_modes["usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh"] == 0o755
-    assert payload_modes["usr/lib/forkop-servicecheck/repair.sh"] == 0o755
-    assert payload_modes["usr/lib/forkop-servicecheck/zapret_strategy_worker.sh"] == 0o755
-    assert payload_modes["usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv"] == 0o644
+    assert payload_modes["usr/bin/sing-box-service-check"] == 0o755
+    assert payload_modes["usr/lib/sing-box-service-check/xhttp_hotfix.sh"] == 0o755
+    assert payload_modes["usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh"] == 0o755
+    assert payload_modes["usr/lib/sing-box-service-check/repair.sh"] == 0o755
+    assert payload_modes["usr/lib/sing-box-service-check/migrate.sh"] == 0o755
+    assert payload_modes["usr/lib/sing-box-service-check/zapret_strategy_worker.sh"] == 0o755
+    assert payload_modes["usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv"] == 0o644
     assert b"pornhub" not in zapret_catalog.lower()
     assert zapret_catalog.count(b"\nzapret\t") >= 10
     assert zapret_catalog.count(b"\nzapret2\t") >= 10
     assert hashlib.sha256(recovery_archive).hexdigest() in recovery_checksum
     with tarfile.open(fileobj=io.BytesIO(recovery_archive), mode="r:gz") as recovery_tar:
         recovery_names = set(recovery_tar.getnames())
-        assert "usr/bin/forkop-servicecheck" in recovery_names or "./usr/bin/forkop-servicecheck" in recovery_names
+        assert "usr/bin/sing-box-service-check" in recovery_names or "./usr/bin/sing-box-service-check" in recovery_names
         assert LUCI_VIEW_PATH in recovery_names or f"./{LUCI_VIEW_PATH}" in recovery_names
         for runtime_name in runtime_names:
             assert runtime_name in recovery_names or f"./{runtime_name}" in recovery_names
         recovery_worker_name = next(
             name for name in recovery_names
-            if name.lstrip("./") == "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh"
+            if name.lstrip("./") == "usr/lib/sing-box-service-check/zapret_strategy_worker.sh"
         )
         assert recovery_tar.getmember(recovery_worker_name).mode == 0o755
         assert recovery_tar.extractfile(recovery_worker_name).read() == zapret_worker
         assert not any(any(name.endswith("/" + stale) for stale in STALE_LUCI_VIEWS) for name in recovery_names)
         assert not any(name.startswith("/") or "../" in name for name in recovery_names)
-    assert payload_modes["usr/lib/forkop-servicecheck/probe.uc"] == 0o644
+    assert payload_modes["usr/lib/sing-box-service-check/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
     assert "command -v ucode" in cli
     assert "    custom)" in cli
@@ -167,7 +174,7 @@ def main():
     assert 'else if (mode == "cancel")' in engine
     assert 'function cancel_job(job_id)' in engine
     assert 'const TACHYON_INIT = getenv("TACHYON_INIT") || "/etc/init.d/tachyon";' in engine
-    assert 'getenv("FORKOP_SC_NETNS") || "sbsvcchk"' in engine
+    assert 'getenv("SBSC_NETNS") || getenv("FORKOP_SC_NETNS")' in engine
     assert 'function tachyon_active_service_action()' in engine
     assert 'function tachyon_runtime_conflicts()' in engine
     assert 'get_zapret_status' in engine and 'get_zapret2_status' in engine and 'get_byedpi_status' in engine
@@ -180,7 +187,7 @@ def main():
     assert '"Скачать JSON"' in view
     assert 'Report is sanitized' in view
     assert 'expected_route: as_string(target.expected_route || "any")' in engine
-    assert 'function apply_route_expectation(item, backend_running)' in engine
+    assert 'function apply_route_expectation(item, backend_running, routing_engine)' in engine
     assert 'route_mismatch' in engine and 'route_unconfirmed' in engine
     assert '"Ожидаемый маршрут"' in view
     assert '["proxy", "Только через sing-box"]' in view
@@ -251,7 +258,7 @@ def main():
     assert 'function renderProfilesCards()' in view
     assert 'Добавить категорию' in view
     assert 'Редактируйте список обычными полями' in view
-    assert 'forkop-servicecheck-theme' in view
+    assert 'sing-box-service-check-theme' in view
     assert 'theme-dark' in view and 'theme-light' in view and 'theme-auto' in view
     assert 'Тёмная' in view and 'Светлая' in view and '["auto", "LuCI"]' in view
     assert 'color:var(--text) !important' in view
@@ -280,8 +287,10 @@ def main():
     assert 'controller + "/connections"' in engine
     assert 'backend_running: running' in engine
     assert 'backendId === "tachyon" ? "Tachyon"' in view
-    assert 'var showForkopFixes = backendId === "forkop"' in view
+    assert 'var showForkopFixes = capabilities.tachyon_installed !== true &&' in view
+    assert 'var showZapretStrategy = capabilities.tachyon_installed !== true' in view
     assert 'showForkopFixes ? [checkTab, dnsTab, vpnTab, fixTab, listsTab] : [checkTab, dnsTab, vpnTab, listsTab]' in view
+    assert 'showZapretStrategy ? [vlessVpnTab, tunnelVpnTab, zapretVpnTab] : [vlessVpnTab, tunnelVpnTab]' in view
     assert '[ -x /usr/bin/tachyon ]' in script
     assert '[ -x /usr/bin/podkop ]' in script
     assert script.index('[ -x /usr/bin/tachyon ]') < script.index('[ -x /usr/bin/forkop ]') < script.index('[ -x /usr/bin/podkop ]')
@@ -365,8 +374,12 @@ def main():
     with tarfile.open(fileobj=io.BytesIO(control_archive), mode="r:gz") as control_tar:
         control = control_tar.extractfile("./control").read().decode("utf-8")
         postinst = control_tar.extractfile("./postinst").read().decode("utf-8")
+        assert "Package: luci-app-sing-box-service-check" in control
+        assert "Replaces: luci-app-forkop-servicecheck" in control
+        assert "Conflicts: luci-app-forkop-servicecheck" in control
         assert "Depends: luci-base, ucode" in control
         assert f"Version: {VERSION}-r1" in control
+        assert "/usr/lib/sing-box-service-check/migrate.sh" in postinst
         assert "для Tachyon, HomeProxy, Forkop и оригинального Podkop" in control
         assert "оригинального Podkop" in control
         for stale in STALE_LUCI_VIEWS:
@@ -376,16 +389,16 @@ def main():
         assert f"./{LUCI_VIEW_PATH}" in data_names
         assert not any(f"./www/luci-static/resources/view/forkop/{name}" in data_names for name in STALE_LUCI_VIEWS)
         assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
-        assert_shell("IPK CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
-        assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh").read())
-        assert_shell("IPK ICMP fix", data_tar.extractfile("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh").read())
-        assert_shell("IPK Zapret strategy worker", data_tar.extractfile("./usr/lib/forkop-servicecheck/zapret_strategy_worker.sh").read())
-        assert data_tar.getmember("./usr/lib/forkop-servicecheck/zapret_strategy_worker.sh").mode == 0o755
-        assert data_tar.getmember("./usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv").mode == 0o644
-        assert data_tar.extractfile("./usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv").read() == zapret_catalog
-        assert data_tar.extractfile("./usr/lib/forkop-servicecheck/probe.uc").read().decode("utf-8") == engine
+        assert_shell("IPK compatibility CLI", data_tar.extractfile("./usr/bin/forkop-servicecheck").read())
+        assert_shell("IPK xHTTP fix", data_tar.extractfile("./usr/lib/sing-box-service-check/xhttp_hotfix.sh").read())
+        assert_shell("IPK ICMP fix", data_tar.extractfile("./usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh").read())
+        assert_shell("IPK Zapret strategy worker", data_tar.extractfile("./usr/lib/sing-box-service-check/zapret_strategy_worker.sh").read())
+        assert data_tar.getmember("./usr/lib/sing-box-service-check/zapret_strategy_worker.sh").mode == 0o755
+        assert data_tar.getmember("./usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv").mode == 0o644
+        assert data_tar.extractfile("./usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv").read() == zapret_catalog
+        assert data_tar.extractfile("./usr/lib/sing-box-service-check/probe.uc").read().decode("utf-8") == engine
         assert data_tar.extractfile(f"./{LUCI_VIEW_PATH}").read().decode("utf-8") == view
-        assert data_tar.extractfile("./usr/share/forkop-servicecheck/version").read().decode("utf-8").strip() == version_marker
+        assert data_tar.extractfile("./usr/share/sing-box-service-check/version").read().decode("utf-8").strip() == version_marker
 
     feed_packages = (FEED_DIR / "Packages").read_text(encoding="utf-8")
     assert f"Version: {VERSION}-r1" in feed_packages
@@ -396,11 +409,13 @@ def main():
 
     apk_maker = APK_MAKER.read_text(encoding="utf-8")
     assert f'VERSION="{VERSION}-r1"' in apk_maker
+    assert '--info "provides:luci-app-forkop-servicecheck=$VERSION"' in apk_maker
+    assert '--info "replaces:luci-app-forkop-servicecheck"' in apk_maker
     assert "для Tachyon, HomeProxy, Forkop и оригинального Podkop" in apk_maker
 
     artifact_by_name = {
         path.name: path
-        for path in (PACKAGE, INSTALLER, LEGACY_INSTALLER, APK_MAKER)
+        for path in (PACKAGE, INSTALLER, APK_MAKER)
     }
     checksum_lines = [line.split(None, 1) for line in CHECKSUMS.read_text(encoding="utf-8").splitlines() if line]
     assert {name for _, name in checksum_lines} == set(artifact_by_name)

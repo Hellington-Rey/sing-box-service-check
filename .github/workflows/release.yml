@@ -42,11 +42,10 @@ jobs:
           version="$(python tools/project_version.py)"
           release="v${version}"
           gh release view "$release" >/dev/null 2>&1 || \
-            gh release create "$release" --verify-tag --title "Sing-box Service Check ${version}" --generate-notes
+            gh release create "$release" --verify-tag --title "Sing-box Service Check ${version}" --notes-file docs/release-notes.md
           gh release upload "$release" --clobber \
             install-sing-box-service-check.sh \
-            install-forkop-servicecheck.sh \
-            "dist/luci-app-forkop-servicecheck_${version}-r1_all.ipk" \
+            "dist/luci-app-sing-box-service-check_${version}-r1_all.ipk" \
             dist/make-apk.sh \
             dist/SHA256SUMS.txt \
             "dist/opkg-feed-${version}.zip"

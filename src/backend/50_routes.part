@@ -4,6 +4,8 @@
 
 function clash_connections() {
     let backend = backend_id();
+    if (backend == "tachyon" && tachyon_active_engine() != "sing-box")
+        return [];
     let result;
 
     if (backend == "tachyon") {
@@ -85,6 +87,8 @@ function outbound_for(connections, host, remote_ip) {
 // короткого HTTP-запроса, который часто успевает закрыться до get_connections.
 function detect_live_route(ctx, host, port, remote_ip) {
     let unknown = { attempted: false, seen: false, outbound: "" };
+    if (ctx.backend == "tachyon" && ctx.routing_engine != "sing-box")
+        return unknown;
     if (!ctx.backend_running)
         return unknown;
 

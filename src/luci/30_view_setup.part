@@ -68,7 +68,9 @@ return view.extend({
     if (backendRunning === undefined) {
       backendRunning = capabilities.forkop_running;
     }
-    var showForkopFixes = backendId === "forkop" && capabilities.forkop_installed !== false;
+    var showForkopFixes = capabilities.tachyon_installed !== true &&
+      backendId === "forkop" && capabilities.forkop_installed !== false;
+    var showZapretStrategy = capabilities.tachyon_installed !== true;
 
     var profiles = catalogue.profiles || [];
     var selected = {};

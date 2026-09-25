@@ -17,7 +17,7 @@
  */
 
 var BIN = "/usr/bin/sing-box-service-check";
-var THEME_STORAGE_KEY = "forkop-servicecheck-theme";
+var THEME_STORAGE_KEY = "sing-box-service-check-theme";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
 var UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -1076,9 +1076,12 @@ function renderCustomResult(result) {
   var route = result.route || {};
   var reachable = item.state === "success" || item.state === "warning";
   var through = route.through_sing_box;
-  var routeText = through === true ? "через sing-box" :
-    (through === false ? "мимо sing-box" : "маршрут не определён");
-  var routeClass = through === true ? "ok" : (through === false ? "err" : "warn");
+  var routeText = result.routing_engine && result.routing_engine !== "sing-box"
+    ? "Steer · маршрут не подтверждён"
+    : (through === true ? "через sing-box" :
+      (through === false ? "мимо sing-box" : "маршрут не определён"));
+  var routeClass = result.routing_engine && result.routing_engine !== "sing-box"
+    ? "warn" : (through === true ? "ok" : (through === false ? "err" : "warn"));
   var stateClass = through === null || through === undefined ? "warning" :
     (reachable ? "success" : "error");
   var nodes = [
@@ -1178,7 +1181,9 @@ return view.extend({
     if (backendRunning === undefined) {
       backendRunning = capabilities.forkop_running;
     }
-    var showForkopFixes = backendId === "forkop" && capabilities.forkop_installed !== false;
+    var showForkopFixes = capabilities.tachyon_installed !== true &&
+      backendId === "forkop" && capabilities.forkop_installed !== false;
+    var showZapretStrategy = capabilities.tachyon_installed !== true;
 
     var profiles = catalogue.profiles || [];
     var selected = {};
@@ -1853,11 +1858,12 @@ return view.extend({
       E("div", { class: "fkpsc-diagnostic-grid" }, [
         diagnosticCell("Активный backend", backendName + " · " + (capabilities.backend_version || "версия неизвестна")),
         diagnosticCell("Состояние", backendRunning ? "запущен" : "остановлен"),
-        diagnosticCell("Clash API", clashDiagnostic.reachable ? "доступен · соединений: " + (clashDiagnostic.connections || 0) : "недоступен"),
-        diagnosticCell("Конфигурация sing-box", dnsDiagnostic.config_readable ? dnsDiagnostic.config_path : "не удалось прочитать " + (dnsDiagnostic.config_path || "")),
+        diagnosticCell("Движок маршрутизации", capabilities.backend === "tachyon" ? (capabilities.routing_engine || "не определён") : "sing-box"),
+        diagnosticCell("Clash API", clashDiagnostic.applicable === false ? "не применяется к Steer" : (clashDiagnostic.reachable ? "доступен · соединений: " + (clashDiagnostic.connections || 0) : "недоступен")),
+        diagnosticCell(capabilities.routing_engine === "sing-box" ? "Конфигурация sing-box" : "Конфигурация Steer", dnsDiagnostic.config_readable ? dnsDiagnostic.config_path : "не удалось прочитать " + (dnsDiagnostic.config_path || "")),
         diagnosticCell("LAN-интерфейс", capabilities.lan_interface || "не определён"),
         diagnosticCell("DNS-серверы", (dnsDiagnostic.server_count || 0) + " · " + ((dnsDiagnostic.server_types || []).join(", ") || "тип не определён")),
-        diagnosticCell("FakeIP", dnsDiagnostic.fakeip_enabled ? "включён · " + (dnsDiagnostic.fakeip_ranges || []).join(", ") : "не обнаружен"),
+        diagnosticCell("FakeIP", dnsDiagnostic.fakeip_enabled === null ? "управляется Steer" : (dnsDiagnostic.fakeip_enabled ? "включён · " + (dnsDiagnostic.fakeip_ranges || []).join(", ") : "не обнаружен")),
         diagnosticCell("Интеграция Tachyon", !tachyonDiagnostic.installed ? "не установлен" : (tachyonDiagnostic.current_api ? "актуальный status/UI API" : "режим обратной совместимости")),
         diagnosticCell("Tachyon DPI runtime", !tachyonDiagnostic.installed ? "не используется" : (activeTachyonProviders.length ? "активны: " + activeTachyonProviders.join(", ") : "конфликтующих процессов нет")),
         diagnosticCell("Инструменты", [capabilities.curl ? "curl" : "без curl", capabilities.dig ? "dig" : ((capabilities.dig_status || {}).available ? "dig сломан" : "без dig"), capabilities.nc ? "nc" : "без nc", capabilities.netns ? "netns" : "без netns"].join(" · ")),
@@ -2581,6 +2587,7 @@ function vlessUriFromOutbound(document) {
       var standalone = Array.isArray(caps.running_services) ? caps.running_services : [];
       var tachyonInstalled = caps.tachyon_installed === true;
       var tachyonAction = String(caps.tachyon_action || "");
+      var tachyonEngine = String(caps.tachyon_engine || "");
       var tachyonConflicts = Array.isArray(caps.tachyon_runtime_conflicts) ? caps.tachyon_runtime_conflicts : [];
       var selected = ((caps.providers || {})[zapretProviderSelect.value]) || {};
       var modeReady = zapretProviderReady(selected);
@@ -2594,7 +2601,7 @@ function vlessUriFromOutbound(document) {
         zapretChip(caps.catalog_ready === false ? "каталог отсутствует" : "каталог готов", caps.catalog_ready === false ? "err" : "ok"),
         zapretChip(zapretMode === "auto" ? (selected.blockcheck ? "blockcheck найден" : "blockcheck не найден") : "blockcheck не требуется", zapretMode === "auto" ? (selected.blockcheck ? "ok" : "err") : "ok"),
         zapretChip(discordSelected ? "Discord Voice профиль включён" : "Discord Voice не требуется", "ok"),
-        zapretChip(!tachyonInstalled ? "Tachyon не установлен" : (tachyonAction ? ("Tachyon занят: " + tachyonAction) : "Tachyon без активной операции"), tachyonAction ? "err" : "ok"),
+        zapretChip(!tachyonInstalled ? "Tachyon не установлен" : (tachyonAction ? ("Tachyon занят: " + tachyonAction) : "Tachyon · " + (tachyonEngine || "движок неизвестен") + " · без активной операции"), tachyonAction ? "err" : "ok"),
         zapretChip(!tachyonInstalled ? "Tachyon runtime не используется" : (tachyonConflicts.length ? ("Будут остановлены DPI-процессы Tachyon: " + tachyonConflicts.join(", ")) : "DPI-процессы Tachyon не конфликтуют"), tachyonConflicts.length ? "warn" : "ok"),
         zapretChip(running.length ? ("Будет остановлен: " + running.join(", ")) : "Backend остановлен", running.length ? "warn" : "ok"),
         zapretChip(standalone.length ? ("Будут остановлены отдельные DPI-сервисы: " + standalone.join(", ")) : "Отдельные DPI-сервисы остановлены", standalone.length ? "warn" : "ok"),
@@ -3199,7 +3206,7 @@ function vlessUriFromOutbound(document) {
     function showVpnTool(name) {
       var showVless = name === "vless";
       var showTunnel = name === "tunnel";
-      var showZapret = name === "zapret";
+      var showZapret = showZapretStrategy && name === "zapret";
       vlessVpnTab.classList.toggle("active", showVless);
       tunnelVpnTab.classList.toggle("active", showTunnel);
       zapretVpnTab.classList.toggle("active", showZapret);
@@ -3237,7 +3244,9 @@ function vlessUriFromOutbound(document) {
         ]),
         E("h3", { style: "margin-top:1em" }, "Проверить свой IP или домен"),
         E("p", { class: "fkpsc-dim" },
-          "Введите любую цель и TCP-порт. Проверка покажет доступность и подтвердит, попало ли соединение в sing-box. Используется выбранный выше режим."),
+          capabilities.routing_engine === "sing-box"
+            ? "Введите цель и TCP-порт. Проверка покажет доступность и маршрут через sing-box. Используется выбранный выше режим."
+            : "Введите цель и TCP-порт. Проверка покажет доступность и план правил Steer; фактический маршрут остаётся неподтверждённым."),
         E("div", { class: "fkpsc-custom-form" }, [
           customTargetInput,
           E("label", { class: "fkpsc-custom-port-label" }, ["Порт", customPortInput]),
@@ -3271,10 +3280,11 @@ function vlessUriFromOutbound(document) {
     ]);
     var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
     var vpnPage = E("div", { class:"fkpsc-page" }, [
-      E("div", { class:"fkpsc-vpn-tabs", role:"tablist", "aria-label":"Инструменты VPN" }, [vlessVpnTab, tunnelVpnTab, zapretVpnTab]),
+      E("div", { class:"fkpsc-vpn-tabs", role:"tablist", "aria-label":"Инструменты VPN" },
+        showZapretStrategy ? [vlessVpnTab, tunnelVpnTab, zapretVpnTab] : [vlessVpnTab, tunnelVpnTab]),
       vlessVpnPanel,
       tunnelVpnPanel,
-      zapretVpnPanel,
+      showZapretStrategy ? zapretVpnPanel : "",
     ]);
     var profilesCardsNode = E("div", {});
     var saveProfilesButton = E("button", { class: "cbi-button cbi-button-action important", type: "button" }, "Сохранить список");
@@ -3567,7 +3577,7 @@ function vlessUriFromOutbound(document) {
     var listsPage = E("div", { class: "fkpsc-page" }, [
       E("div", { class: "fkpsc-card" }, [
         E("h3", {}, "Списки проверок"),
-        E("p", { class: "fkpsc-dim" }, "Редактируйте список обычными полями — код и JSON трогать не нужно. Пользовательская копия хранится в /etc/forkop-servicecheck/profiles.json и сохраняется при обновлении модуля."),
+        E("p", { class: "fkpsc-dim" }, "Редактируйте список обычными полями — код и JSON трогать не нужно. Пользовательская копия хранится в /etc/sing-box-service-check/profiles.json и сохраняется при обновлении модуля."),
         E("div", { class: "fkpsc-list-toolbar" }, [
           E("span", { class: "fkpsc-source" }, "Сейчас: " + (profilesData && profilesData.source === "custom" ? "пользовательский список" : "встроенный список")),
           importProfilesInput,
@@ -3614,7 +3624,7 @@ function vlessUriFromOutbound(document) {
 
     var themeChoice = "auto";
     try {
-      var storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+      var storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY) || window.localStorage.getItem("forkop-servicecheck-theme");
       if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "auto") {
         themeChoice = storedTheme;
       }
@@ -3732,9 +3742,9 @@ function vlessUriFromOutbound(document) {
           E("h2", {}, "Sing-box Service Check"),
           themeSwitch,
         ]),
-        E("p", {}, "Проверка идёт тем же путём, что и трафик клиента: имя резолвится через dnsmasq и sing-box, " +
-          "а соединение попадает в цепочку mangle_output и уходит в tproxy. Нажмите на плитку сервиса, " +
-          "чтобы увидеть, на каком этапе всё сломалось — DNS, TCP, TLS или HTTP."),
+        E("p", {}, capabilities.routing_engine === "sing-box"
+          ? "Проверка идёт тем же путём, что и трафик клиента: имя резолвится через dnsmasq и sing-box, а соединение проходит через tproxy. Нажмите на плитку сервиса, чтобы увидеть этап сбоя — DNS, TCP, TLS или HTTP."
+          : "Проверка идёт через активный движок Tachyon Steer. Доступность сервисов измеряется с роутера или от имени клиента; фактический маршрут Steer без телеметрии движка не подтверждается."),
         E("div", { class: "fkpsc-badges" }, [
           E("span", { class: "fkpsc-badge" }, "интерфейс v" + (capabilities.module_version || "unknown")),
           E("span", { class: "fkpsc-badge" }, (backendRunning ? "● " : "○ ") + backendName + (backendRunning ? " запущен" : " остановлен")),

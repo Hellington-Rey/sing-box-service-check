@@ -56,6 +56,7 @@ function dns_chain_diagnostics(host) {
         backend: ctx.backend,
         backend_name: ctx.backend_name,
         backend_running: ctx.backend_running,
+        routing_engine: ctx.routing_engine,
         config_readable: diagnostic.config_readable,
         fakeip_enabled: diagnostic.fakeip_enabled,
         resolved: dns.ok,
@@ -64,7 +65,8 @@ function dns_chain_diagnostics(host) {
         error: as_string(dns.error),
         stages: [
             { id: "dnsmasq", ok: run_quiet([ "pgrep", "-x", "dnsmasq" ]), message: "локальный dnsmasq" },
-            { id: "sing_box_config", ok: diagnostic.config_readable, message: diagnostic.config_path },
+            { id: ctx.routing_engine == "sing-box" ? "sing_box_config" : "steer_spec",
+                ok: diagnostic.config_readable, message: diagnostic.config_path },
             { id: "backend", ok: ctx.backend_running, message: ctx.backend_name },
             { id: "resolve", ok: dns.ok, message: dns.ok ? (dns.fakeip ? "получен FakeIP" : "получен обычный адрес") : as_string(dns.error) }
         ]
@@ -100,9 +102,9 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1130.js" ],
-        [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
-        [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
+        [ "view", "/www/luci-static/resources/view/sing-box-service-check/servicecheck-v1150.js" ],
+        [ "menu", "/usr/share/luci/menu.d/luci-app-sing-box-service-check.json" ],
+        [ "acl", "/usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json" ]
     ];
     for (let entry in required) {
         let ok = fs.stat(entry[1]) != null;
@@ -133,7 +135,7 @@ function doctor() {
 
     let recovery_files = fs.stat(RECOVERY_ARCHIVE) != null && fs.stat(RECOVERY_CHECKSUM) != null;
     let recovery_check = recovery_files
-        ? capture("cd /usr/share/forkop-servicecheck && sha256sum -c recovery.sha256 2>&1")
+        ? capture("cd /usr/share/sing-box-service-check && sha256sum -c recovery.sha256 2>&1")
         : { status: 1, output: "архив восстановления отсутствует" };
     let recovery_ok = recovery_check.status == 0;
     push(checks, { id: "recovery", ok: recovery_ok, critical: true, message: recovery_ok ? "архив восстановления проверен" : short_output(recovery_check.output) });
@@ -147,7 +149,9 @@ function doctor() {
     let running = backend_running();
     push(checks, { id: "backend_running", ok: running, critical: false, message: running ? "backend запущен" : "backend остановлен" });
     let clash = clash_api_diagnostic();
-    push(checks, { id: "clash_api", ok: clash.reachable, critical: false, message: clash.reachable ? "Clash API доступен" : "Clash API недоступен" });
+    push(checks, { id: "clash_api", ok: clash.applicable === false || clash.reachable, critical: false,
+        message: clash.applicable === false ? "Clash API не применяется к Steer" :
+            (clash.reachable ? "Clash API доступен" : "Clash API недоступен") });
 
     write_json({ success: true, healthy, version, backend, checks });
     return 0;

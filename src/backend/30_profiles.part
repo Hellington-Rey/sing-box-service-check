@@ -83,8 +83,8 @@ function profiles_save(payload) {
         return 1;
     }
 
-    if (!run_quiet([ "mkdir", "-p", "/etc/forkop-servicecheck" ])) {
-        write_json({ success: false, message: "не удалось создать /etc/forkop-servicecheck" });
+    if (!run_quiet([ "mkdir", "-p", "/etc/sing-box-service-check" ])) {
+        write_json({ success: false, message: "не удалось создать /etc/sing-box-service-check" });
         return 1;
     }
 

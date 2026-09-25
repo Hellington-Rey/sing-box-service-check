@@ -4,8 +4,8 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 WORK="$(mktemp -d /tmp/fkpsc-installer-layout.XXXXXX)"
 INSTALLER="${FORKOP_SC_INSTALLER:-$ROOT/install-sing-box-service-check.sh}"
-SOURCE="$WORK/payload/usr/lib/forkop-servicecheck"
-TARGET="$WORK/root/usr/lib/forkop-servicecheck"
+SOURCE="$WORK/payload/usr/lib/sing-box-service-check"
+TARGET="$WORK/root/usr/lib/sing-box-service-check"
 HELPERS="$WORK/runtime-helpers.sh"
 MODE_PROBE="$WORK/mode-probe"
 
@@ -25,7 +25,7 @@ sed -n "/base64 -d <<'__FORKOP_SC_PAYLOAD__'/,/^__FORKOP_SC_PAYLOAD__$/p" "$INST
 
 # Файл, которого нет в текущем ручном списке, доказывает, что helper не может
 # забыть новый runtime при следующем расширении payload.
-cp -p "$ROOT/files/usr/lib/forkop-servicecheck/zapret_strategy_worker.sh" "$SOURCE/future_runtime.sh"
+cp -p "$ROOT/files/usr/lib/sing-box-service-check/zapret_strategy_worker.sh" "$SOURCE/future_runtime.sh"
 printf '%s\n' stale > "$TARGET/zapret_strategy_worker.sh"
 chmod 0600 "$TARGET/zapret_strategy_worker.sh"
 

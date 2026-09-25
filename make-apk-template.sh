@@ -77,9 +77,9 @@ mkdir -p "$ROOTFS" "$SCRIPTS"
 log "Разворачиваю файлы пакета"
 sed -n '/^__PAYLOAD_BELOW__$/,$p' "$0" | tail -n +2 | base64 -d | tar -xzf - -C "$ROOTFS"
 
-[ -f "$ROOTFS/usr/lib/forkop-servicecheck/probe.uc" ] || fail "В архиве нет движка проверки."
+[ -f "$ROOTFS/usr/lib/sing-box-service-check/probe.uc" ] || fail "В архиве нет движка проверки."
 
-chmod 0755 "$ROOTFS/usr/bin/forkop-servicecheck"
+chmod 0755 "$ROOTFS/usr/bin/sing-box-service-check"
 
 cat > "$SCRIPTS/post-install" <<'POST_INSTALL_EOF'
 @@POSTINST@@
@@ -108,6 +108,8 @@ build_package() {
         --info "url:@@URL@@" \
         --info "maintainer:@@MAINTAINER@@" \
         --info "depends:@@DEPENDS@@" \
+        --info "provides:luci-app-forkop-servicecheck=$VERSION" \
+        --info "replaces:luci-app-forkop-servicecheck" \
         --script "post-install:$SCRIPTS/post-install" \
         --script "pre-deinstall:$SCRIPTS/pre-deinstall" \
         --files "$ROOTFS" \
@@ -150,7 +152,7 @@ if [ "$SIGNED" = "1" ]; then
   apk add ./$OUTPUT
 
 Публичный ключ должен лежать в /etc/apk/keys/ на целевом роутере:
-  openssl ec -in <ваш ключ>.pem -pubout -out /etc/apk/keys/forkop-servicecheck.pem
+  openssl ec -in <ваш ключ>.pem -pubout -out /etc/apk/keys/sing-box-service-check.pem
 
 EOF
 else

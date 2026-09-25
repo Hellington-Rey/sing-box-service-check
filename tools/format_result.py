@@ -1,4 +1,4 @@
-"""Читает JSON результата forkop-servicecheck из stdin и печатает его таблицей."""
+"""Читает JSON результата sing-box-service-check из stdin и печатает его таблицей."""
 
 import json
 import sys

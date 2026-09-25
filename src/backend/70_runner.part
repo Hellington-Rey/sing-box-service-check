@@ -131,6 +131,7 @@ function build_context(mode, client_ip) {
         backend: caps.backend,
         backend_name: caps.backend_name,
         backend_running: caps.backend_running,
+        routing_engine: caps.routing_engine,
         forkop_running: caps.forkop_running,
         client_ip: "",
         netns_error: ""
@@ -191,11 +192,11 @@ function probe_target(ctx, target) {
     };
 }
 
-function apply_route_expectation(item, backend_running) {
+function apply_route_expectation(item, backend_running, routing_engine) {
     let expected = as_string(item.expected_route || "any");
     let actual = "unknown";
 
-    if (as_string(item.outbound) != "" || item.dns_fakeip)
+    if (routing_engine == "sing-box" && (as_string(item.outbound) != "" || item.dns_fakeip))
         actual = "proxy";
     else if (backend_running == false)
         actual = "direct";
@@ -228,7 +229,7 @@ function probe_service(ctx, profile) {
     // Атрибуция маршрута - best effort: Clash API отдаёт только живые соединения,
     // а короткие HTTP-запросы к моменту опроса часто уже закрыты. Поэтому один
     // запрос на сервис, а не на каждую цель, и пустой результат не считается ошибкой.
-    if (ctx.backend_running) {
+    if (ctx.backend_running && ctx.routing_engine == "sing-box") {
         let connections = clash_connections();
         if (length(connections) > 0) {
             for (let item in items) {
@@ -240,7 +241,7 @@ function probe_service(ctx, profile) {
     }
 
     for (let item in items)
-        apply_route_expectation(item, ctx.backend_running);
+        apply_route_expectation(item, ctx.backend_running, ctx.routing_engine);
 
     let summary = service_state(items);
 
@@ -279,14 +280,24 @@ function custom_check(host, port, mode, client_ip) {
 
     let through_sing_box = null;
     let route_status = "unknown";
-    let route_message = "Маршрут не удалось подтвердить через Clash API.";
+    let route_message = ctx.routing_engine == "sing-box"
+        ? "Маршрут не удалось подтвердить через Clash API."
+        : "Движок Steer: фактический маршрут этого соединения не подтверждён.";
     let evidence = "";
 
     if (!ctx.backend_running) {
         through_sing_box = false;
         route_status = "direct";
         evidence = "backend_stopped";
-        route_message = ctx.backend_name + " остановлен: соединение не проходит через sing-box.";
+        route_message = ctx.backend_name + " остановлен: маршрут через активный движок недоступен.";
+    }
+    else if (ctx.backend == "tachyon" && ctx.routing_engine != "sing-box") {
+        let explanation = capture_args([ TACHYON_BIN, "engine_explain", host ], false);
+        let detail = trim(as_string(explanation.output));
+        route_status = "steer";
+        evidence = explanation.status == 0 ? "steer_explain" : "";
+        if (detail != "")
+            route_message += " План правил: " + substr(detail, 0, 300);
     }
     else if (live_route.seen) {
         through_sing_box = true;
@@ -327,6 +338,7 @@ function custom_check(host, port, mode, client_ip) {
         backend: ctx.backend,
         backend_name: ctx.backend_name,
         backend_running: ctx.backend_running,
+        routing_engine: ctx.routing_engine,
         forkop_running: ctx.forkop_running,
         route: {
             status: route_status,

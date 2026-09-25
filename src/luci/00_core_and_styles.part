@@ -17,7 +17,7 @@
  */
 
 var BIN = "/usr/bin/sing-box-service-check";
-var THEME_STORAGE_KEY = "forkop-servicecheck-theme";
+var THEME_STORAGE_KEY = "sing-box-service-check-theme";
 var POLL_INTERVAL_MS = 1500;
 var JOB_TIMEOUT_MS = 10 * 60 * 1000;
 var UPDATE_TIMEOUT_MS = 10 * 60 * 1000;

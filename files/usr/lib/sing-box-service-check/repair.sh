@@ -1,27 +1,28 @@
 #!/bin/sh
 set -eu
 
-SHARE_DIR="${FORKOP_SC_SHARE:-/usr/share/forkop-servicecheck}"
+SHARE_DIR="${SBSC_SHARE:-${FORKOP_SC_SHARE:-/usr/share/sing-box-service-check}}"
 RECOVERY="$SHARE_DIR/recovery.tar.gz"
 CHECKSUM="$SHARE_DIR/recovery.sha256"
-WORK="$(mktemp -d /tmp/forkop-servicecheck-repair.XXXXXX)"
+WORK="$(mktemp -d /tmp/sing-box-service-check-repair.XXXXXX)"
 BACKUP="$WORK/current.tar.gz"
 ACTIVE=0
 
 TARGETS="
 usr/bin/sing-box-service-check
 usr/bin/forkop-servicecheck
-usr/lib/forkop-servicecheck/probe.uc
-usr/lib/forkop-servicecheck/xhttp_hotfix.sh
-usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh
-usr/lib/forkop-servicecheck/repair.sh
-usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
-usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv
-usr/share/forkop-servicecheck/profiles.json
-usr/share/forkop-servicecheck/version
-www/luci-static/resources/view/forkop/servicecheck-v1140.js
-usr/share/luci/menu.d/luci-app-forkop-servicecheck.json
-usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json
+usr/lib/sing-box-service-check/probe.uc
+usr/lib/sing-box-service-check/xhttp_hotfix.sh
+usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh
+usr/lib/sing-box-service-check/repair.sh
+usr/lib/sing-box-service-check/migrate.sh
+usr/lib/sing-box-service-check/zapret_strategy_worker.sh
+usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv
+usr/share/sing-box-service-check/profiles.json
+usr/share/sing-box-service-check/version
+www/luci-static/resources/view/sing-box-service-check/servicecheck-v1150.js
+usr/share/luci/menu.d/luci-app-sing-box-service-check.json
+usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json
 "
 
 cleanup() {
@@ -60,8 +61,8 @@ ACTIVE=1
 
 tar -xzf "$RECOVERY" -C /
 sh -n /usr/bin/sing-box-service-check
-sh -n /usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
-if ucode -c -o /dev/null /usr/lib/forkop-servicecheck/probe.uc >/dev/null 2>&1; then
+sh -n /usr/lib/sing-box-service-check/zapret_strategy_worker.sh
+if ucode -c -o /dev/null /usr/lib/sing-box-service-check/probe.uc >/dev/null 2>&1; then
     :
 elif ! /usr/bin/sing-box-service-check capabilities >/dev/null 2>&1; then
     echo "[repair] восстановленный backend не запускается" >&2
@@ -70,8 +71,8 @@ fi
 /usr/bin/sing-box-service-check capabilities >/dev/null
 
 chmod 0755 /usr/bin/sing-box-service-check /usr/bin/forkop-servicecheck
-chmod 0755 /usr/lib/forkop-servicecheck/xhttp_hotfix.sh /usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh /usr/lib/forkop-servicecheck/repair.sh /usr/lib/forkop-servicecheck/zapret_strategy_worker.sh
-chmod 0644 /usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv
+chmod 0755 /usr/lib/sing-box-service-check/migrate.sh /usr/lib/sing-box-service-check/xhttp_hotfix.sh /usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh /usr/lib/sing-box-service-check/repair.sh /usr/lib/sing-box-service-check/zapret_strategy_worker.sh
+chmod 0644 /usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv
 rm -rf /tmp/luci-modulecache 2>/dev/null || true
 rm -f /tmp/luci-indexcache* 2>/dev/null || true
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1 || true

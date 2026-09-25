@@ -1,0 +1,10 @@
+{
+  "luci-app-sing-box-service-check": {
+    "description": "Grant access to the Sing-box Service Check page",
+    "read": {
+      "file": {
+        "/usr/bin/sing-box-service-check": [ "exec" ]
+      }
+    }
+  }
+}

@@ -31,7 +31,7 @@
 
     var themeChoice = "auto";
     try {
-      var storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+      var storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY) || window.localStorage.getItem("forkop-servicecheck-theme");
       if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "auto") {
         themeChoice = storedTheme;
       }
@@ -149,9 +149,9 @@
           E("h2", {}, "Sing-box Service Check"),
           themeSwitch,
         ]),
-        E("p", {}, "Проверка идёт тем же путём, что и трафик клиента: имя резолвится через dnsmasq и sing-box, " +
-          "а соединение попадает в цепочку mangle_output и уходит в tproxy. Нажмите на плитку сервиса, " +
-          "чтобы увидеть, на каком этапе всё сломалось — DNS, TCP, TLS или HTTP."),
+        E("p", {}, capabilities.routing_engine === "sing-box"
+          ? "Проверка идёт тем же путём, что и трафик клиента: имя резолвится через dnsmasq и sing-box, а соединение проходит через tproxy. Нажмите на плитку сервиса, чтобы увидеть этап сбоя — DNS, TCP, TLS или HTTP."
+          : "Проверка идёт через активный движок Tachyon Steer. Доступность сервисов измеряется с роутера или от имени клиента; фактический маршрут Steer без телеметрии движка не подтверждается."),
         E("div", { class: "fkpsc-badges" }, [
           E("span", { class: "fkpsc-badge" }, "интерфейс v" + (capabilities.module_version || "unknown")),
           E("span", { class: "fkpsc-badge" }, (backendRunning ? "● " : "○ ") + backendName + (backendRunning ? " запущен" : " остановлен")),

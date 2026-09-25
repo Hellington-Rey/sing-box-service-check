@@ -22,7 +22,7 @@ set -e
 FEED_DIR="."
 SECRET_KEY=""
 PUBLIC_KEY=""
-COMMENT="forkop-servicecheck feed"
+COMMENT="sing-box-service-check feed"
 
 log() {
     printf '\033[0;36m[sign-feed]\033[0m %s\n' "$1"
@@ -101,9 +101,9 @@ $(ls -1 "$FEED_DIR" | sed 's/^/  /')
 
   wget -O /tmp/feed.pub http://ВАШ_СЕРВЕР/$FINGERPRINT.pub
   opkg-key add /tmp/feed.pub
-  echo 'src/gz forkop_servicecheck http://ВАШ_СЕРВЕР' >> /etc/opkg/customfeeds.conf
+  echo 'src/gz sing_box_service_check http://ВАШ_СЕРВЕР' >> /etc/opkg/customfeeds.conf
   opkg update
-  opkg install luci-app-forkop-servicecheck
+  opkg install luci-app-sing-box-service-check
 
 Публичный ключ ляжет в /etc/opkg/keys/$FINGERPRINT и будет проверяться
 при каждом opkg update, пока в /etc/opkg.conf включён option check_signature.

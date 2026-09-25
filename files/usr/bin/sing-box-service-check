@@ -3,7 +3,7 @@
 # POSIX shell wrapper for the ucode probe engine. Do not use an absolute ucode
 # shebang: OpenWrt builds may expose ucode through PATH at another location.
 
-LIB_DIR="${FORKOP_SC_LIB:-/usr/lib/forkop-servicecheck}"
+LIB_DIR="${SBSC_LIB:-${FORKOP_SC_LIB:-/usr/lib/sing-box-service-check}}"
 ENGINE="$LIB_DIR/probe.uc"
 BIN_PATH="/usr/bin/${0##*/}"
 

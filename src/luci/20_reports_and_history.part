@@ -184,9 +184,12 @@ function renderCustomResult(result) {
   var route = result.route || {};
   var reachable = item.state === "success" || item.state === "warning";
   var through = route.through_sing_box;
-  var routeText = through === true ? "через sing-box" :
-    (through === false ? "мимо sing-box" : "маршрут не определён");
-  var routeClass = through === true ? "ok" : (through === false ? "err" : "warn");
+  var routeText = result.routing_engine && result.routing_engine !== "sing-box"
+    ? "Steer · маршрут не подтверждён"
+    : (through === true ? "через sing-box" :
+      (through === false ? "мимо sing-box" : "маршрут не определён"));
+  var routeClass = result.routing_engine && result.routing_engine !== "sing-box"
+    ? "warn" : (through === true ? "ok" : (through === false ? "err" : "warn"));
   var stateClass = through === null || through === undefined ? "warning" :
     (reachable ? "success" : "error");
   var nodes = [

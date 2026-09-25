@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 TARGETS = [
     {
-        "target": ROOT / "files/usr/lib/forkop-servicecheck/probe.uc",
+        "target": ROOT / "files/usr/lib/sing-box-service-check/probe.uc",
         "parts": ROOT / "src/backend",
         "boundaries": [
             ("00_core.part", None),
@@ -31,7 +31,7 @@ TARGETS = [
         ],
     },
     {
-        "target": ROOT / "files/www/luci-static/resources/view/forkop" / luci_view_name(),
+        "target": ROOT / "files/www/luci-static/resources/view/sing-box-service-check" / luci_view_name(),
         "parts": ROOT / "src/luci",
         "boundaries": [
             ("00_core_and_styles.part", None),
@@ -80,7 +80,7 @@ def assembled(config: dict) -> str:
 def assemble_all(check: bool = False) -> None:
     for config in TARGETS:
         expected = assembled(config)
-        current = normalized_text(config["target"])
+        current = normalized_text(config["target"]) if config["target"].exists() else ""
         if check:
             if current != expected:
                 raise ValueError(f"generated source is stale: {config['target']}")

@@ -190,7 +190,7 @@ def main():
         balance_problems = check_balance(p.name, code)
         problems.extend(balance_problems)
 
-        if p.suffix == ".uc" or p.name == "forkop-servicecheck":
+        if p.suffix == ".uc" or p.name == "sing-box-service-check":
             problems.extend(check_forward_references(p.name, code))
 
         defined, unknown = check_calls(p.name, code)

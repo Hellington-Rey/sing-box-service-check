@@ -289,7 +289,7 @@
     var listsPage = E("div", { class: "fkpsc-page" }, [
       E("div", { class: "fkpsc-card" }, [
         E("h3", {}, "Списки проверок"),
-        E("p", { class: "fkpsc-dim" }, "Редактируйте список обычными полями — код и JSON трогать не нужно. Пользовательская копия хранится в /etc/forkop-servicecheck/profiles.json и сохраняется при обновлении модуля."),
+        E("p", { class: "fkpsc-dim" }, "Редактируйте список обычными полями — код и JSON трогать не нужно. Пользовательская копия хранится в /etc/sing-box-service-check/profiles.json и сохраняется при обновлении модуля."),
         E("div", { class: "fkpsc-list-toolbar" }, [
           E("span", { class: "fkpsc-source" }, "Сейчас: " + (profilesData && profilesData.source === "custom" ? "пользовательский список" : "встроенный список")),
           importProfilesInput,

@@ -129,7 +129,7 @@ function update_state_finish(state, success, message, output) {
 }
 
 function update_temp_dir_valid(path) {
-    return match(as_string(path), /^\/tmp\/forkop-servicecheck-update\.[A-Za-z0-9]+$/) != null;
+    return match(as_string(path), /^\/tmp\/sing-box-service-check-update\.[A-Za-z0-9]+$/) != null;
 }
 
 function update_worker() {
@@ -146,7 +146,7 @@ function update_worker() {
     state.message = "скачиваем проверенный установщик " + info.latest_version;
     write_state(UPDATE_STATE_FILE, state);
 
-    let tmp_result = capture_args([ "mktemp", "-d", "/tmp/forkop-servicecheck-update.XXXXXX" ], true);
+    let tmp_result = capture_args([ "mktemp", "-d", "/tmp/sing-box-service-check-update.XXXXXX" ], true);
     let tmp_dir = trim(as_string(tmp_result.output));
     if (tmp_result.status != 0 || !update_temp_dir_valid(tmp_dir))
         return update_state_finish(state, false, "не удалось создать временный каталог", tmp_result.output);

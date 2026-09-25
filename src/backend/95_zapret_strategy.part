@@ -425,11 +425,11 @@ function zapret_catalog_count(provider) {
 
 function zapret_find_install(provider) {
     let explicit_root = provider == "zapret2"
-        ? getenv("FORKOP_SC_ZAPRET2_ROOT") : getenv("FORKOP_SC_ZAPRET_ROOT");
+        ? (getenv("SBSC_ZAPRET2_ROOT") || getenv("FORKOP_SC_ZAPRET2_ROOT")) : (getenv("SBSC_ZAPRET_ROOT") || getenv("FORKOP_SC_ZAPRET_ROOT"));
     let explicit_engine = provider == "zapret2"
-        ? getenv("FORKOP_SC_NFQWS2") : getenv("FORKOP_SC_NFQWS");
+        ? (getenv("SBSC_NFQWS2") || getenv("FORKOP_SC_NFQWS2")) : (getenv("SBSC_NFQWS") || getenv("FORKOP_SC_NFQWS"));
     let explicit_blockcheck = provider == "zapret2"
-        ? getenv("FORKOP_SC_BLOCKCHECK2") : getenv("FORKOP_SC_BLOCKCHECK");
+        ? (getenv("SBSC_BLOCKCHECK2") || getenv("FORKOP_SC_BLOCKCHECK2")) : (getenv("SBSC_BLOCKCHECK") || getenv("FORKOP_SC_BLOCKCHECK"));
     let roots = provider == "zapret2"
         ? [
             explicit_root,
@@ -532,6 +532,7 @@ function zapret_strategy_capabilities() {
         running_backends: running,
         running_services,
         tachyon_installed: fs.stat(TACHYON_BIN) != null,
+        tachyon_engine: tachyon_active_engine(),
         tachyon_action,
         tachyon_runtime_conflicts: tachyon_conflicts,
         backend_must_stop: length(running) > 0 || length(tachyon_conflicts) > 0,
@@ -576,7 +577,7 @@ function zapret_remaining_services() {
 }
 
 function zapret_stop_timeout() {
-    let value = int(getenv("FORKOP_SC_ZAPRET_STOP_TIMEOUT") || 20);
+    let value = int((getenv("SBSC_ZAPRET_STOP_TIMEOUT") || getenv("FORKOP_SC_ZAPRET_STOP_TIMEOUT")) || 20);
     if (value < 2) return 2;
     if (value > 60) return 60;
     return value;

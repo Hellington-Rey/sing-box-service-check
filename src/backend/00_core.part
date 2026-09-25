@@ -10,16 +10,18 @@
 
 let fs = require("fs");
 
-const LIB_DIR = getenv("FORKOP_SC_LIB") || "/usr/lib/forkop-servicecheck";
+const LIB_DIR = (getenv("SBSC_LIB") || getenv("FORKOP_SC_LIB")) || "/usr/lib/sing-box-service-check";
 const ENGINE = LIB_DIR + "/probe.uc";
 // Пользовательские профили в /etc имеют приоритет: пакет обновляет только свою
 // копию в /usr/share, поэтому правки переживают переустановку.
-const PROFILES_OVERRIDE = "/etc/forkop-servicecheck/profiles.json";
-const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
-const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
-const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
+const PROFILES_OVERRIDE = "/etc/sing-box-service-check/profiles.json";
+const PROFILES_DEFAULT = "/usr/share/sing-box-service-check/profiles.json";
+const STATE_DIR = (getenv("SBSC_STATE_DIR") || getenv("FORKOP_SC_STATE_DIR")) || "/var/run/sing-box-service-check";
+const VERSION_FILE = "/usr/share/sing-box-service-check/version";
 const TACHYON_BIN = getenv("TACHYON_BIN") || "/usr/bin/tachyon";
 const TACHYON_INIT = getenv("TACHYON_INIT") || "/etc/init.d/tachyon";
+const TACHYON_STEER_ZAPRET_INIT = getenv("TACHYON_STEER_ZAPRET_INIT") || "/etc/init.d/tachyon-steer-zapret";
+const TACHYON_STEER_SPEC = getenv("TACHYON_STEER_SPEC") || "/etc/steer/spec.json";
 const HOME_PROXY_INIT = getenv("HOME_PROXY_INIT") || "/etc/init.d/homeproxy";
 const HOME_PROXY_CONFIG = getenv("HOME_PROXY_CONFIG") || "/var/run/homeproxy/hiddify-c.json";
 const HOME_PROXY_ALT_CONFIG = getenv("HOME_PROXY_ALT_CONFIG") || "/var/run/homeproxy/sing-box-c.json";
@@ -35,20 +37,20 @@ const HISTORY_FILE = STATE_DIR + "/history.json";
 // Tachyon 1.3.x has its own Service Check and reserves fkpsc/fkpsc0/fkpsc1.
 // A separate namespace prevents either implementation from tearing down the
 // other's live client-mode probe when both LuCI pages are open.
-const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "sbsvcchk";
-const NETNS_VETH_HOST = getenv("FORKOP_SC_NETNS_VETH_HOST") || "sbsvcchk0";
-const NETNS_VETH_PEER = getenv("FORKOP_SC_NETNS_VETH_PEER") || "sbsvcchk1";
-const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
-const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
+const NETNS_NAME = (getenv("SBSC_NETNS") || getenv("FORKOP_SC_NETNS")) || "sbsvcchk";
+const NETNS_VETH_HOST = (getenv("SBSC_NETNS_VETH_HOST") || getenv("FORKOP_SC_NETNS_VETH_HOST")) || "sbsvcchk0";
+const NETNS_VETH_PEER = (getenv("SBSC_NETNS_VETH_PEER") || getenv("FORKOP_SC_NETNS_VETH_PEER")) || "sbsvcchk1";
+const XHTTP_PATCH = "/usr/lib/sing-box-service-check/xhttp_hotfix.sh";
+const ICMP_TPROXY_PATCH = "/usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh";
 const ZAPRET_STRATEGY_WORKER = LIB_DIR + "/zapret_strategy_worker.sh";
 const ZAPRET_STRATEGY_CATALOG = LIB_DIR + "/zapret_strategy_catalog.tsv";
-const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
+const CONFIG_DIR = (getenv("SBSC_CONFIG_DIR") || getenv("FORKOP_SC_CONFIG_DIR")) || "/etc/sing-box-service-check";
 const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
 const ZAPRET_SERVICES_FILE = CONFIG_DIR + "/zapret_services.json";
 const ZAPRET_RESULTS_FILE = CONFIG_DIR + "/zapret_strategy_results.json";
 const REPAIR_SCRIPT = LIB_DIR + "/repair.sh";
-const RECOVERY_ARCHIVE = "/usr/share/forkop-servicecheck/recovery.tar.gz";
-const RECOVERY_CHECKSUM = "/usr/share/forkop-servicecheck/recovery.sha256";
+const RECOVERY_ARCHIVE = "/usr/share/sing-box-service-check/recovery.tar.gz";
+const RECOVERY_CHECKSUM = "/usr/share/sing-box-service-check/recovery.sha256";
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const DNS_TIMEOUT = 3;
@@ -240,7 +242,7 @@ function icmp_tproxy_patch() {
 }
 
 function backend_id() {
-    let override = lc(trim(as_string(getenv("FORKOP_SC_BACKEND"))));
+    let override = lc(trim(as_string((getenv("SBSC_BACKEND") || getenv("FORKOP_SC_BACKEND")))));
     if (override == "tachyon" || override == "homeproxy" || override == "forkop" || override == "podkop")
         return override;
     // Tachyon may coexist with binaries left after migration from Forkop/Podkop.
@@ -352,7 +354,7 @@ function ensure_state_dir() {
 }
 
 function profiles_file() {
-    let override = getenv("FORKOP_SC_PROFILES");
+    let override = (getenv("SBSC_PROFILES") || getenv("FORKOP_SC_PROFILES"));
     if (as_string(override) != "")
         return as_string(override);
     if (fs.stat(PROFILES_OVERRIDE) != null)

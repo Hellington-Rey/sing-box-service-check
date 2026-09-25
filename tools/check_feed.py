@@ -11,7 +11,7 @@ from project_version import project_version
 ROOT = Path(__file__).resolve().parent.parent
 FEED = ROOT / "dist" / "feed"
 VERSION = project_version()
-PACKAGE = f"luci-app-forkop-servicecheck_{VERSION}-r1_all.ipk"
+PACKAGE = f"luci-app-sing-box-service-check_{VERSION}-r1_all.ipk"
 
 
 def field(manifest: str, name: str) -> str:

@@ -10,16 +10,18 @@
 
 let fs = require("fs");
 
-const LIB_DIR = getenv("FORKOP_SC_LIB") || "/usr/lib/forkop-servicecheck";
+const LIB_DIR = (getenv("SBSC_LIB") || getenv("FORKOP_SC_LIB")) || "/usr/lib/sing-box-service-check";
 const ENGINE = LIB_DIR + "/probe.uc";
 // Пользовательские профили в /etc имеют приоритет: пакет обновляет только свою
 // копию в /usr/share, поэтому правки переживают переустановку.
-const PROFILES_OVERRIDE = "/etc/forkop-servicecheck/profiles.json";
-const PROFILES_DEFAULT = "/usr/share/forkop-servicecheck/profiles.json";
-const STATE_DIR = getenv("FORKOP_SC_STATE_DIR") || "/var/run/forkop-servicecheck";
-const VERSION_FILE = "/usr/share/forkop-servicecheck/version";
+const PROFILES_OVERRIDE = "/etc/sing-box-service-check/profiles.json";
+const PROFILES_DEFAULT = "/usr/share/sing-box-service-check/profiles.json";
+const STATE_DIR = (getenv("SBSC_STATE_DIR") || getenv("FORKOP_SC_STATE_DIR")) || "/var/run/sing-box-service-check";
+const VERSION_FILE = "/usr/share/sing-box-service-check/version";
 const TACHYON_BIN = getenv("TACHYON_BIN") || "/usr/bin/tachyon";
 const TACHYON_INIT = getenv("TACHYON_INIT") || "/etc/init.d/tachyon";
+const TACHYON_STEER_ZAPRET_INIT = getenv("TACHYON_STEER_ZAPRET_INIT") || "/etc/init.d/tachyon-steer-zapret";
+const TACHYON_STEER_SPEC = getenv("TACHYON_STEER_SPEC") || "/etc/steer/spec.json";
 const HOME_PROXY_INIT = getenv("HOME_PROXY_INIT") || "/etc/init.d/homeproxy";
 const HOME_PROXY_CONFIG = getenv("HOME_PROXY_CONFIG") || "/var/run/homeproxy/hiddify-c.json";
 const HOME_PROXY_ALT_CONFIG = getenv("HOME_PROXY_ALT_CONFIG") || "/var/run/homeproxy/sing-box-c.json";
@@ -35,20 +37,20 @@ const HISTORY_FILE = STATE_DIR + "/history.json";
 // Tachyon 1.3.x has its own Service Check and reserves fkpsc/fkpsc0/fkpsc1.
 // A separate namespace prevents either implementation from tearing down the
 // other's live client-mode probe when both LuCI pages are open.
-const NETNS_NAME = getenv("FORKOP_SC_NETNS") || "sbsvcchk";
-const NETNS_VETH_HOST = getenv("FORKOP_SC_NETNS_VETH_HOST") || "sbsvcchk0";
-const NETNS_VETH_PEER = getenv("FORKOP_SC_NETNS_VETH_PEER") || "sbsvcchk1";
-const XHTTP_PATCH = "/usr/lib/forkop-servicecheck/xhttp_hotfix.sh";
-const ICMP_TPROXY_PATCH = "/usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh";
+const NETNS_NAME = (getenv("SBSC_NETNS") || getenv("FORKOP_SC_NETNS")) || "sbsvcchk";
+const NETNS_VETH_HOST = (getenv("SBSC_NETNS_VETH_HOST") || getenv("FORKOP_SC_NETNS_VETH_HOST")) || "sbsvcchk0";
+const NETNS_VETH_PEER = (getenv("SBSC_NETNS_VETH_PEER") || getenv("FORKOP_SC_NETNS_VETH_PEER")) || "sbsvcchk1";
+const XHTTP_PATCH = "/usr/lib/sing-box-service-check/xhttp_hotfix.sh";
+const ICMP_TPROXY_PATCH = "/usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh";
 const ZAPRET_STRATEGY_WORKER = LIB_DIR + "/zapret_strategy_worker.sh";
 const ZAPRET_STRATEGY_CATALOG = LIB_DIR + "/zapret_strategy_catalog.tsv";
-const CONFIG_DIR = getenv("FORKOP_SC_CONFIG_DIR") || "/etc/forkop-servicecheck";
+const CONFIG_DIR = (getenv("SBSC_CONFIG_DIR") || getenv("FORKOP_SC_CONFIG_DIR")) || "/etc/sing-box-service-check";
 const GEMINI_API_KEY_FILE = CONFIG_DIR + "/gemini_api_key";
 const ZAPRET_SERVICES_FILE = CONFIG_DIR + "/zapret_services.json";
 const ZAPRET_RESULTS_FILE = CONFIG_DIR + "/zapret_strategy_results.json";
 const REPAIR_SCRIPT = LIB_DIR + "/repair.sh";
-const RECOVERY_ARCHIVE = "/usr/share/forkop-servicecheck/recovery.tar.gz";
-const RECOVERY_CHECKSUM = "/usr/share/forkop-servicecheck/recovery.sha256";
+const RECOVERY_ARCHIVE = "/usr/share/sing-box-service-check/recovery.tar.gz";
+const RECOVERY_CHECKSUM = "/usr/share/sing-box-service-check/recovery.sha256";
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const DNS_TIMEOUT = 3;
@@ -240,7 +242,7 @@ function icmp_tproxy_patch() {
 }
 
 function backend_id() {
-    let override = lc(trim(as_string(getenv("FORKOP_SC_BACKEND"))));
+    let override = lc(trim(as_string((getenv("SBSC_BACKEND") || getenv("FORKOP_SC_BACKEND")))));
     if (override == "tachyon" || override == "homeproxy" || override == "forkop" || override == "podkop")
         return override;
     // Tachyon may coexist with binaries left after migration from Forkop/Podkop.
@@ -352,7 +354,7 @@ function ensure_state_dir() {
 }
 
 function profiles_file() {
-    let override = getenv("FORKOP_SC_PROFILES");
+    let override = (getenv("SBSC_PROFILES") || getenv("FORKOP_SC_PROFILES"));
     if (as_string(override) != "")
         return as_string(override);
     if (fs.stat(PROFILES_OVERRIDE) != null)
@@ -448,7 +450,7 @@ function uci_get(path) {
 }
 
 function sing_box_config_path() {
-    let overridden = trim(as_string(getenv("FORKOP_SC_SING_BOX_CONFIG")));
+    let overridden = trim(as_string((getenv("SBSC_SING_BOX_CONFIG") || getenv("FORKOP_SC_SING_BOX_CONFIG"))));
     if (overridden != "")
         return overridden;
 
@@ -526,12 +528,33 @@ function tachyon_cli_json(command) {
     return type(parsed) == "object" ? parsed : null;
 }
 
+function tachyon_engine_from_state(state) {
+    let engine = as_string(object_or_empty(state).active_engine);
+    if (engine == "sing-box" || engine == "steer" || engine == "steer-extended")
+        return engine;
+    engine = trim(uci_get("tachyon.settings.engine"));
+    return engine == "steer" || engine == "steer-extended" ? engine : "sing-box";
+}
+
+function tachyon_active_engine() {
+    if (fs.stat(TACHYON_BIN) == null)
+        return "";
+    return tachyon_engine_from_state(tachyon_cli_json("get_ui_state"));
+}
+
 function tachyon_active_service_action_from_state(state) {
     let actions = array_or_empty(object_or_empty(object_or_empty(state).actions).service);
     for (let item in actions) {
         item = object_or_empty(item);
         if (item.running === true || int(item.running) == 1)
             return as_string(item.action || item.kind || "service_action");
+    }
+    // Engine switches and component installs also restart the dataplane.
+    for (let item in array_or_empty(object_or_empty(object_or_empty(state).actions).component)) {
+        item = object_or_empty(item);
+        if (item.running === true || int(item.running) == 1)
+            return as_string(item.component || "component") + ":" +
+                as_string(item.action || "operation");
     }
     return "";
 }
@@ -576,6 +599,13 @@ function tachyon_runtime_conflicts() {
     for (let id, state in tachyon_provider_runtimes())
         if (object_or_empty(state).active)
             push(result, "tachyon-" + as_string(id));
+    // Steer can run NFQUEUE workers under a separate procd service.
+    let engine = tachyon_active_engine();
+    if (engine == "steer" || engine == "steer-extended") {
+        if (fs.stat(TACHYON_STEER_ZAPRET_INIT) != null &&
+            run_quiet([ TACHYON_STEER_ZAPRET_INIT, "status" ]))
+            push(result, "tachyon-steer-zapret");
+    }
     return result;
 }
 
@@ -585,8 +615,12 @@ function tachyon_integration_diagnostic() {
         return { installed: false, current_api: false, active_action: "", providers: {} };
     let status = tachyon_cli_json("get_status");
     let ui_state = tachyon_cli_json("get_ui_state");
+    let engine = tachyon_engine_from_state(ui_state);
+    let engine_status = tachyon_cli_json("get_engine_status");
     return {
         installed: true,
+        active_engine: engine,
+        engine_status_api: type(engine_status) == "object",
         current_api: type(status) == "object" && type(ui_state) == "object",
         status_api: type(status) == "object",
         ui_state_api: type(ui_state) == "object",
@@ -651,7 +685,9 @@ function backend_version(id) {
 
 function clash_api_diagnostic() {
     let backend = backend_id();
-    let result = { configured: backend != "none", reachable: false, controller: "", connections: 0 };
+    if (backend == "tachyon" && tachyon_active_engine() != "sing-box")
+        return { configured: false, applicable: false, reachable: false, controller: "", connections: 0 };
+    let result = { configured: backend != "none", applicable: true, reachable: false, controller: "", connections: 0 };
     let response;
 
     if (backend == "tachyon")
@@ -692,6 +728,15 @@ function clash_api_diagnostic() {
 }
 
 function dns_diagnostic() {
+    if (backend_id() == "tachyon" && tachyon_active_engine() != "sing-box") {
+        let config_path = TACHYON_STEER_SPEC;
+        let config = read_json_file(config_path);
+        return {
+            engine: "steer", config_path, config_readable: type(config) == "object",
+            server_count: 0, server_types: [ "steer dnsd" ],
+            fakeip_enabled: null, fakeip_ranges: []
+        };
+    }
     let config_path = sing_box_config_path();
     let config = read_json_file(config_path);
     let dns = object_or_empty(object_or_empty(config).dns);
@@ -805,7 +850,7 @@ function vpn_status(protocol) {
     for (let package in vpn_packages(protocol))
         if (!vpn_installed(manager, package)) push(missing, package);
     let tool_ready = vpn_tool(protocol) != "";
-    let proto_dir = trim(as_string(getenv("FORKOP_SC_NETIFD_PROTO_DIR"))) || "/lib/netifd/proto";
+    let proto_dir = trim(as_string((getenv("SBSC_NETIFD_PROTO_DIR") || getenv("FORKOP_SC_NETIFD_PROTO_DIR")))) || "/lib/netifd/proto";
     let proto_path = proto_dir + "/" + protocol + ".sh";
     let proto_ready = fs.stat(proto_path) != null;
     let proto_source = proto_ready ? as_string(fs.readfile(proto_path)) : "";
@@ -1200,6 +1245,7 @@ function capabilities() {
         module_version: trim(as_string(fs.readfile(VERSION_FILE))) || "unknown",
         backend_installed: backend != "none",
         backend_running: running,
+        routing_engine: backend == "tachyon" ? tachyon_active_engine() : "sing-box",
         tachyon_installed: fs.stat(TACHYON_BIN) != null,
         tachyon: tachyon_integration_diagnostic(),
         homeproxy_installed: fs.stat(HOME_PROXY_INIT) != null,
@@ -1300,8 +1346,8 @@ function profiles_save(payload) {
         return 1;
     }
 
-    if (!run_quiet([ "mkdir", "-p", "/etc/forkop-servicecheck" ])) {
-        write_json({ success: false, message: "не удалось создать /etc/forkop-servicecheck" });
+    if (!run_quiet([ "mkdir", "-p", "/etc/sing-box-service-check" ])) {
+        write_json({ success: false, message: "не удалось создать /etc/sing-box-service-check" });
         return 1;
     }
 
@@ -1842,6 +1888,8 @@ function connection_probe(ctx, target) {
 
 function clash_connections() {
     let backend = backend_id();
+    if (backend == "tachyon" && tachyon_active_engine() != "sing-box")
+        return [];
     let result;
 
     if (backend == "tachyon") {
@@ -1923,6 +1971,8 @@ function outbound_for(connections, host, remote_ip) {
 // короткого HTTP-запроса, который часто успевает закрыться до get_connections.
 function detect_live_route(ctx, host, port, remote_ip) {
     let unknown = { attempted: false, seen: false, outbound: "" };
+    if (ctx.backend == "tachyon" && ctx.routing_engine != "sing-box")
+        return unknown;
     if (!ctx.backend_running)
         return unknown;
 
@@ -2193,6 +2243,7 @@ function build_context(mode, client_ip) {
         backend: caps.backend,
         backend_name: caps.backend_name,
         backend_running: caps.backend_running,
+        routing_engine: caps.routing_engine,
         forkop_running: caps.forkop_running,
         client_ip: "",
         netns_error: ""
@@ -2253,11 +2304,11 @@ function probe_target(ctx, target) {
     };
 }
 
-function apply_route_expectation(item, backend_running) {
+function apply_route_expectation(item, backend_running, routing_engine) {
     let expected = as_string(item.expected_route || "any");
     let actual = "unknown";
 
-    if (as_string(item.outbound) != "" || item.dns_fakeip)
+    if (routing_engine == "sing-box" && (as_string(item.outbound) != "" || item.dns_fakeip))
         actual = "proxy";
     else if (backend_running == false)
         actual = "direct";
@@ -2290,7 +2341,7 @@ function probe_service(ctx, profile) {
     // Атрибуция маршрута - best effort: Clash API отдаёт только живые соединения,
     // а короткие HTTP-запросы к моменту опроса часто уже закрыты. Поэтому один
     // запрос на сервис, а не на каждую цель, и пустой результат не считается ошибкой.
-    if (ctx.backend_running) {
+    if (ctx.backend_running && ctx.routing_engine == "sing-box") {
         let connections = clash_connections();
         if (length(connections) > 0) {
             for (let item in items) {
@@ -2302,7 +2353,7 @@ function probe_service(ctx, profile) {
     }
 
     for (let item in items)
-        apply_route_expectation(item, ctx.backend_running);
+        apply_route_expectation(item, ctx.backend_running, ctx.routing_engine);
 
     let summary = service_state(items);
 
@@ -2341,14 +2392,24 @@ function custom_check(host, port, mode, client_ip) {
 
     let through_sing_box = null;
     let route_status = "unknown";
-    let route_message = "Маршрут не удалось подтвердить через Clash API.";
+    let route_message = ctx.routing_engine == "sing-box"
+        ? "Маршрут не удалось подтвердить через Clash API."
+        : "Движок Steer: фактический маршрут этого соединения не подтверждён.";
     let evidence = "";
 
     if (!ctx.backend_running) {
         through_sing_box = false;
         route_status = "direct";
         evidence = "backend_stopped";
-        route_message = ctx.backend_name + " остановлен: соединение не проходит через sing-box.";
+        route_message = ctx.backend_name + " остановлен: маршрут через активный движок недоступен.";
+    }
+    else if (ctx.backend == "tachyon" && ctx.routing_engine != "sing-box") {
+        let explanation = capture_args([ TACHYON_BIN, "engine_explain", host ], false);
+        let detail = trim(as_string(explanation.output));
+        route_status = "steer";
+        evidence = explanation.status == 0 ? "steer_explain" : "";
+        if (detail != "")
+            route_message += " План правил: " + substr(detail, 0, 300);
     }
     else if (live_route.seen) {
         through_sing_box = true;
@@ -2389,6 +2450,7 @@ function custom_check(host, port, mode, client_ip) {
         backend: ctx.backend,
         backend_name: ctx.backend_name,
         backend_running: ctx.backend_running,
+        routing_engine: ctx.routing_engine,
         forkop_running: ctx.forkop_running,
         route: {
             status: route_status,
@@ -2572,7 +2634,7 @@ function update_state_finish(state, success, message, output) {
 }
 
 function update_temp_dir_valid(path) {
-    return match(as_string(path), /^\/tmp\/forkop-servicecheck-update\.[A-Za-z0-9]+$/) != null;
+    return match(as_string(path), /^\/tmp\/sing-box-service-check-update\.[A-Za-z0-9]+$/) != null;
 }
 
 function update_worker() {
@@ -2589,7 +2651,7 @@ function update_worker() {
     state.message = "скачиваем проверенный установщик " + info.latest_version;
     write_state(UPDATE_STATE_FILE, state);
 
-    let tmp_result = capture_args([ "mktemp", "-d", "/tmp/forkop-servicecheck-update.XXXXXX" ], true);
+    let tmp_result = capture_args([ "mktemp", "-d", "/tmp/sing-box-service-check-update.XXXXXX" ], true);
     let tmp_dir = trim(as_string(tmp_result.output));
     if (tmp_result.status != 0 || !update_temp_dir_valid(tmp_dir))
         return update_state_finish(state, false, "не удалось создать временный каталог", tmp_result.output);
@@ -3003,6 +3065,7 @@ function dns_chain_diagnostics(host) {
         backend: ctx.backend,
         backend_name: ctx.backend_name,
         backend_running: ctx.backend_running,
+        routing_engine: ctx.routing_engine,
         config_readable: diagnostic.config_readable,
         fakeip_enabled: diagnostic.fakeip_enabled,
         resolved: dns.ok,
@@ -3011,7 +3074,8 @@ function dns_chain_diagnostics(host) {
         error: as_string(dns.error),
         stages: [
             { id: "dnsmasq", ok: run_quiet([ "pgrep", "-x", "dnsmasq" ]), message: "локальный dnsmasq" },
-            { id: "sing_box_config", ok: diagnostic.config_readable, message: diagnostic.config_path },
+            { id: ctx.routing_engine == "sing-box" ? "sing_box_config" : "steer_spec",
+                ok: diagnostic.config_readable, message: diagnostic.config_path },
             { id: "backend", ok: ctx.backend_running, message: ctx.backend_name },
             { id: "resolve", ok: dns.ok, message: dns.ok ? (dns.fakeip ? "получен FakeIP" : "получен обычный адрес") : as_string(dns.error) }
         ]
@@ -3047,9 +3111,9 @@ function doctor() {
     let required = [
         [ "cli", "/usr/bin/sing-box-service-check" ],
         [ "engine", ENGINE ],
-        [ "view", "/www/luci-static/resources/view/forkop/servicecheck-v1130.js" ],
-        [ "menu", "/usr/share/luci/menu.d/luci-app-forkop-servicecheck.json" ],
-        [ "acl", "/usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json" ]
+        [ "view", "/www/luci-static/resources/view/sing-box-service-check/servicecheck-v1150.js" ],
+        [ "menu", "/usr/share/luci/menu.d/luci-app-sing-box-service-check.json" ],
+        [ "acl", "/usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json" ]
     ];
     for (let entry in required) {
         let ok = fs.stat(entry[1]) != null;
@@ -3080,7 +3144,7 @@ function doctor() {
 
     let recovery_files = fs.stat(RECOVERY_ARCHIVE) != null && fs.stat(RECOVERY_CHECKSUM) != null;
     let recovery_check = recovery_files
-        ? capture("cd /usr/share/forkop-servicecheck && sha256sum -c recovery.sha256 2>&1")
+        ? capture("cd /usr/share/sing-box-service-check && sha256sum -c recovery.sha256 2>&1")
         : { status: 1, output: "архив восстановления отсутствует" };
     let recovery_ok = recovery_check.status == 0;
     push(checks, { id: "recovery", ok: recovery_ok, critical: true, message: recovery_ok ? "архив восстановления проверен" : short_output(recovery_check.output) });
@@ -3094,7 +3158,9 @@ function doctor() {
     let running = backend_running();
     push(checks, { id: "backend_running", ok: running, critical: false, message: running ? "backend запущен" : "backend остановлен" });
     let clash = clash_api_diagnostic();
-    push(checks, { id: "clash_api", ok: clash.reachable, critical: false, message: clash.reachable ? "Clash API доступен" : "Clash API недоступен" });
+    push(checks, { id: "clash_api", ok: clash.applicable === false || clash.reachable, critical: false,
+        message: clash.applicable === false ? "Clash API не применяется к Steer" :
+            (clash.reachable ? "Clash API доступен" : "Clash API недоступен") });
 
     write_json({ success: true, healthy, version, backend, checks });
     return 0;
@@ -3865,11 +3931,11 @@ function zapret_catalog_count(provider) {
 
 function zapret_find_install(provider) {
     let explicit_root = provider == "zapret2"
-        ? getenv("FORKOP_SC_ZAPRET2_ROOT") : getenv("FORKOP_SC_ZAPRET_ROOT");
+        ? (getenv("SBSC_ZAPRET2_ROOT") || getenv("FORKOP_SC_ZAPRET2_ROOT")) : (getenv("SBSC_ZAPRET_ROOT") || getenv("FORKOP_SC_ZAPRET_ROOT"));
     let explicit_engine = provider == "zapret2"
-        ? getenv("FORKOP_SC_NFQWS2") : getenv("FORKOP_SC_NFQWS");
+        ? (getenv("SBSC_NFQWS2") || getenv("FORKOP_SC_NFQWS2")) : (getenv("SBSC_NFQWS") || getenv("FORKOP_SC_NFQWS"));
     let explicit_blockcheck = provider == "zapret2"
-        ? getenv("FORKOP_SC_BLOCKCHECK2") : getenv("FORKOP_SC_BLOCKCHECK");
+        ? (getenv("SBSC_BLOCKCHECK2") || getenv("FORKOP_SC_BLOCKCHECK2")) : (getenv("SBSC_BLOCKCHECK") || getenv("FORKOP_SC_BLOCKCHECK"));
     let roots = provider == "zapret2"
         ? [
             explicit_root,
@@ -3972,6 +4038,7 @@ function zapret_strategy_capabilities() {
         running_backends: running,
         running_services,
         tachyon_installed: fs.stat(TACHYON_BIN) != null,
+        tachyon_engine: tachyon_active_engine(),
         tachyon_action,
         tachyon_runtime_conflicts: tachyon_conflicts,
         backend_must_stop: length(running) > 0 || length(tachyon_conflicts) > 0,
@@ -4016,7 +4083,7 @@ function zapret_remaining_services() {
 }
 
 function zapret_stop_timeout() {
-    let value = int(getenv("FORKOP_SC_ZAPRET_STOP_TIMEOUT") || 20);
+    let value = int((getenv("SBSC_ZAPRET_STOP_TIMEOUT") || getenv("FORKOP_SC_ZAPRET_STOP_TIMEOUT")) || 20);
     if (value < 2) return 2;
     if (value > 60) return 60;
     return value;

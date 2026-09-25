@@ -8,7 +8,7 @@ function uci_get(path) {
 }
 
 function sing_box_config_path() {
-    let overridden = trim(as_string(getenv("FORKOP_SC_SING_BOX_CONFIG")));
+    let overridden = trim(as_string((getenv("SBSC_SING_BOX_CONFIG") || getenv("FORKOP_SC_SING_BOX_CONFIG"))));
     if (overridden != "")
         return overridden;
 
@@ -86,12 +86,33 @@ function tachyon_cli_json(command) {
     return type(parsed) == "object" ? parsed : null;
 }
 
+function tachyon_engine_from_state(state) {
+    let engine = as_string(object_or_empty(state).active_engine);
+    if (engine == "sing-box" || engine == "steer" || engine == "steer-extended")
+        return engine;
+    engine = trim(uci_get("tachyon.settings.engine"));
+    return engine == "steer" || engine == "steer-extended" ? engine : "sing-box";
+}
+
+function tachyon_active_engine() {
+    if (fs.stat(TACHYON_BIN) == null)
+        return "";
+    return tachyon_engine_from_state(tachyon_cli_json("get_ui_state"));
+}
+
 function tachyon_active_service_action_from_state(state) {
     let actions = array_or_empty(object_or_empty(object_or_empty(state).actions).service);
     for (let item in actions) {
         item = object_or_empty(item);
         if (item.running === true || int(item.running) == 1)
             return as_string(item.action || item.kind || "service_action");
+    }
+    // Engine switches and component installs also restart the dataplane.
+    for (let item in array_or_empty(object_or_empty(object_or_empty(state).actions).component)) {
+        item = object_or_empty(item);
+        if (item.running === true || int(item.running) == 1)
+            return as_string(item.component || "component") + ":" +
+                as_string(item.action || "operation");
     }
     return "";
 }
@@ -136,6 +157,13 @@ function tachyon_runtime_conflicts() {
     for (let id, state in tachyon_provider_runtimes())
         if (object_or_empty(state).active)
             push(result, "tachyon-" + as_string(id));
+    // Steer can run NFQUEUE workers under a separate procd service.
+    let engine = tachyon_active_engine();
+    if (engine == "steer" || engine == "steer-extended") {
+        if (fs.stat(TACHYON_STEER_ZAPRET_INIT) != null &&
+            run_quiet([ TACHYON_STEER_ZAPRET_INIT, "status" ]))
+            push(result, "tachyon-steer-zapret");
+    }
     return result;
 }
 
@@ -145,8 +173,12 @@ function tachyon_integration_diagnostic() {
         return { installed: false, current_api: false, active_action: "", providers: {} };
     let status = tachyon_cli_json("get_status");
     let ui_state = tachyon_cli_json("get_ui_state");
+    let engine = tachyon_engine_from_state(ui_state);
+    let engine_status = tachyon_cli_json("get_engine_status");
     return {
         installed: true,
+        active_engine: engine,
+        engine_status_api: type(engine_status) == "object",
         current_api: type(status) == "object" && type(ui_state) == "object",
         status_api: type(status) == "object",
         ui_state_api: type(ui_state) == "object",
@@ -211,7 +243,9 @@ function backend_version(id) {
 
 function clash_api_diagnostic() {
     let backend = backend_id();
-    let result = { configured: backend != "none", reachable: false, controller: "", connections: 0 };
+    if (backend == "tachyon" && tachyon_active_engine() != "sing-box")
+        return { configured: false, applicable: false, reachable: false, controller: "", connections: 0 };
+    let result = { configured: backend != "none", applicable: true, reachable: false, controller: "", connections: 0 };
     let response;
 
     if (backend == "tachyon")
@@ -252,6 +286,15 @@ function clash_api_diagnostic() {
 }
 
 function dns_diagnostic() {
+    if (backend_id() == "tachyon" && tachyon_active_engine() != "sing-box") {
+        let config_path = TACHYON_STEER_SPEC;
+        let config = read_json_file(config_path);
+        return {
+            engine: "steer", config_path, config_readable: type(config) == "object",
+            server_count: 0, server_types: [ "steer dnsd" ],
+            fakeip_enabled: null, fakeip_ranges: []
+        };
+    }
     let config_path = sing_box_config_path();
     let config = read_json_file(config_path);
     let dns = object_or_empty(object_or_empty(config).dns);
@@ -365,7 +408,7 @@ function vpn_status(protocol) {
     for (let package in vpn_packages(protocol))
         if (!vpn_installed(manager, package)) push(missing, package);
     let tool_ready = vpn_tool(protocol) != "";
-    let proto_dir = trim(as_string(getenv("FORKOP_SC_NETIFD_PROTO_DIR"))) || "/lib/netifd/proto";
+    let proto_dir = trim(as_string((getenv("SBSC_NETIFD_PROTO_DIR") || getenv("FORKOP_SC_NETIFD_PROTO_DIR")))) || "/lib/netifd/proto";
     let proto_path = proto_dir + "/" + protocol + ".sh";
     let proto_ready = fs.stat(proto_path) != null;
     let proto_source = proto_ready ? as_string(fs.readfile(proto_path)) : "";
@@ -760,6 +803,7 @@ function capabilities() {
         module_version: trim(as_string(fs.readfile(VERSION_FILE))) || "unknown",
         backend_installed: backend != "none",
         backend_running: running,
+        routing_engine: backend == "tachyon" ? tachyon_active_engine() : "sing-box",
         tachyon_installed: fs.stat(TACHYON_BIN) != null,
         tachyon: tachyon_integration_diagnostic(),
         homeproxy_installed: fs.stat(HOME_PROXY_INIT) != null,

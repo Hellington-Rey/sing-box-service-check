@@ -1,4 +1,3 @@
-96c3d920787096ce9410f19e29045b520d8b769a16fd84e90a9f7b32a7a85f2e  luci-app-forkop-servicecheck_1.14.0-r1_all.ipk
-3462828c427a8c7049e796ae5536642619e278d8c232e398d720042e3bdeac28  install-sing-box-service-check.sh
-3462828c427a8c7049e796ae5536642619e278d8c232e398d720042e3bdeac28  install-forkop-servicecheck.sh
-1537014d45fd2cc880fe44318ae016ef9ec985865e5bd7f6d24a2130ed7f99d5  make-apk.sh
+94ec32c6d8535cd581f69089f531b51ccada16f19bb69f275d2925bdf314aafc  luci-app-sing-box-service-check_1.15.0-r1_all.ipk
+1f8725444940e37694f21e90dbc458aa837b40f2071b23c8852b0b8d28049e4d  install-sing-box-service-check.sh
+4e861eb6327fe394cc051540f1c2f7a555c9de6e67e56e0ab6e64d3b52404bcf  make-apk.sh

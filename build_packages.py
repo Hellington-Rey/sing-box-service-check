@@ -27,10 +27,10 @@ assemble_all()
 FILES_DIR = ROOT / "files"
 OUT_DIR = ROOT / "dist"
 
-PACKAGE = "luci-app-forkop-servicecheck"
+PACKAGE = "luci-app-sing-box-service-check"
 VERSION = project_version()
 LUCI_VIEW_NAME = luci_view_name(VERSION)
-LUCI_VIEW_PATH = f"www/luci-static/resources/view/forkop/{LUCI_VIEW_NAME}"
+LUCI_VIEW_PATH = f"www/luci-static/resources/view/sing-box-service-check/{LUCI_VIEW_NAME}"
 RELEASE = "r1"
 ARCH = "all"
 LICENSE = "MIT"
@@ -49,26 +49,27 @@ MTIME = 1735689600  # 2025-01-01 00:00:00 UTC
 
 # (путь в пакете, путь в files/, режим)
 PAYLOAD = [
-    ("./usr/bin/sing-box-service-check", "usr/bin/forkop-servicecheck", 0o755),
-    ("./usr/bin/forkop-servicecheck", "usr/bin/forkop-servicecheck", 0o755),
-    ("./usr/lib/forkop-servicecheck/probe.uc", "usr/lib/forkop-servicecheck/probe.uc", 0o644),
-    ("./usr/lib/forkop-servicecheck/xhttp_hotfix.sh", "usr/lib/forkop-servicecheck/xhttp_hotfix.sh", 0o755),
-    ("./usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh", "usr/lib/forkop-servicecheck/icmp_tproxy_hotfix.sh", 0o755),
-    ("./usr/lib/forkop-servicecheck/repair.sh", "usr/lib/forkop-servicecheck/repair.sh", 0o755),
-    ("./usr/lib/forkop-servicecheck/zapret_strategy_worker.sh", "usr/lib/forkop-servicecheck/zapret_strategy_worker.sh", 0o755),
-    ("./usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv", "usr/lib/forkop-servicecheck/zapret_strategy_catalog.tsv", 0o644),
-    ("./usr/share/forkop-servicecheck/profiles.json", "usr/share/forkop-servicecheck/profiles.json", 0o644),
-    ("./usr/share/forkop-servicecheck/version", None, 0o644),
+    ("./usr/bin/sing-box-service-check", "usr/bin/sing-box-service-check", 0o755),
+    ("./usr/bin/forkop-servicecheck", "usr/bin/sing-box-service-check", 0o755),
+    ("./usr/lib/sing-box-service-check/probe.uc", "usr/lib/sing-box-service-check/probe.uc", 0o644),
+    ("./usr/lib/sing-box-service-check/xhttp_hotfix.sh", "usr/lib/sing-box-service-check/xhttp_hotfix.sh", 0o755),
+    ("./usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh", "usr/lib/sing-box-service-check/icmp_tproxy_hotfix.sh", 0o755),
+    ("./usr/lib/sing-box-service-check/repair.sh", "usr/lib/sing-box-service-check/repair.sh", 0o755),
+    ("./usr/lib/sing-box-service-check/migrate.sh", "usr/lib/sing-box-service-check/migrate.sh", 0o755),
+    ("./usr/lib/sing-box-service-check/zapret_strategy_worker.sh", "usr/lib/sing-box-service-check/zapret_strategy_worker.sh", 0o755),
+    ("./usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv", "usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv", 0o644),
+    ("./usr/share/sing-box-service-check/profiles.json", "usr/share/sing-box-service-check/profiles.json", 0o644),
+    ("./usr/share/sing-box-service-check/version", None, 0o644),
     (f"./{LUCI_VIEW_PATH}", LUCI_VIEW_PATH, 0o644),
-    ("./usr/share/luci/menu.d/luci-app-forkop-servicecheck.json", "usr/share/luci/menu.d/luci-app-forkop-servicecheck.json", 0o644),
-    ("./usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json", "usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json", 0o644),
+    ("./usr/share/luci/menu.d/luci-app-sing-box-service-check.json", "usr/share/luci/menu.d/luci-app-sing-box-service-check.json", 0o644),
+    ("./usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json", "usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json", 0o644),
 ]
 
 # Каталоги, которые пакет заводит сам. Общие (/usr/bin, /www/...) не трогаем:
 # они принадлежат другим пакетам, и удалять их при деинсталляции нельзя.
 OWNED_DIRS = [
-    "./usr/lib/forkop-servicecheck",
-    "./usr/share/forkop-servicecheck",
+    "./usr/lib/sing-box-service-check",
+    "./usr/share/sing-box-service-check",
 ]
 
 
@@ -86,6 +87,9 @@ POSTINST = """#!/bin/sh
 # не появится до перезагрузки.
 rm -rf /tmp/luci-modulecache 2>/dev/null
 rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -f /usr/share/luci/menu.d/luci-app-forkop-servicecheck.json /usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json 2>/dev/null
+rm -f /www/luci-static/resources/view/forkop/servicecheck-v1141.js 2>/dev/null
+rm -f /www/luci-static/resources/view/forkop/servicecheck-v1140.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1130.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1125.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1124.js 2>/dev/null
@@ -95,6 +99,10 @@ rm -f /www/luci-static/resources/view/forkop/servicecheck-v1121.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1120.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1112.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1110.js 2>/dev/null
+
+/usr/lib/sing-box-service-check/migrate.sh || exit 1
+cp -f /usr/bin/sing-box-service-check /usr/bin/forkop-servicecheck || exit 1
+chmod 0755 /usr/bin/forkop-servicecheck
 
 # rpcd читает acl.d только при старте.
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1
@@ -107,7 +115,7 @@ PRERM = """#!/bin/sh
 
 # Убираем временный network namespace, если проверка оборвалась на полпути.
 [ -x /usr/bin/sing-box-service-check ] && /usr/bin/sing-box-service-check netns_teardown >/dev/null 2>&1
-rm -rf /var/run/forkop-servicecheck 2>/dev/null
+rm -rf /var/run/sing-box-service-check 2>/dev/null
 
 exit 0
 """
@@ -167,8 +175,8 @@ def build_data_tar():
     recovery = build_recovery_archive()
     recovery_checksum = f"{hashlib.sha256(recovery).hexdigest()}  recovery.tar.gz\n".encode("ascii")
     installed_size += len(recovery) + len(recovery_checksum)
-    entries.append(("./usr/share/forkop-servicecheck/recovery.tar.gz", recovery, 0o644, False))
-    entries.append(("./usr/share/forkop-servicecheck/recovery.sha256", recovery_checksum, 0o644, False))
+    entries.append(("./usr/share/sing-box-service-check/recovery.tar.gz", recovery, 0o644, False))
+    entries.append(("./usr/share/sing-box-service-check/recovery.sha256", recovery_checksum, 0o644, False))
 
     return make_tar_gz(entries), installed_size
 
@@ -185,7 +193,9 @@ def build_control_tar(installed_size):
         f"Package: {PACKAGE}\n"
         f"Version: {VERSION}-{RELEASE}\n"
         f"Depends: {', '.join(DEPENDS)}\n"
-        f"Source: feeds/forkop-servicecheck\n"
+        f"Source: feeds/sing-box-service-check\n"
+        "Replaces: luci-app-forkop-servicecheck\n"
+        "Conflicts: luci-app-forkop-servicecheck\n"
         f"SourceName: {PACKAGE}\n"
         f"License: {LICENSE}\n"
         f"Section: net\n"
@@ -285,8 +295,8 @@ def build_apk_maker():
     for owned in OWNED_DIRS:
         entries.append((owned, None, 0o755, True))
     recovery = build_recovery_archive()
-    entries.append(("./usr/share/forkop-servicecheck/recovery.tar.gz", recovery, 0o644, False))
-    entries.append(("./usr/share/forkop-servicecheck/recovery.sha256",
+    entries.append(("./usr/share/sing-box-service-check/recovery.tar.gz", recovery, 0o644, False))
+    entries.append(("./usr/share/sing-box-service-check/recovery.sha256",
                     f"{hashlib.sha256(recovery).hexdigest()}  recovery.tar.gz\n".encode("ascii"), 0o644, False))
 
     payload = base64.b64encode(make_tar_gz(entries)).decode("ascii")
@@ -318,7 +328,6 @@ def build_checksums(ipk_path, apk_maker_path):
     artifacts = [
         ipk_path,
         ROOT / "install-sing-box-service-check.sh",
-        ROOT / "install-forkop-servicecheck.sh",
         apk_maker_path,
     ]
     missing = [path.name for path in artifacts if not path.is_file()]

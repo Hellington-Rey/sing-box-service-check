@@ -250,7 +250,7 @@
     function showVpnTool(name) {
       var showVless = name === "vless";
       var showTunnel = name === "tunnel";
-      var showZapret = name === "zapret";
+      var showZapret = showZapretStrategy && name === "zapret";
       vlessVpnTab.classList.toggle("active", showVless);
       tunnelVpnTab.classList.toggle("active", showTunnel);
       zapretVpnTab.classList.toggle("active", showZapret);
@@ -288,7 +288,9 @@
         ]),
         E("h3", { style: "margin-top:1em" }, "Проверить свой IP или домен"),
         E("p", { class: "fkpsc-dim" },
-          "Введите любую цель и TCP-порт. Проверка покажет доступность и подтвердит, попало ли соединение в sing-box. Используется выбранный выше режим."),
+          capabilities.routing_engine === "sing-box"
+            ? "Введите цель и TCP-порт. Проверка покажет доступность и маршрут через sing-box. Используется выбранный выше режим."
+            : "Введите цель и TCP-порт. Проверка покажет доступность и план правил Steer; фактический маршрут остаётся неподтверждённым."),
         E("div", { class: "fkpsc-custom-form" }, [
           customTargetInput,
           E("label", { class: "fkpsc-custom-port-label" }, ["Порт", customPortInput]),
@@ -322,8 +324,9 @@
     ]);
     var fixPage = E("div", { class: "fkpsc-page" }, [maintenancePanel]);
     var vpnPage = E("div", { class:"fkpsc-page" }, [
-      E("div", { class:"fkpsc-vpn-tabs", role:"tablist", "aria-label":"Инструменты VPN" }, [vlessVpnTab, tunnelVpnTab, zapretVpnTab]),
+      E("div", { class:"fkpsc-vpn-tabs", role:"tablist", "aria-label":"Инструменты VPN" },
+        showZapretStrategy ? [vlessVpnTab, tunnelVpnTab, zapretVpnTab] : [vlessVpnTab, tunnelVpnTab]),
       vlessVpnPanel,
       tunnelVpnPanel,
-      zapretVpnPanel,
+      showZapretStrategy ? zapretVpnPanel : "",
     ]);
