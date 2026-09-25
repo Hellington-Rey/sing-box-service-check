@@ -1,22 +1,48 @@
 # Sing-box Service Check
 
-LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик [Tachyon](https://github.com/Dushnilin/tachyon), [HomeProxy](https://github.com/immortalwrt/homeproxy), Forkop или оригинального [Podkop](https://github.com/itdoginfo/podkop).
+LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик.
 
-Установленный backend определяется автоматически. С версии 1.14.0 пакет называется `luci-app-sing-box-service-check`, а каталоги runtime, LuCI и настроек используют имя `sing-box-service-check`. При обновлении пользовательские файлы копируются из `/etc/forkop-servicecheck` без перезаписи уже существующих файлов; прежний каталог остаётся резервной копией. Старая команда `forkop-servicecheck` остаётся совместимым алиасом для пользовательских скриптов. Переменные окружения с префиксом `FORKOP_SC_` также принимаются, но новые `SBSC_` имеют приоритет.
+Установленный backend определяется автоматически.
 
 Модуль помогает понять, на каком этапе возникает проблема: DNS, TCP/UDP, TLS, HTTP или выбор outbound-маршрута.
+
+## С чем работает
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>⚡ Tachyon</h3>
+      <p><strong>sing-box</strong> — проверено с Tachyon 1.4.0.<br>
+      <strong>Steer и Steer Extended</strong> — 🧪 тестовый режим.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>🏠 HomeProxy</h3>
+      <p>Проверка через sing-box, DNS, FakeIP и Clash API. Поддерживается и Re:HomeProxy.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🔧 Forkop</h3>
+      <p>Проверка маршрута и отдельные исправления Forkop. Вкладка с исправлениями доступна, когда Tachyon не установлен.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>🌐 Podkop</h3>
+      <p>Диагностика sing-box, DNS и маршрута через штатные параметры Podkop.</p>
+    </td>
+  </tr>
+</table>
 
 ## Интерфейс
 
 <p align="center">
-  <img src="docs/screenshots/overview-light.png" alt="Обзор результатов проверки сервисов с активным Tachyon" width="100%">
+  <img src="docs/screenshots/overview-light.png" alt="Текущий интерфейс проверки сервисов с активным Tachyon 1.4.0" width="100%">
 </p>
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/screenshots/diagnostics-dark.png" alt="Подробная диагностика маршрута в тёмной теме" width="100%">
-      <br><sub><b>Подробная диагностика:</b> DNS, TCP, TLS, HTTP и подтверждённый outbound-маршрут.</sub>
+      <img src="docs/screenshots/diagnostics-dark.png" alt="Расширенная диагностика backend и DNS в тёмной теме" width="100%">
+      <br><sub><b>Расширенная диагностика:</b> активный backend, движок маршрутизации, Clash API, DNS и FakeIP.</sub>
     </td>
     <td width="50%" valign="top">
       <img src="docs/screenshots/profiles-editor.png" alt="Графический редактор списков проверок" width="100%">
@@ -25,7 +51,49 @@ LuCI-модуль для OpenWrt, который проверяет доступ
   </tr>
 </table>
 
-<sub>На скриншотах используются демонстрационные адреса и результаты.</sub>
+<sub>Скриншоты сделаны в LuCI с установленной версией 1.14.0. Состояние диагностики зависит от настроек роутера.</sub>
+
+## Установка
+
+Готовые файлы всех опубликованных версий находятся на странице [GitHub Releases](https://github.com/Hellington-Rey/sing-box-service-check/releases). Для обычного OpenWrt с `opkg` скачайте файл `.ipk` из раздела Assets нужной версии.
+
+Для OpenWrt с opkg:
+
+```sh
+opkg install luci-app-sing-box-service-check_1.14.0-r1_all.ipk
+```
+
+Для OpenWrt с apk:
+
+```sh
+apk add --allow-untrusted ./luci-app-sing-box-service-check-1.14.0-r1.apk
+```
+
+Установка без пакетного менеджера:
+
+```sh
+wget -O- https://raw.githubusercontent.com/Hellington-Rey/sing-box-service-check/main/install-sing-box-service-check.sh | sh
+```
+
+Установщик определяет уже установленную версию и сообщает, выполняется ли чистая установка, обновление или переустановка текущей версии. При обновлении он проверяет запуск `dig` и предлагает установить недостающий `bind-dig` либо переустановить несовместимые `bind-libs` и `bind-dig`. В команде `wget | sh` вопрос читается из терминала, а не из канала с установщиком.
+
+## Удаление
+
+Удалите пакет через менеджер, которым он установлен:
+
+```sh
+opkg remove luci-app-sing-box-service-check
+# или на OpenWrt с apk:
+apk del luci-app-sing-box-service-check
+```
+
+Если модуль установлен самодостаточным скриптом, скачайте установщик нужной версии и выполните:
+
+```sh
+sh install-sing-box-service-check.sh --uninstall
+```
+
+Команда `--uninstall` также удаляет зарегистрированные старые пакеты `luci-app-forkop-servicecheck`, если они остались после миграции. Пользовательские настройки в `/etc/sing-box-service-check` сохраняются. Для полного удаления после проверки резервной копии удалите эту папку вручную: `rm -rf /etc/sing-box-service-check`. Самостоятельно установленные Tachyon, HomeProxy, Forkop, Podkop и VPN-конфигурации не затрагиваются.
 
 ## Возможности
 
@@ -65,31 +133,9 @@ LuCI → sing-box-service-check → probe.uc
 
 В режиме `netns` создаётся временный network namespace с отдельным IP-адресом в LAN. Это позволяет воспроизвести правила маршрутизации, зависящие от source IP клиента.
 
-## Установка
-
-Готовые файлы всех опубликованных версий находятся на странице [GitHub Releases](https://github.com/Hellington-Rey/sing-box-service-check/releases). Для обычного OpenWrt с `opkg` скачайте файл `.ipk` из раздела Assets нужной версии.
-
-Для OpenWrt с opkg:
-
-```sh
-opkg install luci-app-sing-box-service-check_1.14.0-r1_all.ipk
-```
-
-Для OpenWrt с apk:
-
-```sh
-apk add --allow-untrusted ./luci-app-sing-box-service-check-1.14.0-r1.apk
-```
-
-Установка без пакетного менеджера:
-
-```sh
-wget -O- https://raw.githubusercontent.com/Hellington-Rey/sing-box-service-check/main/install-sing-box-service-check.sh | sh
-```
-
-Установщик определяет уже установленную версию и сообщает, выполняется ли чистая установка, обновление или переустановка текущей версии. При обновлении он проверяет запуск `dig` и предлагает установить недостающий `bind-dig` либо переустановить несовместимые `bind-libs` и `bind-dig`. В команде `wget | sh` вопрос читается из терминала, а не из канала с установщиком.
-
 ## Обновление из LuCI
+
+При переходе со старого пакета настройки копируются в новый каталог без перезаписи пользовательских файлов.
 
 На вкладке проверки есть блок **«Обновление модуля»**. Кнопка **«Проверить обновления»** обращается только к последнему стабильному GitHub Release этого репозитория. Если опубликована более новая версия, появляется кнопка установки.
 
@@ -118,6 +164,10 @@ sing-box-service-check update-start --install-missing
 sing-box-service-check update-start --skip-missing
 ```
 
+### Переход на новое имя пакета
+
+Установленный backend определяется автоматически. С версии 1.14.0 пакет называется `luci-app-sing-box-service-check`, а каталоги runtime, LuCI и настроек используют имя `sing-box-service-check`. При обновлении пользовательские файлы копируются из `/etc/forkop-servicecheck` без перезаписи уже существующих файлов; прежний каталог остаётся резервной копией. Старая команда `forkop-servicecheck` остаётся совместимым алиасом для пользовательских скриптов. Переменные окружения с префиксом `FORKOP_SC_` также принимаются, но новые `SBSC_` имеют приоритет.
+
 ## Поддержка Tachyon, HomeProxy, Forkop и Podkop
 
 Модуль автоматически выбирает backend. Сначала проверяется `/usr/bin/tachyon`, затем `/etc/init.d/homeproxy`, `/usr/bin/forkop` и `/usr/bin/podkop`. Такой порядок нужен после миграции, когда старые компоненты могут остаться рядом с активным backend. Для отладки выбор можно переопределить переменной `SBSC_BACKEND=tachyon`, `SBSC_BACKEND=homeproxy`, `SBSC_BACKEND=forkop` или `SBSC_BACKEND=podkop`.
@@ -133,7 +183,7 @@ sing-box-service-check update-start --skip-missing
 - использует отдельный network namespace `sbsvcchk`, поэтому не конфликтует со встроенной проверкой сервисов Tachyon (`fkpsc`);
 - не показывает и не разрешает запуск специфичных исправлений Forkop, даже если после миграции остался старый `/usr/bin/forkop`.
 
-Интеграция проверена с актуальным Tachyon 1.3.29. Для более ранних выпусков сохранены fallback-проверки через init-скрипт и прежние CLI-команды.
+Интеграция с движком sing-box проверена на Tachyon 1.4.0. Поддержка Steer и Steer Extended пока в тестовом режиме. Для более ранних выпусков сохранены резервные проверки через init-скрипт и прежние CLI-команды.
 
 На Podkop модуль:
 
@@ -249,24 +299,6 @@ sing-box-service-check repair
 /usr/bin/sing-box-service-check gemini_key_status
 /usr/bin/sing-box-service-check gemini_key_reset
 ```
-
-## Удаление
-
-Удалите пакет через менеджер, которым он установлен:
-
-```sh
-opkg remove luci-app-sing-box-service-check
-# или на OpenWrt с apk:
-apk del luci-app-sing-box-service-check
-```
-
-Если модуль установлен самодостаточным скриптом, скачайте установщик нужной версии и выполните:
-
-```sh
-sh install-sing-box-service-check.sh --uninstall
-```
-
-Команда `--uninstall` также удаляет зарегистрированные старые пакеты `luci-app-forkop-servicecheck`, если они остались после миграции. Пользовательские настройки в `/etc/sing-box-service-check` сохраняются. Для полного удаления после проверки резервной копии удалите эту папку вручную: `rm -rf /etc/sing-box-service-check`. Самостоятельно установленные Tachyon, HomeProxy, Forkop, Podkop и VPN-конфигурации не затрагиваются.
 
 ## xHTTP hotfix
 

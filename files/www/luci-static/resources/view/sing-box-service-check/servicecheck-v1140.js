@@ -1118,7 +1118,7 @@ return view.extend({
 
   load: function () {
     return Promise.all([
-      callBin(["capabilities"]).catch(function () {
+      callBin(["capabilities", "fast"]).catch(function () {
         return null;
       }),
       callBin(["list"]).catch(function () {
@@ -1139,13 +1139,25 @@ return view.extend({
       callBin(["vpn-interfaces"]).catch(function () {
         return { success: false, interfaces: [] };
       }),
-      callBin(["zapret-capabilities"]).catch(function () {
-        return { success: false, ready: false, providers: {}, running_backends: [], message: "Автоподбор недоступен" };
-      }),
-      callBin(["zapret-settings"]).catch(function () {
-        return { success: false, services: [], custom_services: [], selected: ["youtube", "discord", "telegram"], saved_results: {} };
-      }),
-    ]);
+      null,
+      null,
+    ]).then(function (data) {
+      if (!data[0] || data[0].tachyon_installed === true) {
+        return data;
+      }
+      return Promise.all([
+        callBin(["zapret-capabilities"]).catch(function () {
+          return { success: false, ready: false, providers: {}, running_backends: [], message: "Автоподбор недоступен" };
+        }),
+        callBin(["zapret-settings"]).catch(function () {
+          return { success: false, services: [], custom_services: [], selected: ["youtube", "discord", "telegram"], saved_results: {} };
+        }),
+      ]).then(function (zapretData) {
+        data[7] = zapretData[0];
+        data[8] = zapretData[1];
+        return data;
+      });
+    });
   },
 
   render: function (data) {
@@ -1833,47 +1845,66 @@ return view.extend({
       ]),
     ]);
 
-    var clashDiagnostic = capabilities.clash_api || {};
-    var dnsDiagnostic = capabilities.dns || {};
-    var tachyonDiagnostic = capabilities.tachyon || {};
-    var tachyonProviders = tachyonDiagnostic.providers || {};
-    var activeTachyonProviders = Object.keys(tachyonProviders).filter(function (id) {
-      return tachyonProviders[id] && tachyonProviders[id].active;
-    }).map(function (id) {
-      return (tachyonProviders[id] && tachyonProviders[id].label) || id;
-    });
     function diagnosticCell(title, value) {
       return E("div", { class: "fkpsc-diagnostic-cell" }, [
         E("b", {}, title),
         E("span", {}, value == null || value === "" ? "—" : String(value)),
       ]);
     }
+    function diagnosticCells(snapshot) {
+      var clashDiagnostic = snapshot.clash_api || {};
+      var dnsDiagnostic = snapshot.dns || {};
+      var tachyonDiagnostic = snapshot.tachyon || {};
+      var tachyonProviders = tachyonDiagnostic.providers || {};
+      var activeTachyonProviders = Object.keys(tachyonProviders).filter(function (id) {
+        return tachyonProviders[id] && tachyonProviders[id].active;
+      }).map(function (id) {
+        return (tachyonProviders[id] && tachyonProviders[id].label) || id;
+      });
+      return [
+        diagnosticCell("Активный backend", (snapshot.backend_name || backendName) + " · " + (snapshot.backend_version || "версия неизвестна")),
+        diagnosticCell("Состояние", snapshot.backend_running ? "запущен" : "остановлен"),
+        diagnosticCell("Движок маршрутизации", snapshot.backend === "tachyon" ? (snapshot.routing_engine || "не определён") : "sing-box"),
+        diagnosticCell("Clash API", clashDiagnostic.applicable === false ? "не применяется к Steer" : (clashDiagnostic.reachable ? "доступен · соединений: " + (clashDiagnostic.connections || 0) : "недоступен")),
+        diagnosticCell(snapshot.routing_engine === "sing-box" ? "Конфигурация sing-box" : "Конфигурация Steer", dnsDiagnostic.config_readable ? dnsDiagnostic.config_path : "не удалось прочитать " + (dnsDiagnostic.config_path || "")),
+        diagnosticCell("LAN-интерфейс", snapshot.lan_interface || "не определён"),
+        diagnosticCell("DNS-серверы", (dnsDiagnostic.server_count || 0) + " · " + ((dnsDiagnostic.server_types || []).join(", ") || "тип не определён")),
+        diagnosticCell("FakeIP", dnsDiagnostic.fakeip_enabled === null ? "управляется Steer" : (dnsDiagnostic.fakeip_enabled ? "включён · " + (dnsDiagnostic.fakeip_ranges || []).join(", ") : "не обнаружен")),
+        diagnosticCell("Интеграция Tachyon", !tachyonDiagnostic.installed ? "не установлен" : (tachyonDiagnostic.current_api ? "актуальный status/UI API" : "режим обратной совместимости")),
+        diagnosticCell("Tachyon DPI runtime", !tachyonDiagnostic.installed ? "не используется" : (activeTachyonProviders.length ? "активны: " + activeTachyonProviders.join(", ") : "конфликтующих процессов нет")),
+        diagnosticCell("Инструменты", [snapshot.curl ? "curl" : "без curl", snapshot.dig ? "dig" : ((snapshot.dig_status || {}).available ? "dig сломан" : "без dig"), snapshot.nc ? "nc" : "без nc", snapshot.netns ? "netns" : "без netns"].join(" · ")),
+      ];
+    }
     var dnsChainButton = E("button", { class: "cbi-button", type: "button", style: "margin-top:.8em" }, "Проверить DNS-цепочку");
     var dnsChainResult = E("div", {});
     var doctorButton = E("button", { class: "cbi-button", type: "button", style: "margin-top:.8em;margin-left:.5em" }, "Проверить установку");
     var repairButton = E("button", { class: "cbi-button cbi-button-negative", type: "button", style: "margin-top:.8em;margin-left:.5em" }, "Восстановить файлы");
     var doctorResult = E("div", {});
+    var diagnosticGrid = E("div", { class: "fkpsc-diagnostic-grid" }, capabilities.diagnostics_deferred
+      ? E("span", { class: "fkpsc-dim" }, "Загружаем расширенную диагностику…")
+      : diagnosticCells(capabilities));
     var backendDiagnosticsCard = E("details", { class: "fkpsc-card" }, [
       E("summary", { style: "cursor:pointer;font-weight:700" }, "Backend и DNS · расширенная диагностика"),
-      E("div", { class: "fkpsc-diagnostic-grid" }, [
-        diagnosticCell("Активный backend", backendName + " · " + (capabilities.backend_version || "версия неизвестна")),
-        diagnosticCell("Состояние", backendRunning ? "запущен" : "остановлен"),
-        diagnosticCell("Движок маршрутизации", capabilities.backend === "tachyon" ? (capabilities.routing_engine || "не определён") : "sing-box"),
-        diagnosticCell("Clash API", clashDiagnostic.applicable === false ? "не применяется к Steer" : (clashDiagnostic.reachable ? "доступен · соединений: " + (clashDiagnostic.connections || 0) : "недоступен")),
-        diagnosticCell(capabilities.routing_engine === "sing-box" ? "Конфигурация sing-box" : "Конфигурация Steer", dnsDiagnostic.config_readable ? dnsDiagnostic.config_path : "не удалось прочитать " + (dnsDiagnostic.config_path || "")),
-        diagnosticCell("LAN-интерфейс", capabilities.lan_interface || "не определён"),
-        diagnosticCell("DNS-серверы", (dnsDiagnostic.server_count || 0) + " · " + ((dnsDiagnostic.server_types || []).join(", ") || "тип не определён")),
-        diagnosticCell("FakeIP", dnsDiagnostic.fakeip_enabled === null ? "управляется Steer" : (dnsDiagnostic.fakeip_enabled ? "включён · " + (dnsDiagnostic.fakeip_ranges || []).join(", ") : "не обнаружен")),
-        diagnosticCell("Интеграция Tachyon", !tachyonDiagnostic.installed ? "не установлен" : (tachyonDiagnostic.current_api ? "актуальный status/UI API" : "режим обратной совместимости")),
-        diagnosticCell("Tachyon DPI runtime", !tachyonDiagnostic.installed ? "не используется" : (activeTachyonProviders.length ? "активны: " + activeTachyonProviders.join(", ") : "конфликтующих процессов нет")),
-        diagnosticCell("Инструменты", [capabilities.curl ? "curl" : "без curl", capabilities.dig ? "dig" : ((capabilities.dig_status || {}).available ? "dig сломан" : "без dig"), capabilities.nc ? "nc" : "без nc", capabilities.netns ? "netns" : "без netns"].join(" · ")),
-      ]),
+      diagnosticGrid,
       dnsChainButton,
       doctorButton,
       repairButton,
       dnsChainResult,
       doctorResult,
     ]);
+    if (capabilities.diagnostics_deferred) {
+      var diagnosticsLoading = false;
+      backendDiagnosticsCard.addEventListener("toggle", function () {
+        if (!backendDiagnosticsCard.open || diagnosticsLoading) { return; }
+        diagnosticsLoading = true;
+        callBin(["capabilities"]).then(function (full) {
+          diagnosticGrid.replaceChildren.apply(diagnosticGrid, diagnosticCells(full));
+        }).catch(function (error) {
+          diagnosticGrid.replaceChildren(E("span", { class: "fkpsc-dim" }, "Диагностика не загрузилась: " + error.message));
+          diagnosticsLoading = false;
+        });
+      });
+    }
     dnsChainButton.addEventListener("click", function () {
       var target = customTargetInput.value.trim() || "cp.cloudflare.com";
       dnsChainButton.disabled = true;

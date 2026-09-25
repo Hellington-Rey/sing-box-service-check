@@ -3,7 +3,7 @@ let mode = as_string(ARGV[0]);
 if (mode == "list")
     exit(list_profiles());
 else if (mode == "capabilities") {
-    write_json(capabilities());
+    write_json(capabilities(as_string(ARGV[1]) == "fast"));
     exit(0);
 }
 else if (mode == "fixes")

@@ -205,7 +205,7 @@ def main():
     assert 'new FileReader()' in view
     assert 'function clash_api_diagnostic()' in engine
     assert 'function dns_diagnostic()' in engine
-    assert 'backend_version: backend_version(backend)' in engine
+    assert 'backend_version: fast ? "" : backend_version(backend)' in engine
     assert '"Backend и DNS · расширенная диагностика"' in view
     assert 'function dns_chain_diagnostics(host)' in engine
     assert 'dns-diagnostics' in cli

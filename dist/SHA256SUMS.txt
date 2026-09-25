@@ -1,3 +1,3 @@
-e69a293290a847584bc31d1f8aa274977efa270dd554f7500cad5b2dc3f49f76  luci-app-sing-box-service-check_1.14.0-r1_all.ipk
-c0ccbe650e995a6d53f148c3783163b4f8425f66e73196d4448b67a5fe29904a  install-sing-box-service-check.sh
-148794b72d86c01b3fba7a63e10213a3eaca5669e398d33faba9287b5d0d3f77  make-apk.sh
+8e2a06fe54e81353834a1cbd2608a10f62f013b50524769e7c9e9b33aa18e7f0  luci-app-sing-box-service-check_1.14.0-r1_all.ipk
+04601d6fb9a9d86461410d892bbd24f99470215abe88b150a48d5c0216eaa791  install-sing-box-service-check.sh
+55a51049eb699f96434b528061524cf03dc9a229be7c0da42cd4bc17111ba475  make-apk.sh

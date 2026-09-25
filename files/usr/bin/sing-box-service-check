@@ -85,7 +85,13 @@ command -v ucode >/dev/null 2>&1 || {
 }
 
 case "$COMMAND" in
-    list|capabilities|fixes|cleanup|doctor|repair|history|history-clear|profiles-get|profiles-reset|vpn-packages|vpn-interfaces|zapret-capabilities|zapret-settings|update-check|update-status)
+    capabilities)
+        case "${2:-}" in
+            ""|fast) exec ucode -L "$LIB_DIR" "$ENGINE" capabilities "${2:-}" ;;
+            *) echo "Error: capabilities accepts only fast" >&2; exit 1 ;;
+        esac
+        ;;
+    list|fixes|cleanup|doctor|repair|history|history-clear|profiles-get|profiles-reset|vpn-packages|vpn-interfaces|zapret-capabilities|zapret-settings|update-check|update-status)
         exec ucode -L "$LIB_DIR" "$ENGINE" "$COMMAND"
         ;;
     update-start)

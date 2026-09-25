@@ -771,17 +771,18 @@ function vpn_create(name, protocol, payload, probe_target) {
     return 0;
 }
 
-function capabilities() {
+function capabilities(fast) {
+    fast = fast === true;
     let backend = backend_id();
     let running = backend_running();
     let interface = lan_interface();
-    let address = interface_ipv4(interface);
+    let address = fast ? null : interface_ipv4(interface);
     let nc_mode = detect_nc_mode();
-    let clash_api = clash_api_diagnostic();
-    let dns = dns_diagnostic();
+    let clash_api = fast ? {} : clash_api_diagnostic();
+    let dns = fast ? {} : dns_diagnostic();
     let dig_status = dig_runtime_check();
-    let wireguard = vpn_status("wireguard");
-    let amneziawg = vpn_status("amneziawg");
+    let wireguard = fast ? {} : vpn_status("wireguard");
+    let amneziawg = fast ? {} : vpn_status("amneziawg");
 
     return {
         curl: command_exists("curl"),
@@ -796,16 +797,16 @@ function capabilities() {
         lan_interface: interface,
         lan_address: address == null ? "" : address.address,
         lan_prefix: address == null ? 0 : address.prefix,
-        fakeip_ranges: fakeip_ranges(),
+        fakeip_ranges: fast ? [] : fakeip_ranges(),
         backend,
         backend_name: backend_name(backend),
-        backend_version: backend_version(backend),
+        backend_version: fast ? "" : backend_version(backend),
         module_version: trim(as_string(fs.readfile(VERSION_FILE))) || "unknown",
         backend_installed: backend != "none",
         backend_running: running,
         routing_engine: backend == "tachyon" ? tachyon_active_engine() : "sing-box",
         tachyon_installed: fs.stat(TACHYON_BIN) != null,
-        tachyon: tachyon_integration_diagnostic(),
+        tachyon: fast ? { installed: fs.stat(TACHYON_BIN) != null } : tachyon_integration_diagnostic(),
         homeproxy_installed: fs.stat(HOME_PROXY_INIT) != null,
         forkop_installed: fs.stat(FORKOP_BIN) != null,
         podkop_installed: fs.stat(PODKOP_BIN) != null,
@@ -814,8 +815,9 @@ function capabilities() {
         clash_api,
         dns,
         vpn: { wireguard, amneziawg },
+        diagnostics_deferred: fast,
         // Старое поле оставлено для совместимости со страницей предыдущих версий.
         forkop_running: running,
-        profiles_version: int(object_or_empty(read_json_file(profiles_file())).version || 0)
+        profiles_version: fast ? 0 : int(object_or_empty(read_json_file(profiles_file())).version || 0)
     };
 }

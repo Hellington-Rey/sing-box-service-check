@@ -5,7 +5,7 @@ return view.extend({
 
   load: function () {
     return Promise.all([
-      callBin(["capabilities"]).catch(function () {
+      callBin(["capabilities", "fast"]).catch(function () {
         return null;
       }),
       callBin(["list"]).catch(function () {
@@ -26,13 +26,25 @@ return view.extend({
       callBin(["vpn-interfaces"]).catch(function () {
         return { success: false, interfaces: [] };
       }),
-      callBin(["zapret-capabilities"]).catch(function () {
-        return { success: false, ready: false, providers: {}, running_backends: [], message: "Автоподбор недоступен" };
-      }),
-      callBin(["zapret-settings"]).catch(function () {
-        return { success: false, services: [], custom_services: [], selected: ["youtube", "discord", "telegram"], saved_results: {} };
-      }),
-    ]);
+      null,
+      null,
+    ]).then(function (data) {
+      if (!data[0] || data[0].tachyon_installed === true) {
+        return data;
+      }
+      return Promise.all([
+        callBin(["zapret-capabilities"]).catch(function () {
+          return { success: false, ready: false, providers: {}, running_backends: [], message: "Автоподбор недоступен" };
+        }),
+        callBin(["zapret-settings"]).catch(function () {
+          return { success: false, services: [], custom_services: [], selected: ["youtube", "discord", "telegram"], saved_results: {} };
+        }),
+      ]).then(function (zapretData) {
+        data[7] = zapretData[0];
+        data[8] = zapretData[1];
+        return data;
+      });
+    });
   },
 
   render: function (data) {
