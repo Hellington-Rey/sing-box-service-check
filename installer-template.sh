@@ -22,6 +22,9 @@ SHARE_DIR="/usr/share/sing-box-service-check"
 VERSION_FILE="$SHARE_DIR/version"
 VIEW_NAME="@@LUCI_VIEW_NAME@@"
 VIEW_FILE="/www/luci-static/resources/view/sing-box-service-check/$VIEW_NAME"
+PREVIOUS_NEW_VIEW_FILE="/www/luci-static/resources/view/sing-box-service-check/servicecheck-v1150.js"
+PREVIOUS_TEST_VIEW_FILE="/www/luci-static/resources/view/sing-box-service-check/servicecheck-v1151.js"
+PREVIOUS_LOCAL_VIEW_FILE="/www/luci-static/resources/view/sing-box-service-check/servicecheck-v1142.js"
 OLD_CURRENT_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1141.js"
 PREVIOUS_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1140.js"
 OLDER_VIEW_FILE="/www/luci-static/resources/view/forkop/servicecheck-v1130.js"
@@ -117,7 +120,7 @@ do_uninstall() {
         done
     fi
 
-    rm -f "$BIN_PATH" "$LEGACY_BIN_PATH" "$VIEW_FILE" "$OLD_CURRENT_VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLDER_VIEW_FILE" "$ANCIENT_VIEW_FILE" "$HISTORIC_VIEW_FILE" "$LEGACY_CACHE_VIEW_FILE" "$OLDER_CACHE_VIEW_FILE" "$EARLY_CACHE_VIEW_FILE" "$OLDEST_CACHE_VIEW_FILE" "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$MENU_FILE" "$ACL_FILE" "$OLD_MENU_FILE" "$OLD_ACL_FILE"
+    rm -f "$BIN_PATH" "$LEGACY_BIN_PATH" "$VIEW_FILE" "$PREVIOUS_NEW_VIEW_FILE" "$PREVIOUS_TEST_VIEW_FILE" "$PREVIOUS_LOCAL_VIEW_FILE" "$OLD_CURRENT_VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLDER_VIEW_FILE" "$ANCIENT_VIEW_FILE" "$HISTORIC_VIEW_FILE" "$LEGACY_CACHE_VIEW_FILE" "$OLDER_CACHE_VIEW_FILE" "$EARLY_CACHE_VIEW_FILE" "$OLDEST_CACHE_VIEW_FILE" "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$MENU_FILE" "$ACL_FILE" "$OLD_MENU_FILE" "$OLD_ACL_FILE"
     rm -rf "$LIB_DIR" "$SHARE_DIR" "$STATE_DIR" "$NETNS_DIR" "$OLD_LIB_DIR" "$OLD_SHARE_DIR"
 
     clear_luci_cache
@@ -337,6 +340,9 @@ $SHARE_DIR/version
 $SHARE_DIR/recovery.tar.gz
 $SHARE_DIR/recovery.sha256
 $VIEW_FILE
+$PREVIOUS_NEW_VIEW_FILE
+$PREVIOUS_TEST_VIEW_FILE
+$PREVIOUS_LOCAL_VIEW_FILE
 $OLD_CURRENT_VIEW_FILE
 $PREVIOUS_VIEW_FILE
 $OLDER_VIEW_FILE
@@ -456,7 +462,7 @@ cp -f "$TMP_DIR/usr/share/sing-box-service-check/profiles.json" "$SHARE_DIR/prof
 cp -f "$TMP_DIR/usr/share/sing-box-service-check/recovery.tar.gz" "$SHARE_DIR/recovery.tar.gz"
 cp -f "$TMP_DIR/usr/share/sing-box-service-check/recovery.sha256" "$SHARE_DIR/recovery.sha256"
 cp -f "$TMP_DIR/www/luci-static/resources/view/sing-box-service-check/$VIEW_NAME" "$VIEW_FILE"
-rm -f "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$OLDEST_CACHE_VIEW_FILE" "$EARLY_CACHE_VIEW_FILE" "$OLDER_CACHE_VIEW_FILE" "$LEGACY_CACHE_VIEW_FILE" "$HISTORIC_VIEW_FILE" "$ANCIENT_VIEW_FILE" "$OLDER_VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLD_CURRENT_VIEW_FILE"
+rm -f "$LEGACY_VIEW_FILE" "$BROKEN_VIEW_FILE" "$OLDEST_CACHE_VIEW_FILE" "$EARLY_CACHE_VIEW_FILE" "$OLDER_CACHE_VIEW_FILE" "$LEGACY_CACHE_VIEW_FILE" "$HISTORIC_VIEW_FILE" "$ANCIENT_VIEW_FILE" "$OLDER_VIEW_FILE" "$PREVIOUS_VIEW_FILE" "$OLD_CURRENT_VIEW_FILE" "$PREVIOUS_NEW_VIEW_FILE" "$PREVIOUS_TEST_VIEW_FILE" "$PREVIOUS_LOCAL_VIEW_FILE"
 cp -f "$TMP_DIR/usr/share/luci/menu.d/luci-app-sing-box-service-check.json" "$MENU_FILE"
 cp -f "$TMP_DIR/usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json" "$ACL_FILE"
 

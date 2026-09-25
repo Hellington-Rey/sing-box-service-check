@@ -4,7 +4,7 @@
     "order": 43,
     "action": {
       "type": "view",
-      "path": "sing-box-service-check/servicecheck-v1150"
+      "path": "sing-box-service-check/servicecheck-v1140"
     },
     "depends": {
       "acl": [ "luci-app-sing-box-service-check" ]

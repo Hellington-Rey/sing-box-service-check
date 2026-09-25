@@ -164,7 +164,7 @@ def main():
         )
         assert recovery_tar.getmember(recovery_worker_name).mode == 0o755
         assert recovery_tar.extractfile(recovery_worker_name).read() == zapret_worker
-        assert not any(any(name.endswith("/" + stale) for stale in STALE_LUCI_VIEWS) for name in recovery_names)
+        assert not any(name.lstrip("./").startswith("www/luci-static/resources/view/forkop/") and any(name.endswith("/" + stale) for stale in STALE_LUCI_VIEWS) for name in recovery_names)
         assert not any(name.startswith("/") or "../" in name for name in recovery_names)
     assert payload_modes["usr/lib/sing-box-service-check/probe.uc"] == 0o644
     assert "#!/usr/bin/ucode" not in cli
@@ -373,7 +373,12 @@ def main():
         data_archive = outer.extractfile("./data.tar.gz").read()
     with tarfile.open(fileobj=io.BytesIO(control_archive), mode="r:gz") as control_tar:
         control = control_tar.extractfile("./control").read().decode("utf-8")
+        preinst_raw = control_tar.extractfile("./preinst").read()
+        preinst = preinst_raw.decode("utf-8")
         postinst = control_tar.extractfile("./postinst").read().decode("utf-8")
+        assert_shell("IPK preinst", preinst_raw)
+        assert all(f"upgrade:{version}-*" in preinst for version in ("1.15.0", "1.15.1", "1.14.2"))
+        assert "grep -Fqx" in preinst and 'mkdir -p "${old_view%/*}"' in preinst
         assert "Package: luci-app-sing-box-service-check" in control
         assert "Replaces: luci-app-forkop-servicecheck" in control
         assert "Conflicts: luci-app-forkop-servicecheck" in control
@@ -385,7 +390,19 @@ def main():
         for stale in STALE_LUCI_VIEWS:
             assert f"rm -f /www/luci-static/resources/view/forkop/{stale}" in postinst
     with tarfile.open(fileobj=io.BytesIO(data_archive), mode="r:gz") as data_tar:
-        data_names = set(data_tar.getnames())
+        data_members = data_tar.getmembers()
+        data_names = {member.name for member in data_members}
+        view_dir = f"./{LUCI_VIEW_PATH.rsplit('/', 1)[0]}"
+        view_dir_index = next(
+            (index for index, member in enumerate(data_members)
+             if member.name.rstrip("/") == view_dir and member.isdir()),
+            None,
+        )
+        view_file_index = next(
+            index for index, member in enumerate(data_members)
+            if member.name == f"./{LUCI_VIEW_PATH}"
+        )
+        assert view_dir_index is not None and view_dir_index < view_file_index
         assert f"./{LUCI_VIEW_PATH}" in data_names
         assert not any(f"./www/luci-static/resources/view/forkop/{name}" in data_names for name in STALE_LUCI_VIEWS)
         assert_shell("IPK primary CLI", data_tar.extractfile("./usr/bin/sing-box-service-check").read())
@@ -412,6 +429,19 @@ def main():
     assert '--info "provides:luci-app-forkop-servicecheck=$VERSION"' in apk_maker
     assert '--info "replaces:luci-app-forkop-servicecheck"' in apk_maker
     assert "для Tachyon, HomeProxy, Forkop и оригинального Podkop" in apk_maker
+    apk_payload = base64.b64decode(apk_maker.split("__PAYLOAD_BELOW__\n", 1)[1].strip())
+    with tarfile.open(fileobj=io.BytesIO(apk_payload), mode="r:gz") as apk_tar:
+        apk_members = apk_tar.getmembers()
+        apk_dir_index = next(
+            (index for index, member in enumerate(apk_members)
+             if member.name.rstrip("/") == view_dir and member.isdir()),
+            None,
+        )
+        apk_file_index = next(
+            index for index, member in enumerate(apk_members)
+            if member.name == f"./{LUCI_VIEW_PATH}"
+        )
+        assert apk_dir_index is not None and apk_dir_index < apk_file_index
 
     artifact_by_name = {
         path.name: path

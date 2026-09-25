@@ -20,7 +20,7 @@ usr/lib/sing-box-service-check/zapret_strategy_worker.sh
 usr/lib/sing-box-service-check/zapret_strategy_catalog.tsv
 usr/share/sing-box-service-check/profiles.json
 usr/share/sing-box-service-check/version
-www/luci-static/resources/view/sing-box-service-check/servicecheck-v1150.js
+www/luci-static/resources/view/sing-box-service-check/servicecheck-v1140.js
 usr/share/luci/menu.d/luci-app-sing-box-service-check.json
 usr/share/rpcd/acl.d/luci-app-sing-box-service-check.json
 "

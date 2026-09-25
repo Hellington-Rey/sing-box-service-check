@@ -70,6 +70,7 @@ PAYLOAD = [
 OWNED_DIRS = [
     "./usr/lib/sing-box-service-check",
     "./usr/share/sing-box-service-check",
+    "./www/luci-static/resources/view/sing-box-service-check",
 ]
 
 
@@ -80,6 +81,31 @@ def read_payload(source_path):
     data = (FILES_DIR / source_path).read_bytes()
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
+# opkg runs the new preinst before deleting files owned by the old package.
+# 1.15.0 could list a LuCI file that was never unpacked because its directory
+# was absent. Restore only that missing, package-owned path so opkg can remove
+# it normally during an upgrade or a forced downgrade to the release version.
+PREINST = """#!/bin/sh
+[ -n "$IPKG_INSTROOT" ] && exit 0
+
+case "$1:$2" in
+    upgrade:1.15.0-*|upgrade:1.15.1-*|upgrade:1.14.2-*)
+        old_list=/usr/lib/opkg/info/luci-app-sing-box-service-check.list
+        for old_view in /www/luci-static/resources/view/sing-box-service-check/servicecheck-v1150.js \
+                        /www/luci-static/resources/view/sing-box-service-check/servicecheck-v1151.js \
+                        /www/luci-static/resources/view/sing-box-service-check/servicecheck-v1142.js; do
+            [ -f "$old_list" ] || break
+            grep -Fqx "$old_view" "$old_list" || continue
+            [ -e "$old_view" ] && continue
+            mkdir -p "${old_view%/*}" || exit 1
+            : > "$old_view" || exit 1
+        done
+        ;;
+esac
+
+exit 0
+"""
+
 POSTINST = """#!/bin/sh
 [ -n "$IPKG_INSTROOT" ] && exit 0
 
@@ -88,6 +114,9 @@ POSTINST = """#!/bin/sh
 rm -rf /tmp/luci-modulecache 2>/dev/null
 rm -f /tmp/luci-indexcache* 2>/dev/null
 rm -f /usr/share/luci/menu.d/luci-app-forkop-servicecheck.json /usr/share/rpcd/acl.d/luci-app-forkop-servicecheck.json 2>/dev/null
+rm -f /www/luci-static/resources/view/sing-box-service-check/servicecheck-v1150.js 2>/dev/null
+rm -f /www/luci-static/resources/view/sing-box-service-check/servicecheck-v1151.js 2>/dev/null
+rm -f /www/luci-static/resources/view/sing-box-service-check/servicecheck-v1142.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1141.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1140.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1130.js 2>/dev/null
@@ -100,6 +129,7 @@ rm -f /www/luci-static/resources/view/forkop/servicecheck-v1120.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1112.js 2>/dev/null
 rm -f /www/luci-static/resources/view/forkop/servicecheck-v1110.js 2>/dev/null
 
+[ -s /www/luci-static/resources/view/sing-box-service-check/servicecheck-v1140.js ] || exit 1
 /usr/lib/sing-box-service-check/migrate.sh || exit 1
 cp -f /usr/bin/sing-box-service-check /usr/bin/forkop-servicecheck || exit 1
 chmod 0755 /usr/bin/forkop-servicecheck
@@ -208,6 +238,7 @@ def build_control_tar(installed_size):
 
     entries = [
         ("./control", control, 0o644, False),
+        ("./preinst", PREINST.encode("utf-8"), 0o755, False),
         ("./postinst", POSTINST.encode("utf-8"), 0o755, False),
         ("./prerm", PRERM.encode("utf-8"), 0o755, False),
         ("./postrm", POSTRM.encode("utf-8"), 0o755, False),
@@ -288,12 +319,10 @@ def build_apk_maker():
     """Самодостаточный сборщик .apk: разворачивает файлы и зовёт apk mkpkg."""
     import base64
 
-    entries = []
+    entries = [(owned, None, 0o755, True) for owned in OWNED_DIRS]
     for package_path, source_path, mode in PAYLOAD:
         data = read_payload(source_path)
         entries.append((package_path, data, mode, False))
-    for owned in OWNED_DIRS:
-        entries.append((owned, None, 0o755, True))
     recovery = build_recovery_archive()
     entries.append(("./usr/share/sing-box-service-check/recovery.tar.gz", recovery, 0o644, False))
     entries.append(("./usr/share/sing-box-service-check/recovery.sha256",

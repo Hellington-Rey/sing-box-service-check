@@ -2,7 +2,7 @@
 
 LuCI-модуль для OpenWrt, который проверяет доступность сервисов через тот же сетевой маршрут, что и клиентский трафик [Tachyon](https://github.com/Dushnilin/tachyon), [HomeProxy](https://github.com/immortalwrt/homeproxy), Forkop или оригинального [Podkop](https://github.com/itdoginfo/podkop).
 
-Установленный backend определяется автоматически. С версии 1.15.0 пакет называется `luci-app-sing-box-service-check`, а каталоги runtime, LuCI и настроек используют имя `sing-box-service-check`. При обновлении пользовательские файлы копируются из `/etc/forkop-servicecheck` без перезаписи уже существующих файлов; прежний каталог остаётся резервной копией. Старая команда `forkop-servicecheck` остаётся совместимым алиасом для пользовательских скриптов. Переменные окружения с префиксом `FORKOP_SC_` также принимаются, но новые `SBSC_` имеют приоритет.
+Установленный backend определяется автоматически. С версии 1.14.0 пакет называется `luci-app-sing-box-service-check`, а каталоги runtime, LuCI и настроек используют имя `sing-box-service-check`. При обновлении пользовательские файлы копируются из `/etc/forkop-servicecheck` без перезаписи уже существующих файлов; прежний каталог остаётся резервной копией. Старая команда `forkop-servicecheck` остаётся совместимым алиасом для пользовательских скриптов. Переменные окружения с префиксом `FORKOP_SC_` также принимаются, но новые `SBSC_` имеют приоритет.
 
 Модуль помогает понять, на каком этапе возникает проблема: DNS, TCP/UDP, TLS, HTTP или выбор outbound-маршрута.
 
@@ -72,13 +72,13 @@ LuCI → sing-box-service-check → probe.uc
 Для OpenWrt с opkg:
 
 ```sh
-opkg install luci-app-sing-box-service-check_1.15.0-r1_all.ipk
+opkg install luci-app-sing-box-service-check_1.14.0-r1_all.ipk
 ```
 
 Для OpenWrt с apk:
 
 ```sh
-apk add --allow-untrusted ./luci-app-sing-box-service-check-1.15.0-r1.apk
+apk add --allow-untrusted ./luci-app-sing-box-service-check-1.14.0-r1.apk
 ```
 
 Установка без пакетного менеджера:
